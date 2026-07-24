@@ -3,24 +3,26 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev -p 3002",
     "build": "next build",
-    "start": "next start",
+    "start": "next start -p 3002",
     "lint": "eslint"
   },
   "dependencies": {
+    "@supabase/ssr": "latest",
+    "@supabase/supabase-js": "latest",
     "next": "16.2.11",
-    "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "react": "latest",
+    "react-dom": "latest"
   },
   "devDependencies": {
-    "@tailwindcss/postcss": "^4",
-    "@types/node": "^20",
-    "@types/react": "^19",
-    "@types/react-dom": "^19",
-    "eslint": "^9",
+    "@types/node": "latest",
+    "@types/react": "latest",
+    "@types/react-dom": "latest",
+    "eslint": "latest",
     "eslint-config-next": "16.2.11",
-    "tailwindcss": "^4",
-    "typescript": "^5"
+    "tailwindcss": "latest",
+    "typescript": "latest",
+    "@tailwindcss/postcss": "latest"
   }
 }
