@@ -1,26 +1,50 @@
 $ErrorActionPreference = "Stop"
 
-$root = Split-Path -Parent $MyInvocation.MyCommand.Path
-$payload = Join-Path $root "payload"
-$projectFile = Join-Path $root "package.json"
+$root = (Get-Location).Path
+$packageJson = Join-Path $root "package.json"
 
-if (-not (Test-Path $projectFile)) {
-  Write-Host "ERREUR: place apply-update.ps1, apply-update.bat et payload dans le dossier qui contient package.json." -ForegroundColor Red
+if (-not (Test-Path $packageJson)) {
+  Write-Host "ERREUR : lance ce script depuis le dossier contenant package.json." -ForegroundColor Red
   exit 1
 }
 
-$target = Join-Path $root "src\app\api\diagnostic\supabase\route.ts"
-$backupDir = Join-Path $root ("backup-supabase-diagnostic-" + (Get-Date -Format "yyyyMMdd-HHmmss"))
+$stamp = Get-Date -Format "yyyyMMdd-HHmmss"
+$backup = Join-Path $root "backup-production-cleanup-$stamp"
+New-Item -ItemType Directory -Path $backup -Force | Out-Null
 
-if (Test-Path $target) {
-  New-Item -ItemType Directory -Force -Path (Join-Path $backupDir "src\app\api\diagnostic\supabase") | Out-Null
-  Copy-Item $target (Join-Path $backupDir "src\app\api\diagnostic\supabase\route.ts") -Force
+$itemsToBackup = @(
+  "src\app\actions\company.ts",
+  ".env.example",
+  "src\app\api\diagnostic\supabase"
+)
+
+foreach ($relativePath in $itemsToBackup) {
+  $source = Join-Path $root $relativePath
+  if (Test-Path $source) {
+    $destination = Join-Path $backup $relativePath
+    $destinationParent = Split-Path $destination -Parent
+    New-Item -ItemType Directory -Path $destinationParent -Force | Out-Null
+    Copy-Item $source $destination -Recurse -Force
+  }
 }
 
+$payload = Join-Path $PSScriptRoot "payload"
 Copy-Item (Join-Path $payload "*") $root -Recurse -Force
 
-Write-Host "Diagnostic V2 installe. Sauvegarde: $backupDir" -ForegroundColor Green
-Write-Host "Verification du build..." -ForegroundColor Cyan
-npm run build
+$diagnosticRoute = Join-Path $root "src\app\api\diagnostic\supabase"
+if (Test-Path $diagnosticRoute) {
+  Remove-Item $diagnosticRoute -Recurse -Force
+  Write-Host "Route temporaire de diagnostic supprimée." -ForegroundColor Yellow
+}
 
-Write-Host "TERMINE. Execute maintenant git add ., git commit et git push." -ForegroundColor Green
+Write-Host "Sauvegarde créée : $backup" -ForegroundColor Cyan
+Write-Host "Vérification du projet..." -ForegroundColor Cyan
+
+npm run build
+if ($LASTEXITCODE -ne 0) {
+  Write-Host "Le build a échoué. Les fichiers précédents sont dans : $backup" -ForegroundColor Red
+  exit $LASTEXITCODE
+}
+
+Write-Host "Mise à jour appliquée avec succès." -ForegroundColor Green
+Write-Host "Prochaine étape : git add ., git commit, puis git push." -ForegroundColor Green
