@@ -1,5 +1,10 @@
 "use server";
 
+import { randomBytes, randomUUID } from "crypto";
+import {
+  createClient as createSupabaseClient,
+  type User,
+} from "@supabase/supabase-js";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -190,4 +195,435 @@ export async function cancelInvitationAction(formData: FormData) {
   if (error) go(`Annulation impossible : ${error.message}`, "error");
   revalidatePath("/dashboard/members");
   go("Invitation annulée.");
+}
+
+
+function cleanEnvironmentValue(value: string | undefined): string {
+  return (value ?? "").trim().replace(/^['\"]|['\"]$/g, "");
+}
+
+function getSiteUrl(): string {
+  const configuredUrl = cleanEnvironmentValue(
+    process.env.NEXT_PUBLIC_SITE_URL ?? process.env.NEXT_PUBLIC_APP_URL,
+  );
+
+  return (configuredUrl || "http://localhost:3002").replace(/\/+$/, "");
+}
+
+function createPublicAuthClient() {
+  const supabaseUrl = cleanEnvironmentValue(
+    process.env.NEXT_PUBLIC_SUPABASE_URL,
+  ).replace(/\/+$/, "");
+  const publishableKey = cleanEnvironmentValue(
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
+  );
+
+  if (!supabaseUrl || !publishableKey) {
+    throw new Error("Configuration Supabase publique manquante.");
+  }
+
+  return createSupabaseClient(supabaseUrl, publishableKey, {
+    auth: {
+      autoRefreshToken: false,
+      detectSessionInUrl: false,
+      persistSession: false,
+    },
+  });
+}
+
+
+
+export type ManualMemberAccessState = {
+  status: "idle" | "success" | "warning" | "error";
+  message?: string;
+  setupLink?: string;
+  loginUrl?: string;
+  activated?: boolean;
+};
+
+function isRetryableAuthAdminError(message: string): boolean {
+  const normalized = message.toLowerCase();
+  return (
+    normalized.includes("unrecognized jwt kid") ||
+    normalized.includes("token is unverifiable") ||
+    normalized.includes("invalid jwt")
+  );
+}
+
+async function runAuthAdminWithRetry<
+  T extends { error: { message: string } | null },
+>(operation: () => Promise<T>): Promise<T> {
+  const maxAttempts = 4;
+  let lastResult: T | null = null;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const result = await operation();
+    lastResult = result;
+
+    if (!result.error || !isRetryableAuthAdminError(result.error.message)) {
+      return result;
+    }
+
+    if (attempt < maxAttempts) {
+      await new Promise((resolve) =>
+        setTimeout(resolve, 250 * attempt),
+      );
+    }
+  }
+
+  if (!lastResult) {
+    throw new Error("La requête Supabase Auth n’a retourné aucun résultat.");
+  }
+
+  return lastResult;
+}
+
+function improveAuthAdminError(message: string): string {
+  if (!isRetryableAuthAdminError(message)) return message;
+
+  return (
+    `${message}. ` +
+    "Supabase Auth a rejeté temporairement la nouvelle clé sb_secret_. " +
+    "Ajoute la clé legacy service_role dans SUPABASE_LEGACY_SERVICE_ROLE_KEY, puis redémarre l’application."
+  );
+}
+
+function fallbackFullName(email: string): string {
+  const localPart = email.split("@")[0] ?? "Collaborateur";
+  const normalized = localPart.replace(/[._-]+/g, " ").trim();
+
+  if (!normalized) return "Collaborateur";
+
+  return normalized
+    .split(/\s+/)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(" ");
+}
+
+async function findAuthUserByEmail(
+  admin: ReturnType<typeof createAdminClient>,
+  email: string,
+): Promise<User | null> {
+  const normalizedEmail = email.trim().toLowerCase();
+  const perPage = 200;
+
+  for (let page = 1; page <= 50; page += 1) {
+    const { data, error } = await runAuthAdminWithRetry(() =>
+      admin.auth.admin.listUsers({ page, perPage }),
+    );
+
+    if (error) {
+      throw new Error(
+        `Impossible de rechercher le compte : ${improveAuthAdminError(error.message)}`,
+      );
+    }
+
+    const match = data.users.find(
+      (candidate) => candidate.email?.trim().toLowerCase() === normalizedEmail,
+    );
+
+    if (match) return match;
+    if (data.users.length < perPage) return null;
+  }
+
+  throw new Error(
+    "La recherche du compte a dépassé la limite prévue. Contacte l’administrateur technique.",
+  );
+}
+
+async function generatePasswordSetupLink(
+  admin: ReturnType<typeof createAdminClient>,
+  email: string,
+): Promise<string> {
+  const redirectTo = `${getSiteUrl()}/auth/callback?next=${encodeURIComponent(
+    "/update-password",
+  )}`;
+
+  const { data, error } = await runAuthAdminWithRetry(() =>
+    admin.auth.admin.generateLink({
+      type: "recovery",
+      email,
+      options: { redirectTo },
+    }),
+  );
+
+  if (error) {
+    throw new Error(
+      `Impossible de générer le lien d’accès : ${improveAuthAdminError(error.message)}`,
+    );
+  }
+
+  const actionLink = data.properties?.action_link;
+  if (!actionLink) {
+    throw new Error("Supabase n’a retourné aucun lien d’accès.");
+  }
+
+  return actionLink;
+}
+
+export async function activateInvitationManuallyAction(
+  _previousState: ManualMemberAccessState,
+  formData: FormData,
+): Promise<ManualMemberAccessState> {
+  const { membership } = await requirePeopleAdmin();
+  const invitationId = String(formData.get("invitationId") ?? "").trim();
+  const requestedFullName = String(formData.get("fullName") ?? "").trim();
+
+  if (!invitationId) {
+    return { status: "error", message: "Invitation invalide." };
+  }
+
+  const admin = createAdminClient();
+  const { data: invitation, error: invitationError } = await admin
+    .from("organization_invitations")
+    .select("id,organization_id,email,role,status")
+    .eq("id", invitationId)
+    .eq("organization_id", membership.organization_id)
+    .in("status", ["pending", "expired", "accepted"])
+    .maybeSingle();
+
+  if (invitationError) {
+    return {
+      status: "error",
+      message: `Chargement impossible : ${invitationError.message}`,
+    };
+  }
+
+  if (!invitation) {
+    return {
+      status: "error",
+      message: "Cette invitation est introuvable ou a été annulée.",
+    };
+  }
+
+  const email = invitation.email.trim().toLowerCase();
+  const fullName = requestedFullName || fallbackFullName(email);
+  let authUser: User | null = null;
+  let activated = invitation.status === "accepted";
+
+  try {
+    authUser = await findAuthUserByEmail(admin, email);
+
+    if (!authUser) {
+      const temporaryPassword = randomBytes(32).toString("base64url");
+      const { data: createData, error: createError } =
+        await runAuthAdminWithRetry(() =>
+          admin.auth.admin.createUser({
+            email,
+            password: temporaryPassword,
+            email_confirm: true,
+            user_metadata: { full_name: fullName },
+          }),
+        );
+
+      if (createError || !createData.user) {
+        throw new Error(
+          `Création du compte impossible : ${
+            createError
+              ? improveAuthAdminError(createError.message)
+              : "utilisateur non retourné"
+          }`,
+        );
+      }
+
+      authUser = createData.user;
+    } else {
+      const existingUserId = authUser.id;
+      const currentMetadata = authUser.user_metadata ?? {};
+      const { data: updateData, error: updateError } =
+        await runAuthAdminWithRetry(() =>
+          admin.auth.admin.updateUserById(existingUserId, {
+            email_confirm: true,
+            user_metadata: {
+              ...currentMetadata,
+              full_name:
+                requestedFullName ||
+                String(currentMetadata.full_name ?? "").trim() ||
+                fullName,
+            },
+          }),
+        );
+
+      if (updateError) {
+        throw new Error(
+          `Mise à jour du compte impossible : ${improveAuthAdminError(updateError.message)}`,
+        );
+      }
+
+      if (!updateData.user) {
+        throw new Error("Supabase n’a retourné aucun utilisateur après la mise à jour.");
+      }
+
+      authUser = updateData.user;
+    }
+
+    const effectiveFullName =
+      String(authUser.user_metadata?.full_name ?? "").trim() || fullName;
+    const now = new Date().toISOString();
+
+    const { error: profileError } = await admin.from("profiles").upsert(
+      {
+        id: authUser.id,
+        full_name: effectiveFullName,
+        email,
+        updated_at: now,
+      },
+      { onConflict: "id" },
+    );
+
+    if (profileError) {
+      throw new Error(`Profil impossible à enregistrer : ${profileError.message}`);
+    }
+
+    const { error: membershipError } = await admin
+      .from("organization_members")
+      .upsert(
+        {
+          organization_id: invitation.organization_id,
+          user_id: authUser.id,
+          role: invitation.role,
+          is_active: true,
+          disabled_at: null,
+          updated_at: now,
+        },
+        { onConflict: "organization_id,user_id" },
+      );
+
+    if (membershipError) {
+      throw new Error(
+        `Activation dans l’organisation impossible : ${membershipError.message}`,
+      );
+    }
+
+    activated = true;
+
+    const { error: invitationUpdateError } = await admin
+      .from("organization_invitations")
+      .update({ status: "accepted" })
+      .eq("id", invitation.id)
+      .eq("organization_id", membership.organization_id);
+
+    if (invitationUpdateError) {
+      throw new Error(
+        `Impossible de clôturer l’invitation : ${invitationUpdateError.message}`,
+      );
+    }
+
+    const setupLink = await generatePasswordSetupLink(admin, email);
+    const loginUrl = `${getSiteUrl()}/login`;
+
+    revalidatePath("/dashboard/members");
+    revalidatePath("/dashboard");
+    revalidatePath("/dashboard/recognition");
+    revalidatePath("/dashboard/feedback");
+    revalidatePath("/dashboard/actions");
+
+    return {
+      status: "success",
+      activated,
+      message:
+        invitation.status === "accepted"
+          ? `Un nouveau lien d’accès a été généré pour ${email}.`
+          : `${email} est maintenant un collaborateur actif.`,
+      setupLink,
+      loginUrl,
+    };
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Erreur inconnue lors de l’activation.";
+
+    if (activated && authUser) {
+      return {
+        status: "warning",
+        activated: true,
+        message: `Le collaborateur est actif, mais le lien n’a pas pu être généré : ${message}`,
+        loginUrl: `${getSiteUrl()}/login`,
+      };
+    }
+
+    return { status: "error", activated: false, message };
+  }
+}
+
+export async function resendInvitationAction(formData: FormData) {
+  const { membership } = await requirePeopleAdmin();
+  const invitationId = String(formData.get("invitationId") ?? "").trim();
+
+  if (!invitationId) {
+    go("Invitation invalide.", "error");
+  }
+
+  const admin = createAdminClient();
+  const { data: invitation, error: invitationError } = await admin
+    .from("organization_invitations")
+    .select("id,organization_id,email,role,status,token,expires_at")
+    .eq("id", invitationId)
+    .eq("organization_id", membership.organization_id)
+    .in("status", ["pending", "expired"])
+    .maybeSingle();
+
+  if (invitationError) {
+    go(`Chargement impossible : ${invitationError.message}`, "error");
+  }
+
+  if (!invitation) {
+    go("Cette invitation est introuvable, annulée ou déjà acceptée.", "error");
+  }
+
+  const previousToken = invitation.token;
+  const previousExpiresAt = invitation.expires_at;
+  const previousStatus = invitation.status;
+  const newToken = randomUUID();
+  const newExpiresAt = new Date(
+    Date.now() + 7 * 24 * 60 * 60 * 1000,
+  ).toISOString();
+
+  const { error: updateError } = await admin
+    .from("organization_invitations")
+    .update({
+      token: newToken,
+      status: "pending",
+      expires_at: newExpiresAt,
+    })
+    .eq("id", invitation.id)
+    .eq("organization_id", membership.organization_id);
+
+  if (updateError) {
+    go(`Impossible de renouveler l’invitation : ${updateError.message}`, "error");
+  }
+
+  const nextPath = `/accept-invite?token=${encodeURIComponent(newToken)}`;
+  const redirectTo = `${getSiteUrl()}/auth/callback?next=${encodeURIComponent(nextPath)}`;
+
+  try {
+    const publicAuth = createPublicAuthClient();
+    const { error: emailError } = await publicAuth.auth.signInWithOtp({
+      email: invitation.email,
+      options: {
+        shouldCreateUser: false,
+        emailRedirectTo: redirectTo,
+      },
+    });
+
+    if (emailError) {
+      throw emailError;
+    }
+  } catch (error) {
+    await admin
+      .from("organization_invitations")
+      .update({
+        token: previousToken,
+        status: previousStatus,
+        expires_at: previousExpiresAt,
+      })
+      .eq("id", invitation.id)
+      .eq("organization_id", membership.organization_id);
+
+    const message = error instanceof Error ? error.message : "Erreur inconnue";
+    go(`Le nouveau lien n’a pas pu être envoyé : ${message}`, "error");
+  }
+
+  revalidatePath("/dashboard/members");
+  revalidatePath("/dashboard/company");
+  go(`Nouveau lien envoyé à ${invitation.email}.`);
 }
