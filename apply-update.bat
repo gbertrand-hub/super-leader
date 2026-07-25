@@ -3,7 +3,7 @@ setlocal
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0apply-update.ps1"
 if errorlevel 1 (
   echo.
-  echo Update failed. Read the error above.
+  echo La mise a jour a echoue. Lis le message ci-dessus.
   pause
   exit /b 1
 )

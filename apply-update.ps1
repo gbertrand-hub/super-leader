@@ -2,39 +2,25 @@ $ErrorActionPreference = "Stop"
 
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $payload = Join-Path $root "payload"
+$projectFile = Join-Path $root "package.json"
 
-if (-not (Test-Path (Join-Path $root "package.json"))) {
-  Write-Host "ERREUR: place apply-update.ps1, apply-update.bat and payload in the project root (same folder as package.json)." -ForegroundColor Red
+if (-not (Test-Path $projectFile)) {
+  Write-Host "ERREUR: place apply-update.ps1, apply-update.bat et payload dans le dossier qui contient package.json." -ForegroundColor Red
   exit 1
 }
 
-$stamp = Get-Date -Format "yyyyMMdd-HHmmss"
-$backup = Join-Path $root "backup-vercel-supabase-fix-$stamp"
-New-Item -ItemType Directory -Force -Path $backup | Out-Null
+$target = Join-Path $root "src\app\api\diagnostic\supabase\route.ts"
+$backupDir = Join-Path $root ("backup-supabase-diagnostic-" + (Get-Date -Format "yyyyMMdd-HHmmss"))
 
-$files = @(
-  "proxy.ts",
-  "src/lib/supabase/env.ts",
-  "src/lib/supabase/server.ts",
-  "src/lib/supabase/client.ts",
-  "src/lib/supabase/admin.ts",
-  "src/app/actions/auth.ts",
-  "src/app/api/diagnostic/supabase/route.ts"
-)
-
-foreach ($relative in $files) {
-  $source = Join-Path $root $relative
-  if (Test-Path $source) {
-    $destination = Join-Path $backup $relative
-    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $destination) | Out-Null
-    Copy-Item $source $destination -Force
-  }
+if (Test-Path $target) {
+  New-Item -ItemType Directory -Force -Path (Join-Path $backupDir "src\app\api\diagnostic\supabase") | Out-Null
+  Copy-Item $target (Join-Path $backupDir "src\app\api\diagnostic\supabase\route.ts") -Force
 }
 
 Copy-Item (Join-Path $payload "*") $root -Recurse -Force
 
-Write-Host "Update copied. Backup: $backup" -ForegroundColor Green
-Write-Host "Running build verification..." -ForegroundColor Cyan
+Write-Host "Diagnostic V2 installe. Sauvegarde: $backupDir" -ForegroundColor Green
+Write-Host "Verification du build..." -ForegroundColor Cyan
 npm run build
 
-Write-Host "DONE. Next: git add ., commit, push, then open /api/diagnostic/supabase on the production domain." -ForegroundColor Green
+Write-Host "TERMINE. Execute maintenant git add ., git commit et git push." -ForegroundColor Green
