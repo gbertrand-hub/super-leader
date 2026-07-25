@@ -4,6 +4,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { signOutAction } from "@/app/actions/auth";
+import { LanguageSwitcher } from "@/components/i18n/language-switcher";
+import { useI18n } from "@/i18n/client";
 
 type DashboardNavigationProps = {
   children: React.ReactNode;
@@ -15,7 +17,7 @@ type DashboardNavigationProps = {
 };
 
 type NavigationItem = {
-  label: string;
+  labelKey: string;
   href: string;
   icon: IconName;
   roles?: string[];
@@ -35,58 +37,51 @@ type IconName =
   | "close"
   | "logout";
 
-const roleLabels: Record<string, string> = {
-  owner: "Propriétaire",
-  admin: "Administrateur",
-  hr: "Responsable RH",
-  manager: "Manager",
-  employee: "Employé",
-};
 
 const navigationItems: NavigationItem[] = [
   {
-    label: "Tableau de bord",
+    labelKey: "navigation.dashboard",
     href: "/dashboard",
     icon: "dashboard",
   },
   {
-    label: "Entreprise & membres",
+    labelKey: "navigation.company",
     href: "/dashboard/company",
     icon: "company",
     roles: ["owner", "admin", "hr"],
   },
   {
-    label: "Départements & équipes",
+    labelKey: "navigation.teams",
     href: "/dashboard/team",
     icon: "teams",
     roles: ["owner", "admin", "hr", "manager"],
   },
   {
-    label: "Membres & affectations",
+    labelKey: "navigation.members",
     href: "/dashboard/members",
     icon: "members",
     roles: ["owner", "admin", "hr", "manager"],
   },
   {
-    label: "Feedback entre collègues",
+    labelKey: "navigation.feedback",
     href: "/dashboard/feedback",
     icon: "feedback",
   },
   {
-    label: "Reconnaissance",
+    labelKey: "navigation.recognition",
     href: "/dashboard/recognition",
     icon: "recognition",
   },
   {
-    label: "Plans d’action",
+    labelKey: "navigation.actions",
     href: "/dashboard/actions",
     icon: "actions",
   },
 ];
 
 const comingSoonItems = [
-  { label: "Rapports", icon: "reports" as IconName },
-  { label: "Paramètres", icon: "settings" as IconName },
+  { labelKey: "navigation.reports", icon: "reports" as IconName },
+  { labelKey: "navigation.settings", icon: "settings" as IconName },
 ];
 
 function Icon({ name, className = "h-5 w-5" }: { name: IconName; className?: string }) {
@@ -196,6 +191,7 @@ export function DashboardNavigation({
   hasOrganization,
 }: DashboardNavigationProps) {
   const pathname = usePathname();
+  const { t } = useI18n();
   const [mobileOpen, setMobileOpen] = useState(false);
 
   const visibleItems = navigationItems.filter((item) => {
@@ -228,7 +224,7 @@ export function DashboardNavigation({
               SUPER LEADER
             </span>
             <span className="block text-xs text-slate-400">
-              Écouter · Comprendre · Agir
+              {t("brand.shortPromise")}
             </span>
           </span>
         </Link>
@@ -249,14 +245,14 @@ export function DashboardNavigation({
             {organizationName}
           </p>
           <p className="mt-1 text-xs text-slate-400">
-            {roleLabels[role] ?? role}
+            {t(`roles.${role}`)}
           </p>
         </div>
       </div>
 
       <nav className="mt-4 flex-1 overflow-y-auto px-3 pb-4">
         <p className="px-3 pb-2 text-[11px] font-bold uppercase tracking-[0.18em] text-slate-500">
-          Navigation
+          {t("navigation.section")}
         </p>
         <div className="space-y-1">
           {visibleItems.map((item) => {
@@ -273,7 +269,7 @@ export function DashboardNavigation({
                 }`}
               >
                 <Icon name={item.icon} className="h-5 w-5 shrink-0" />
-                <span>{item.label}</span>
+                <span>{t(item.labelKey)}</span>
               </Link>
             );
           })}
@@ -282,19 +278,19 @@ export function DashboardNavigation({
         {hasOrganization && (
           <div className="mt-6">
             <p className="px-3 pb-2 text-[11px] font-bold uppercase tracking-[0.18em] text-slate-500">
-              Prochainement
+              {t("navigation.comingSoon")}
             </p>
             <div className="space-y-1">
               {comingSoonItems.map((item) => (
                 <div
-                  key={item.label}
+                  key={item.labelKey}
                   className="flex cursor-not-allowed items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-600"
-                  title="Module bientôt disponible"
+                  title={t("navigation.moduleSoon")}
                 >
                   <Icon name={item.icon} className="h-5 w-5 shrink-0" />
-                  <span>{item.label}</span>
+                  <span>{t(item.labelKey)}</span>
                   <span className="ml-auto rounded-full bg-white/10 px-2 py-0.5 text-[10px] text-slate-500">
-                    Bientôt
+                    {t("common.soon")}
                   </span>
                 </div>
               ))}
@@ -304,13 +300,17 @@ export function DashboardNavigation({
       </nav>
 
       <div className="border-t border-white/10 p-3">
+        <div className="mb-3 flex items-center justify-between gap-3 px-3">
+          <span className="text-xs font-semibold text-slate-500">{t("common.language")}</span>
+          <LanguageSwitcher variant="dark" />
+        </div>
         <form action={signOutAction}>
           <button
             type="submit"
             className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-bold text-slate-300 transition hover:bg-red-500/15 hover:text-red-300"
           >
             <Icon name="logout" className="h-5 w-5" />
-            Se déconnecter
+            {t("navigation.logout")}
           </button>
         </form>
         <p className="mt-3 px-3 text-[10px] text-slate-600">Super Leader V1</p>
@@ -333,7 +333,7 @@ export function DashboardNavigation({
           type="button"
           onClick={() => setMobileOpen(true)}
           className="grid h-10 w-10 place-items-center rounded-xl border border-slate-200 text-slate-700"
-          aria-label="Ouvrir le menu"
+          aria-label={t("navigation.openMenu")}
         >
           <Icon name="menu" />
         </button>
@@ -343,7 +343,7 @@ export function DashboardNavigation({
         <div className="fixed inset-0 z-50 lg:hidden">
           <button
             type="button"
-            aria-label="Fermer le menu"
+            aria-label={t("navigation.closeMenu")}
             className="absolute inset-0 bg-slate-950/65 backdrop-blur-sm"
             onClick={() => setMobileOpen(false)}
           />
@@ -352,7 +352,7 @@ export function DashboardNavigation({
               type="button"
               onClick={() => setMobileOpen(false)}
               className="absolute right-3 top-3 z-10 grid h-9 w-9 place-items-center rounded-xl bg-white/10 text-white"
-              aria-label="Fermer le menu"
+              aria-label={t("navigation.closeMenu")}
             >
               <Icon name="close" />
             </button>

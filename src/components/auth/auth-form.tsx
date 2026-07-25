@@ -3,6 +3,7 @@
 import { useActionState } from "react";
 import Link from "next/link";
 import type { AuthState } from "@/app/actions/auth";
+import { useI18n } from "@/i18n/client";
 
 const initialState: AuthState = {};
 
@@ -26,6 +27,7 @@ export function AuthForm({
   footer?: { text: string; href: string; linkLabel: string };
 }) {
   const [state, formAction, pending] = useActionState(action, initialState);
+  const { t } = useI18n();
 
   return (
     <form action={formAction} className="space-y-5">
@@ -55,7 +57,7 @@ export function AuthForm({
         disabled={pending}
         type="submit"
       >
-        {pending ? "Traitement..." : submitLabel}
+        {pending ? t("common.processing") : submitLabel}
       </button>
 
       {footer ? (

@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { getI18n } from "@/i18n/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
@@ -34,6 +35,7 @@ function normalizeDate(value: FormDataEntryValue | null): string | null {
 }
 
 async function getContext() {
+  const { t } = await getI18n();
   const supabase = await createClient();
   const { data: authData, error: authError } = await supabase.auth.getUser();
 
@@ -49,12 +51,17 @@ async function getContext() {
     .maybeSingle<Membership>();
 
   if (membershipError) {
-    go(`Impossible de charger ton organisation : ${membershipError.message}`, "error");
+    go(
+      t("actionPlans.actionMessages.organisationLoadImpossible", {
+        message: membershipError.message,
+      }),
+      "error",
+    );
   }
 
   if (!membership) redirect("/dashboard/company");
 
-  return { user: authData.user, membership, admin };
+  return { user: authData.user, membership, admin, t };
 }
 
 async function ensureActiveMember(
@@ -74,7 +81,7 @@ async function ensureActiveMember(
 }
 
 export async function createActionPlanAction(formData: FormData) {
-  const { user, membership, admin } = await getContext();
+  const { user, membership, admin, t } = await getContext();
 
   const objective = String(formData.get("objective") ?? "").trim();
   const actionTitle = String(formData.get("actionTitle") ?? "").trim();
@@ -85,24 +92,30 @@ export async function createActionPlanAction(formData: FormData) {
   const dueDate = normalizeDate(formData.get("dueDate"));
 
   if (objective.length < 3 || objective.length > 200) {
-    go("L’objectif doit contenir entre 3 et 200 caractères.", "error");
+    go(t("actionPlans.actionMessages.objectiveLength"), "error");
   }
 
   if (actionTitle.length < 3 || actionTitle.length > 200) {
-    go("L’action doit contenir entre 3 et 200 caractères.", "error");
+    go(t("actionPlans.actionMessages.actionLength"), "error");
   }
 
   if (description.length > 2000) {
-    go("La description ne peut pas dépasser 2 000 caractères.", "error");
+    go(t("actionPlans.actionMessages.descriptionLength"), "error");
   }
 
-  if (!priorities.includes(priority)) go("Priorité invalide.", "error");
-  if (dueDateRaw && !dueDate) go("Date d’échéance invalide.", "error");
+  if (!priorities.includes(priority)) {
+    go(t("actionPlans.actionMessages.invalidPriority"), "error");
+  }
+  if (dueDateRaw && !dueDate) {
+    go(t("actionPlans.actionMessages.invalidDueDate"), "error");
+  }
 
-  const ownerId = isLeader(membership.role) ? requestedOwnerId || user.id : user.id;
+  const ownerId = isLeader(membership.role)
+    ? requestedOwnerId || user.id
+    : user.id;
 
   if (!(await ensureActiveMember(membership.organization_id, ownerId, admin))) {
-    go("Le responsable choisi n’est pas un membre actif de l’organisation.", "error");
+    go(t("actionPlans.actionMessages.ownerNotActive"), "error");
   }
 
   const { error } = await admin.from("action_plans").insert({
@@ -116,15 +129,20 @@ export async function createActionPlanAction(formData: FormData) {
     due_date: dueDate,
   });
 
-  if (error) go(`Création impossible : ${error.message}`, "error");
+  if (error) {
+    go(
+      t("actionPlans.actionMessages.createImpossible", { message: error.message }),
+      "error",
+    );
+  }
 
   revalidatePath("/dashboard/actions");
   revalidatePath("/dashboard");
-  go("Plan d’action créé avec succès.");
+  go(t("actionPlans.actionMessages.created"));
 }
 
 export async function updateActionPlanAction(formData: FormData) {
-  const { user, membership, admin } = await getContext();
+  const { user, membership, admin, t } = await getContext();
 
   const planId = String(formData.get("planId") ?? "").trim();
   const status = String(formData.get("status") ?? "todo") as Status;
@@ -132,12 +150,16 @@ export async function updateActionPlanAction(formData: FormData) {
   const dueDateRaw = String(formData.get("dueDate") ?? "").trim();
   const dueDate = normalizeDate(formData.get("dueDate"));
 
-  if (!planId) go("Plan d’action introuvable.", "error");
-  if (!statuses.includes(status)) go("Statut invalide.", "error");
-  if (!Number.isInteger(progress) || progress < 0 || progress > 100) {
-    go("La progression doit être comprise entre 0 et 100.", "error");
+  if (!planId) go(t("actionPlans.actionMessages.notFound"), "error");
+  if (!statuses.includes(status)) {
+    go(t("actionPlans.actionMessages.invalidStatus"), "error");
   }
-  if (dueDateRaw && !dueDate) go("Date d’échéance invalide.", "error");
+  if (!Number.isInteger(progress) || progress < 0 || progress > 100) {
+    go(t("actionPlans.actionMessages.invalidProgress"), "error");
+  }
+  if (dueDateRaw && !dueDate) {
+    go(t("actionPlans.actionMessages.invalidDueDate"), "error");
+  }
 
   const { data: plan, error: planError } = await admin
     .from("action_plans")
@@ -146,12 +168,18 @@ export async function updateActionPlanAction(formData: FormData) {
     .eq("organization_id", membership.organization_id)
     .maybeSingle();
 
-  if (planError || !plan) go("Plan d’action introuvable.", "error");
+  if (planError || !plan) {
+    go(t("actionPlans.actionMessages.notFound"), "error");
+  }
 
   const canEdit =
-    isLeader(membership.role) || plan.owner_id === user.id || plan.created_by === user.id;
+    isLeader(membership.role) ||
+    plan.owner_id === user.id ||
+    plan.created_by === user.id;
 
-  if (!canEdit) go("Tu n’as pas la permission de modifier ce plan.", "error");
+  if (!canEdit) {
+    go(t("actionPlans.actionMessages.noEditPermission"), "error");
+  }
 
   const normalizedProgress = status === "completed" ? 100 : progress;
   const completedAt = status === "completed" ? new Date().toISOString() : null;
@@ -168,9 +196,14 @@ export async function updateActionPlanAction(formData: FormData) {
     .eq("id", planId)
     .eq("organization_id", membership.organization_id);
 
-  if (error) go(`Mise à jour impossible : ${error.message}`, "error");
+  if (error) {
+    go(
+      t("actionPlans.actionMessages.updateImpossible", { message: error.message }),
+      "error",
+    );
+  }
 
   revalidatePath("/dashboard/actions");
   revalidatePath("/dashboard");
-  go("Plan d’action mis à jour.");
+  go(t("actionPlans.actionMessages.updated"));
 }

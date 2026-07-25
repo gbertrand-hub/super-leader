@@ -5,6 +5,7 @@ import {
   activateInvitationManuallyAction,
   type ManualMemberAccessState,
 } from "@/app/actions/members";
+import { useI18n } from "@/i18n/client";
 
 const initialManualMemberAccessState: ManualMemberAccessState = {
   status: "idle",
@@ -32,6 +33,7 @@ export function ManualAccessControls({
   status,
   canManage,
 }: Props) {
+  const { t } = useI18n();
   const [state, formAction, isPending] = useActionState(
     activateInvitationManuallyAction,
     initialManualMemberAccessState,
@@ -42,8 +44,8 @@ export function ManualAccessControls({
 
   const isAccepted = status === "accepted" || state.activated;
   const buttonLabel = isAccepted
-    ? "Générer un nouveau lien d’accès"
-    : "Activer manuellement";
+    ? t("members.manual.generateLink")
+    : t("members.manual.activate");
 
   async function handleCopy(kind: "setup" | "login", value: string) {
     const succeeded = await copyText(value);
@@ -56,23 +58,23 @@ export function ManualAccessControls({
   return (
     <div className="mt-3 min-w-[300px] rounded-2xl border border-amber-200 bg-amber-50/70 p-3">
       <p className="text-xs font-bold uppercase tracking-wide text-amber-900">
-        Activation de secours
+        {t("members.manual.eyebrow")}
       </p>
       <p className="mt-1 text-xs leading-5 text-amber-800">
         {isAccepted
-          ? "Le compte est actif. Tu peux générer un nouveau lien pour choisir le mot de passe."
-          : "Crée et confirme le compte, puis affiche un lien unique pour choisir le mot de passe."}
+          ? t("members.manual.activeHelp")
+          : t("members.manual.inactiveHelp")}
       </p>
 
       <form action={formAction} className="mt-3 grid gap-2">
         <input type="hidden" name="invitationId" value={invitationId} />
         {!isAccepted && (
           <label className="grid gap-1 text-xs font-semibold text-slate-700">
-            Nom complet
+            {t("members.manual.fullName")}
             <input
               name="fullName"
               autoComplete="name"
-              placeholder={`Nom de ${email}`}
+              placeholder={t("members.manual.fullNamePlaceholder", { email })}
               className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-normal outline-none focus:border-indigo-500"
             />
           </label>
@@ -82,7 +84,7 @@ export function ManualAccessControls({
           disabled={isPending}
           className="rounded-lg bg-amber-500 px-3 py-2 text-sm font-black text-slate-950 transition hover:bg-amber-400 disabled:cursor-wait disabled:opacity-60"
         >
-          {isPending ? "Traitement…" : buttonLabel}
+          {isPending ? t("common.processing") : buttonLabel}
         </button>
       </form>
 
@@ -103,7 +105,7 @@ export function ManualAccessControls({
       {state.setupLink && (
         <div className="mt-3 grid gap-2 rounded-xl bg-white p-3 shadow-sm">
           <p className="text-xs font-black text-slate-900">
-            Lien unique pour choisir le mot de passe
+            {t("members.manual.setupTitle")}
           </p>
           <input
             readOnly
@@ -116,7 +118,9 @@ export function ManualAccessControls({
               onClick={() => handleCopy("setup", state.setupLink ?? "")}
               className="rounded-lg bg-indigo-700 px-3 py-2 text-xs font-bold text-white"
             >
-              {copied === "setup" ? "Copié ✓" : "Copier le lien d’accès"}
+              {copied === "setup"
+                ? t("members.manual.copied")
+                : t("members.manual.copyAccessLink")}
             </button>
             <a
               href={state.setupLink}
@@ -124,11 +128,11 @@ export function ManualAccessControls({
               rel="noreferrer"
               className="rounded-lg border border-indigo-200 px-3 py-2 text-xs font-bold text-indigo-700"
             >
-              Tester le lien
+              {t("members.manual.testLink")}
             </a>
           </div>
           <p className="text-[11px] leading-4 text-slate-500">
-            Transmets ce lien uniquement au collaborateur concerné. Il est temporaire et personnel.
+            {t("members.manual.setupWarning")}
           </p>
         </div>
       )}
@@ -137,7 +141,7 @@ export function ManualAccessControls({
         <div className="mt-2 flex flex-wrap items-center gap-2 rounded-xl bg-slate-950 p-3 text-white">
           <div className="min-w-0 flex-1">
             <p className="text-[11px] font-bold uppercase text-amber-300">
-              Connexion permanente
+              {t("members.manual.permanentLogin")}
             </p>
             <p className="truncate text-xs">{state.loginUrl}</p>
           </div>
@@ -146,7 +150,9 @@ export function ManualAccessControls({
             onClick={() => handleCopy("login", state.loginUrl ?? "")}
             className="rounded-lg bg-white px-3 py-2 text-xs font-bold text-slate-950"
           >
-            {copied === "login" ? "Copié ✓" : "Copier"}
+            {copied === "login"
+              ? t("members.manual.copied")
+              : t("members.manual.copy")}
           </button>
         </div>
       )}

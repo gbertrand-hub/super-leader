@@ -1,17 +1,19 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
-import { AuthCard } from "@/components/auth/auth-card";
-import { createClient } from "@/lib/supabase/client";
+import {FormEvent, useEffect, useMemo, useState} from "react";
+import {useRouter} from "next/navigation";
+import {AuthCard} from "@/components/auth/auth-card";
+import {useI18n} from "@/i18n/client";
+import {createClient} from "@/lib/supabase/client";
 
 type PageState = "loading" | "ready" | "error" | "success";
 
 export default function UpdatePasswordPage() {
   const router = useRouter();
   const supabase = useMemo(() => createClient(), []);
+  const {t} = useI18n();
   const [pageState, setPageState] = useState<PageState>("loading");
-  const [message, setMessage] = useState("Vérification du lien sécurisé...");
+  const [message, setMessage] = useState(() => t("auth.update.checking"));
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -31,22 +33,18 @@ export default function UpdatePasswordPage() {
         }
 
         if (accessToken && refreshToken) {
-          const { error } = await supabase.auth.setSession({
+          const {error} = await supabase.auth.setSession({
             access_token: accessToken,
             refresh_token: refreshToken,
           });
 
           if (error) throw error;
-
-          // Remove tokens from the address bar after the secure session is set.
           window.history.replaceState({}, document.title, "/update-password");
         } else {
-          const { data, error } = await supabase.auth.getSession();
+          const {data, error} = await supabase.auth.getSession();
           if (error) throw error;
           if (!data.session) {
-            throw new Error(
-              "Ce lien de création de mot de passe est invalide ou a expiré.",
-            );
+            throw new Error(t("auth.update.invalidLink"));
           }
         }
 
@@ -60,7 +58,7 @@ export default function UpdatePasswordPage() {
         setMessage(
           error instanceof Error
             ? error.message
-            : "Impossible de valider le lien sécurisé.",
+            : t("auth.update.validationFailed"),
         );
       }
     }
@@ -69,36 +67,36 @@ export default function UpdatePasswordPage() {
     return () => {
       active = false;
     };
-  }, [supabase]);
+  }, [supabase, t]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     if (password.length < 8) {
-      setMessage("Le mot de passe doit contenir au moins 8 caractères.");
+      setMessage(t("auth.update.minLength"));
       return;
     }
 
     if (password !== confirmPassword) {
-      setMessage("Les mots de passe ne correspondent pas.");
+      setMessage(t("auth.update.mismatch"));
       return;
     }
 
     setSubmitting(true);
     setMessage("");
 
-    const { error } = await supabase.auth.updateUser({ password });
+    const {error} = await supabase.auth.updateUser({password});
 
     if (error) {
       setSubmitting(false);
       setPageState("error");
-      setMessage(error.message || "La mise à jour du mot de passe a échoué.");
+      setMessage(error.message || t("auth.update.updateFailed"));
       return;
     }
 
     await supabase.auth.signOut();
     setPageState("success");
-    setMessage("Mot de passe enregistré. Tu peux maintenant te connecter.");
+    setMessage(t("auth.update.success"));
 
     window.setTimeout(() => {
       router.replace("/login");
@@ -107,10 +105,7 @@ export default function UpdatePasswordPage() {
   }
 
   return (
-    <AuthCard
-      title="Nouveau mot de passe"
-      subtitle="Choisis un mot de passe sécurisé d’au moins 8 caractères."
-    >
+    <AuthCard title={t("auth.update.title")} subtitle={t("auth.update.subtitle")}>
       {pageState === "loading" ? (
         <p className="rounded-xl bg-slate-100 px-4 py-3 text-sm font-medium text-slate-700">
           {message}
@@ -127,7 +122,7 @@ export default function UpdatePasswordPage() {
             onClick={() => router.replace("/login")}
             className="w-full rounded-xl bg-slate-950 px-4 py-3 font-bold text-white"
           >
-            Retour à la connexion
+            {t("auth.update.backToLogin")}
           </button>
         </div>
       ) : null}
@@ -142,7 +137,7 @@ export default function UpdatePasswordPage() {
         <form onSubmit={handleSubmit} className="space-y-5">
           <label className="block">
             <span className="mb-2 block text-sm font-semibold text-slate-700">
-              Nouveau mot de passe
+              {t("auth.update.newPassword")}
             </span>
             <input
               type="password"
@@ -157,7 +152,7 @@ export default function UpdatePasswordPage() {
 
           <label className="block">
             <span className="mb-2 block text-sm font-semibold text-slate-700">
-              Confirmer le mot de passe
+              {t("auth.update.confirmPassword")}
             </span>
             <input
               type="password"
@@ -181,7 +176,7 @@ export default function UpdatePasswordPage() {
             disabled={submitting}
             className="w-full rounded-xl bg-indigo-600 px-4 py-3 font-bold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {submitting ? "Enregistrement..." : "Enregistrer le mot de passe"}
+            {submitting ? t("common.processing") : t("auth.update.submit")}
           </button>
         </form>
       ) : null}

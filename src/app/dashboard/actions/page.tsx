@@ -3,6 +3,7 @@ import {
   createActionPlanAction,
   updateActionPlanAction,
 } from "@/app/actions/action-plans";
+import { getI18n } from "@/i18n/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
@@ -34,28 +35,6 @@ type ActionPlan = {
   updated_at: string;
 };
 
-const roleLabels: Record<string, string> = {
-  owner: "Propriétaire",
-  admin: "Administrateur",
-  hr: "Responsable RH",
-  manager: "Manager",
-  employee: "Employé",
-};
-
-const priorityLabels = {
-  low: "Faible",
-  medium: "Moyenne",
-  high: "Haute",
-};
-
-const statusLabels = {
-  todo: "À faire",
-  in_progress: "En cours",
-  blocked: "Bloqué",
-  completed: "Terminé",
-  cancelled: "Annulé",
-};
-
 const priorityClasses = {
   low: "bg-slate-100 text-slate-700",
   medium: "bg-amber-100 text-amber-800",
@@ -74,15 +53,10 @@ function isLeader(role: string) {
   return ["owner", "admin", "hr", "manager"].includes(role);
 }
 
-function formatDate(value: string | null) {
-  if (!value) return "Aucune échéance";
-  return new Intl.DateTimeFormat("fr-FR", { dateStyle: "medium" }).format(
-    new Date(`${value}T00:00:00`),
-  );
-}
-
 function isOverdue(plan: ActionPlan) {
-  if (!plan.due_date || ["completed", "cancelled"].includes(plan.status)) return false;
+  if (!plan.due_date || ["completed", "cancelled"].includes(plan.status)) {
+    return false;
+  }
   const due = new Date(`${plan.due_date}T23:59:59`);
   return due.getTime() < Date.now();
 }
@@ -92,6 +66,7 @@ export default async function ActionPlansPage({
 }: {
   searchParams: SearchParams;
 }) {
+  const { t, locale } = await getI18n();
   const params = await searchParams;
   const supabase = await createClient();
   const { data: authData, error: authError } = await supabase.auth.getUser();
@@ -108,7 +83,11 @@ export default async function ActionPlansPage({
     .maybeSingle();
 
   if (membershipError) {
-    throw new Error(`Impossible de charger l’organisation : ${membershipError.message}`);
+    throw new Error(
+      t("actionPlans.actionMessages.organisationLoadImpossible", {
+        message: membershipError.message,
+      }),
+    );
   }
   if (!membership) redirect("/dashboard/company");
 
@@ -122,10 +101,7 @@ export default async function ActionPlansPage({
   const members = (memberRows ?? []) as Member[];
   const memberIds = members.map((member) => member.user_id);
   const { data: profileRows } = memberIds.length
-    ? await admin
-        .from("profiles")
-        .select("id, full_name, email")
-        .in("id", memberIds)
+    ? await admin.from("profiles").select("id, full_name, email").in("id", memberIds)
     : { data: [] as Profile[] };
 
   const profiles = (profileRows ?? []) as Profile[];
@@ -146,7 +122,13 @@ export default async function ActionPlansPage({
   }
 
   const { data: planRows, error: plansError } = await plansQuery;
-  if (plansError) throw new Error(`Impossible de charger les plans : ${plansError.message}`);
+  if (plansError) {
+    throw new Error(
+      t("actionPlans.actionMessages.plansLoadImpossible", {
+        message: plansError.message,
+      }),
+    );
+  }
 
   const plans = (planRows ?? []) as ActionPlan[];
   const activePlans = plans.filter(
@@ -156,18 +138,28 @@ export default async function ActionPlansPage({
   const overdueCount = plans.filter(isOverdue).length;
   const averageProgress = activePlans.length
     ? Math.round(
-        activePlans.reduce((sum, plan) => sum + plan.progress, 0) / activePlans.length,
+        activePlans.reduce((sum, plan) => sum + plan.progress, 0) /
+          activePlans.length,
       )
     : 0;
+  const dateLocale = locale === "fr" ? "fr-FR" : "en-GB";
+  const formatDate = (value: string | null) => {
+    if (!value) return t("common.noDeadline");
+    return new Intl.DateTimeFormat(dateLocale, { dateStyle: "medium" }).format(
+      new Date(`${value}T00:00:00`),
+    );
+  };
 
   return (
     <main className="min-h-screen bg-slate-50 px-5 py-8 text-slate-950">
       <div className="mx-auto max-w-7xl">
         <header className="rounded-3xl bg-slate-950 p-7 text-white">
-          <p className="text-sm font-bold text-amber-400">PROGRESSION MESURABLE</p>
-          <h1 className="mt-2 text-3xl font-black">Plans d’action</h1>
+          <p className="text-sm font-bold uppercase text-amber-400">
+            {t("actionPlans.eyebrow")}
+          </p>
+          <h1 className="mt-2 text-3xl font-black">{t("actionPlans.title")}</h1>
           <p className="mt-2 max-w-3xl text-slate-300">
-            Transforme les feedbacks et les objectifs en actions concrètes, attribuées et suivies.
+            {t("actionPlans.subtitle")}
           </p>
         </header>
 
@@ -184,69 +176,79 @@ export default async function ActionPlansPage({
 
         <section className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <p className="text-sm font-semibold text-slate-500">Plans actifs</p>
+            <p className="text-sm font-semibold text-slate-500">
+              {t("actionPlans.activePlans")}
+            </p>
             <p className="mt-2 text-3xl font-black">{activePlans.length}</p>
           </article>
           <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <p className="text-sm font-semibold text-slate-500">Progression moyenne</p>
+            <p className="text-sm font-semibold text-slate-500">
+              {t("actionPlans.averageProgress")}
+            </p>
             <p className="mt-2 text-3xl font-black">{averageProgress}%</p>
           </article>
           <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <p className="text-sm font-semibold text-slate-500">Terminés</p>
-            <p className="mt-2 text-3xl font-black text-emerald-700">{completedCount}</p>
+            <p className="text-sm font-semibold text-slate-500">
+              {t("actionPlans.completed")}
+            </p>
+            <p className="mt-2 text-3xl font-black text-emerald-700">
+              {completedCount}
+            </p>
           </article>
           <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <p className="text-sm font-semibold text-slate-500">En retard</p>
+            <p className="text-sm font-semibold text-slate-500">
+              {t("actionPlans.overdue")}
+            </p>
             <p className="mt-2 text-3xl font-black text-red-700">{overdueCount}</p>
           </article>
         </section>
 
         <div className="mt-6 grid gap-6 xl:grid-cols-[380px_1fr]">
           <section className="h-fit rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-            <h2 className="text-2xl font-black">Nouveau plan</h2>
+            <h2 className="text-2xl font-black">{t("actionPlans.newPlan")}</h2>
             <p className="mt-1 text-sm text-slate-500">
-              Définis un objectif clair, une action, un responsable et une échéance.
+              {t("actionPlans.newPlanDescription")}
             </p>
 
             <form action={createActionPlanAction} className="mt-5 space-y-4">
               <label className="block">
-                <span className="text-sm font-bold">Objectif</span>
+                <span className="text-sm font-bold">{t("actionPlans.objective")}</span>
                 <input
                   name="objective"
                   required
                   minLength={3}
                   maxLength={200}
-                  placeholder="Ex. Améliorer la communication de l’équipe"
+                  placeholder={t("actionPlans.objectivePlaceholder")}
                   className="mt-2 w-full rounded-xl border border-slate-300 px-4 py-3"
                 />
               </label>
 
               <label className="block">
-                <span className="text-sm font-bold">Action principale</span>
+                <span className="text-sm font-bold">{t("actionPlans.actionTitle")}</span>
                 <input
                   name="actionTitle"
                   required
                   minLength={3}
                   maxLength={200}
-                  placeholder="Ex. Organiser une réunion hebdomadaire"
+                  placeholder={t("actionPlans.actionPlaceholder")}
                   className="mt-2 w-full rounded-xl border border-slate-300 px-4 py-3"
                 />
               </label>
 
               <label className="block">
-                <span className="text-sm font-bold">Description</span>
+                <span className="text-sm font-bold">{t("actionPlans.description")}</span>
                 <textarea
                   name="description"
                   maxLength={2000}
                   rows={4}
-                  placeholder="Étapes, ressources ou résultat attendu…"
+                  placeholder={t("actionPlans.descriptionPlaceholder")}
                   className="mt-2 w-full rounded-xl border border-slate-300 px-4 py-3"
                 />
               </label>
 
               {isLeader(membership.role) ? (
                 <label className="block">
-                  <span className="text-sm font-bold">Responsable</span>
+                  <span className="text-sm font-bold">{t("actionPlans.owner")}</span>
                   <select
                     name="ownerId"
                     defaultValue={authData.user.id}
@@ -256,7 +258,9 @@ export default async function ActionPlansPage({
                       const profile = profileById.get(member.user_id);
                       return (
                         <option key={member.user_id} value={member.user_id}>
-                          {profile?.full_name || profile?.email || "Utilisateur"} · {roleLabels[member.role] ?? member.role}
+                          {profile?.full_name ||
+                            profile?.email ||
+                            t("common.user")} · {t(`roles.${member.role}`)}
                         </option>
                       );
                     })}
@@ -268,20 +272,22 @@ export default async function ActionPlansPage({
 
               <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-1">
                 <label className="block">
-                  <span className="text-sm font-bold">Priorité</span>
+                  <span className="text-sm font-bold">{t("actionPlans.priority")}</span>
                   <select
                     name="priority"
                     defaultValue="medium"
                     className="mt-2 w-full rounded-xl border border-slate-300 px-4 py-3"
                   >
-                    <option value="low">Faible</option>
-                    <option value="medium">Moyenne</option>
-                    <option value="high">Haute</option>
+                    <option value="low">{t("actionPlans.priorities.low")}</option>
+                    <option value="medium">
+                      {t("actionPlans.priorities.medium")}
+                    </option>
+                    <option value="high">{t("actionPlans.priorities.high")}</option>
                   </select>
                 </label>
 
                 <label className="block">
-                  <span className="text-sm font-bold">Échéance</span>
+                  <span className="text-sm font-bold">{t("actionPlans.dueDate")}</span>
                   <input
                     type="date"
                     name="dueDate"
@@ -291,7 +297,7 @@ export default async function ActionPlansPage({
               </div>
 
               <button className="w-full rounded-xl bg-indigo-700 px-5 py-3 font-black text-white hover:bg-indigo-800">
-                Créer le plan d’action
+                {t("actionPlans.create")}
               </button>
             </form>
           </section>
@@ -299,9 +305,11 @@ export default async function ActionPlansPage({
           <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
             <div className="flex flex-wrap items-end justify-between gap-3">
               <div>
-                <h2 className="text-2xl font-black">Suivi des plans ({plans.length})</h2>
+                <h2 className="text-2xl font-black">
+                  {t("actionPlans.tracking", { count: plans.length })}
+                </h2>
                 <p className="mt-1 text-sm text-slate-500">
-                  Mets à jour le statut, la progression et l’échéance.
+                  {t("actionPlans.trackingDescription")}
                 </p>
               </div>
             </div>
@@ -317,21 +325,29 @@ export default async function ActionPlansPage({
                     <article
                       key={plan.id}
                       className={`rounded-2xl border p-5 ${
-                        overdue ? "border-red-200 bg-red-50/40" : "border-slate-200"
+                        overdue
+                          ? "border-red-200 bg-red-50/40"
+                          : "border-slate-200"
                       }`}
                     >
                       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                         <div className="min-w-0 flex-1">
                           <div className="flex flex-wrap items-center gap-2">
-                            <span className={`rounded-full px-3 py-1 text-xs font-bold ${priorityClasses[plan.priority]}`}>
-                              Priorité {priorityLabels[plan.priority]}
+                            <span
+                              className={`rounded-full px-3 py-1 text-xs font-bold ${priorityClasses[plan.priority]}`}
+                            >
+                              {t("actionPlans.priorityPrefix", {
+                                priority: t(`actionPlans.priorities.${plan.priority}`),
+                              })}
                             </span>
-                            <span className={`rounded-full px-3 py-1 text-xs font-bold ${statusClasses[plan.status]}`}>
-                              {statusLabels[plan.status]}
+                            <span
+                              className={`rounded-full px-3 py-1 text-xs font-bold ${statusClasses[plan.status]}`}
+                            >
+                              {t(`actionPlans.statuses.${plan.status}`)}
                             </span>
                             {overdue && (
                               <span className="rounded-full bg-red-600 px-3 py-1 text-xs font-bold text-white">
-                                En retard
+                                {t("actionPlans.overdue")}
                               </span>
                             )}
                           </div>
@@ -346,19 +362,29 @@ export default async function ActionPlansPage({
                           )}
                           <div className="mt-4 grid gap-2 text-sm text-slate-600 sm:grid-cols-2">
                             <p>
-                              <span className="font-bold text-slate-900">Responsable :</span>{" "}
-                              {owner?.full_name || owner?.email || "Utilisateur"}
+                              <span className="font-bold text-slate-900">
+                                {t("actionPlans.owner")}:
+                              </span>{" "}
+                              {owner?.full_name || owner?.email || t("common.user")}
                             </p>
                             <p>
-                              <span className="font-bold text-slate-900">Échéance :</span>{" "}
+                              <span className="font-bold text-slate-900">
+                                {t("actionPlans.dueDate")}:
+                              </span>{" "}
                               {formatDate(plan.due_date)}
                             </p>
                             <p>
-                              <span className="font-bold text-slate-900">Créé par :</span>{" "}
-                              {creator?.full_name || creator?.email || "Utilisateur"}
+                              <span className="font-bold text-slate-900">
+                                {t("actionPlans.createdBy")}:
+                              </span>{" "}
+                              {creator?.full_name ||
+                                creator?.email ||
+                                t("common.user")}
                             </p>
                             <p>
-                              <span className="font-bold text-slate-900">Progression :</span>{" "}
+                              <span className="font-bold text-slate-900">
+                                {t("actionPlans.progress")}:
+                              </span>{" "}
                               {plan.progress}%
                             </p>
                           </div>
@@ -376,21 +402,35 @@ export default async function ActionPlansPage({
                         >
                           <input type="hidden" name="planId" value={plan.id} />
                           <label>
-                            <span className="text-xs font-bold uppercase text-slate-500">Statut</span>
+                            <span className="text-xs font-bold uppercase text-slate-500">
+                              {t("actionPlans.status")}
+                            </span>
                             <select
                               name="status"
                               defaultValue={plan.status}
                               className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2"
                             >
-                              <option value="todo">À faire</option>
-                              <option value="in_progress">En cours</option>
-                              <option value="blocked">Bloqué</option>
-                              <option value="completed">Terminé</option>
-                              <option value="cancelled">Annulé</option>
+                              <option value="todo">
+                                {t("actionPlans.statuses.todo")}
+                              </option>
+                              <option value="in_progress">
+                                {t("actionPlans.statuses.in_progress")}
+                              </option>
+                              <option value="blocked">
+                                {t("actionPlans.statuses.blocked")}
+                              </option>
+                              <option value="completed">
+                                {t("actionPlans.statuses.completed")}
+                              </option>
+                              <option value="cancelled">
+                                {t("actionPlans.statuses.cancelled")}
+                              </option>
                             </select>
                           </label>
                           <label>
-                            <span className="text-xs font-bold uppercase text-slate-500">Progression</span>
+                            <span className="text-xs font-bold uppercase text-slate-500">
+                              {t("actionPlans.progress")}
+                            </span>
                             <input
                               type="number"
                               name="progress"
@@ -402,7 +442,9 @@ export default async function ActionPlansPage({
                             />
                           </label>
                           <label>
-                            <span className="text-xs font-bold uppercase text-slate-500">Échéance</span>
+                            <span className="text-xs font-bold uppercase text-slate-500">
+                              {t("actionPlans.dueDate")}
+                            </span>
                             <input
                               type="date"
                               name="dueDate"
@@ -411,7 +453,7 @@ export default async function ActionPlansPage({
                             />
                           </label>
                           <button className="rounded-xl bg-slate-950 px-4 py-2.5 font-bold text-white hover:bg-slate-800">
-                            Mettre à jour
+                            {t("actionPlans.update")}
                           </button>
                         </form>
                       </div>
@@ -420,7 +462,7 @@ export default async function ActionPlansPage({
                 })
               ) : (
                 <div className="rounded-2xl bg-slate-50 p-8 text-center text-slate-500">
-                  Aucun plan d’action pour le moment. Crée le premier plan à gauche.
+                  {t("actionPlans.none")}
                 </div>
               )}
             </div>

@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { getI18n } from "@/i18n/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
@@ -26,12 +27,11 @@ function go(message: string, kind: "success" | "error" = "success"): never {
 }
 
 async function getContext() {
+  const { t } = await getI18n();
   const supabase = await createClient();
   const { data: authData, error: authError } = await supabase.auth.getUser();
 
-  if (authError || !authData.user) {
-    redirect("/login");
-  }
+  if (authError || !authData.user) redirect("/login");
 
   const admin = createAdminClient();
   const { data: membership, error: membershipError } = await admin
@@ -43,18 +43,21 @@ async function getContext() {
     .maybeSingle();
 
   if (membershipError) {
-    go(`Impossible de charger ton organisation : ${membershipError.message}`, "error");
+    go(
+      t("recognition.actionMessages.organisationLoadImpossible", {
+        message: membershipError.message,
+      }),
+      "error",
+    );
   }
 
-  if (!membership) {
-    redirect("/dashboard/company");
-  }
+  if (!membership) redirect("/dashboard/company");
 
-  return { user: authData.user, membership, admin };
+  return { user: authData.user, membership, admin, t };
 }
 
 export async function sendRecognitionAction(formData: FormData) {
-  const { user, membership, admin } = await getContext();
+  const { user, membership, admin, t } = await getContext();
 
   const recipientId = String(formData.get("recipientId") ?? "");
   const badge = String(formData.get("badge") ?? "") as Badge;
@@ -62,19 +65,19 @@ export async function sendRecognitionAction(formData: FormData) {
   const visibility = String(formData.get("visibility") ?? "private") as Visibility;
 
   if (!recipientId || recipientId === user.id) {
-    go("Choisis un autre collègue.", "error");
+    go(t("recognition.actionMessages.chooseOther"), "error");
   }
 
   if (!badges.includes(badge)) {
-    go("Badge invalide.", "error");
+    go(t("recognition.actionMessages.invalidBadge"), "error");
   }
 
   if (!visibilities.includes(visibility)) {
-    go("Visibilité invalide.", "error");
+    go(t("recognition.actionMessages.invalidVisibility"), "error");
   }
 
   if (message.length < 3 || message.length > 600) {
-    go("Le message doit contenir entre 3 et 600 caractères.", "error");
+    go(t("recognition.actionMessages.invalidMessage"), "error");
   }
 
   const { data: recipientMembership } = await admin
@@ -86,7 +89,7 @@ export async function sendRecognitionAction(formData: FormData) {
     .maybeSingle();
 
   if (!recipientMembership) {
-    go("Ce collègue n’appartient pas à ton organisation.", "error");
+    go(t("recognition.actionMessages.outsideOrganisation"), "error");
   }
 
   const { error } = await admin.from("recognitions").insert({
@@ -99,10 +102,13 @@ export async function sendRecognitionAction(formData: FormData) {
   });
 
   if (error) {
-    go(`Envoi impossible : ${error.message}`, "error");
+    go(
+      t("recognition.actionMessages.sendImpossible", { message: error.message }),
+      "error",
+    );
   }
 
   revalidatePath("/dashboard/recognition");
   revalidatePath("/dashboard");
-  go("Reconnaissance envoyée avec succès.");
+  go(t("recognition.actionMessages.sent"));
 }

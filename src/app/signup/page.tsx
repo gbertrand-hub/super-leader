@@ -1,26 +1,43 @@
-import { redirect } from "next/navigation";
-import { signUpAction } from "@/app/actions/auth";
-import { AuthCard } from "@/components/auth/auth-card";
-import { AuthForm } from "@/components/auth/auth-form";
-import { createClient } from "@/lib/supabase/server";
+import {redirect} from "next/navigation";
+import {signUpAction} from "@/app/actions/auth";
+import {AuthCard} from "@/components/auth/auth-card";
+import {AuthForm} from "@/components/auth/auth-form";
+import {getI18n} from "@/i18n/server";
+import {createClient} from "@/lib/supabase/server";
 
 export default async function SignupPage() {
   const supabase = await createClient();
-  const { data } = await supabase.auth.getUser();
+  const {data} = await supabase.auth.getUser();
   if (data.user) redirect("/dashboard");
 
+  const {t} = await getI18n();
+
   return (
-    <AuthCard title="Créer un compte" subtitle="Commence à développer de meilleurs leaders et de meilleures équipes.">
+    <AuthCard title={t("auth.signup.title")} subtitle={t("auth.signup.subtitle")}>
       <AuthForm
         action={signUpAction}
         fields={[
-          { name: "fullName", label: "Nom complet", type: "text", autoComplete: "name" },
-          { name: "email", label: "Adresse email", type: "email", autoComplete: "email" },
-          { name: "password", label: "Mot de passe", type: "password", autoComplete: "new-password" },
-          { name: "confirmPassword", label: "Confirmer le mot de passe", type: "password", autoComplete: "new-password" },
+          {name: "fullName", label: t("auth.fullName"), type: "text", autoComplete: "name"},
+          {name: "email", label: t("auth.email"), type: "email", autoComplete: "email"},
+          {
+            name: "password",
+            label: t("auth.password"),
+            type: "password",
+            autoComplete: "new-password",
+          },
+          {
+            name: "confirmPassword",
+            label: t("auth.confirmPassword"),
+            type: "password",
+            autoComplete: "new-password",
+          },
         ]}
-        submitLabel="Créer mon compte"
-        footer={{ text: "Tu as déjà un compte ?", href: "/login", linkLabel: "Se connecter" }}
+        submitLabel={t("auth.signup.submit")}
+        footer={{
+          text: t("auth.signup.hasAccount"),
+          href: "/login",
+          linkLabel: t("auth.signup.login"),
+        }}
       />
     </AuthCard>
   );

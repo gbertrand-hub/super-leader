@@ -1,15 +1,29 @@
-import type { Metadata } from "next";
+import type {Metadata} from "next";
+import {I18nProvider} from "@/i18n/client";
+import {getI18n} from "@/i18n/server";
 import "./globals.css";
 
-export const metadata: Metadata = {
-  title: "Super Leader",
-  description: "Le feedback qui developpe les personnes et transforme les organisations.",
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const {t} = await getI18n();
 
-export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+  return {
+    title: "Super Leader",
+    description: t("brand.description"),
+  };
+}
+
+export default async function RootLayout({
+  children,
+}: Readonly<{children: React.ReactNode}>) {
+  const {locale, messages} = await getI18n();
+
   return (
-    <html lang="fr">
-      <body>{children}</body>
+    <html lang={locale}>
+      <body>
+        <I18nProvider locale={locale} messages={messages}>
+          {children}
+        </I18nProvider>
+      </body>
     </html>
   );
 }

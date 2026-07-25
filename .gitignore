@@ -14,3 +14,17 @@ backup-*/
 payload/
 build-members-error.txt
 tsconfig.tsbuildinfo
+.next/
+node_modules/
+.env.local
+backup-*/
+payload/
+*.log
+tsconfig.tsbuildinfo
+backup-*/
+payload/
+.next/
+node_modules/
+*.log
+*.tsbuildinfo
+.env.local

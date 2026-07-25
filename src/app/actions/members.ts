@@ -7,10 +7,16 @@ import {
 } from "@supabase/supabase-js";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { getI18n } from "@/i18n/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
 type Role = "owner" | "admin" | "hr" | "manager" | "employee";
+type Translator = (
+  key: string,
+  values?: Record<string, string | number>,
+) => string;
+
 const editableRoles: Role[] = ["admin", "hr", "manager", "employee"];
 
 function go(message: string, kind: "success" | "error" = "success"): never {
@@ -18,6 +24,7 @@ function go(message: string, kind: "success" | "error" = "success"): never {
 }
 
 async function getContext() {
+  const { t } = await getI18n();
   const supabase = await createClient();
   const { data: authData, error: authError } = await supabase.auth.getUser();
   if (authError || !authData.user) redirect("/login");
@@ -31,13 +38,13 @@ async function getContext() {
     .maybeSingle();
 
   if (error || !membership) redirect("/dashboard/company");
-  return { user: authData.user, membership };
+  return { user: authData.user, membership, t };
 }
 
 async function requirePeopleAdmin() {
   const context = await getContext();
   if (!["owner", "admin", "hr"].includes(context.membership.role)) {
-    go("Tu n’as pas la permission de gérer les membres.", "error");
+    go(context.t("members.actionMessages.noMemberPermission"), "error");
   }
   return context;
 }
@@ -45,17 +52,19 @@ async function requirePeopleAdmin() {
 async function requireTeamManager() {
   const context = await getContext();
   if (!["owner", "admin", "hr", "manager"].includes(context.membership.role)) {
-    go("Tu n’as pas la permission de gérer les affectations.", "error");
+    go(context.t("members.actionMessages.noAssignmentPermission"), "error");
   }
   return context;
 }
 
 export async function updateMemberRoleAction(formData: FormData) {
-  const { membership } = await requirePeopleAdmin();
+  const { membership, t } = await requirePeopleAdmin();
   const memberId = String(formData.get("memberId") ?? "");
   const role = String(formData.get("role") ?? "") as Role;
 
-  if (!memberId || !editableRoles.includes(role)) go("Rôle ou membre invalide.", "error");
+  if (!memberId || !editableRoles.includes(role)) {
+    go(t("members.actionMessages.invalidRoleOrMember"), "error");
+  }
 
   const admin = createAdminClient();
   const { data: target } = await admin
@@ -65,8 +74,10 @@ export async function updateMemberRoleAction(formData: FormData) {
     .eq("organization_id", membership.organization_id)
     .maybeSingle();
 
-  if (!target) go("Membre introuvable.", "error");
-  if (target.role === "owner") go("Le rôle du propriétaire ne peut pas être modifié.", "error");
+  if (!target) go(t("members.actionMessages.memberNotFound"), "error");
+  if (target.role === "owner") {
+    go(t("members.actionMessages.ownerRoleLocked"), "error");
+  }
 
   const { error } = await admin
     .from("organization_members")
@@ -74,17 +85,22 @@ export async function updateMemberRoleAction(formData: FormData) {
     .eq("id", memberId)
     .eq("organization_id", membership.organization_id);
 
-  if (error) go(`Modification impossible : ${error.message}`, "error");
+  if (error) {
+    go(
+      t("members.actionMessages.updateImpossible", { message: error.message }),
+      "error",
+    );
+  }
   revalidatePath("/dashboard/members");
   revalidatePath("/dashboard");
-  go("Rôle mis à jour.");
+  go(t("members.actionMessages.roleUpdated"));
 }
 
 export async function toggleMemberStatusAction(formData: FormData) {
-  const { user, membership } = await requirePeopleAdmin();
+  const { user, membership, t } = await requirePeopleAdmin();
   const memberId = String(formData.get("memberId") ?? "");
   const activate = String(formData.get("activate") ?? "false") === "true";
-  if (!memberId) go("Membre invalide.", "error");
+  if (!memberId) go(t("members.actionMessages.invalidMember"), "error");
 
   const admin = createAdminClient();
   const { data: target } = await admin
@@ -94,9 +110,13 @@ export async function toggleMemberStatusAction(formData: FormData) {
     .eq("organization_id", membership.organization_id)
     .maybeSingle();
 
-  if (!target) go("Membre introuvable.", "error");
-  if (target.role === "owner") go("Le propriétaire ne peut pas être désactivé.", "error");
-  if (target.user_id === user.id && !activate) go("Tu ne peux pas désactiver ton propre compte.", "error");
+  if (!target) go(t("members.actionMessages.memberNotFound"), "error");
+  if (target.role === "owner") {
+    go(t("members.actionMessages.ownerCannotDisable"), "error");
+  }
+  if (target.user_id === user.id && !activate) {
+    go(t("members.actionMessages.cannotDisableSelf"), "error");
+  }
 
   const { error } = await admin
     .from("organization_members")
@@ -108,16 +128,29 @@ export async function toggleMemberStatusAction(formData: FormData) {
     .eq("id", memberId)
     .eq("organization_id", membership.organization_id);
 
-  if (error) go(`Mise à jour impossible : ${error.message}`, "error");
+  if (error) {
+    go(
+      t("members.actionMessages.statusUpdateImpossible", {
+        message: error.message,
+      }),
+      "error",
+    );
+  }
   revalidatePath("/dashboard/members");
-  go(activate ? "Membre réactivé." : "Membre désactivé.");
+  go(
+    activate
+      ? t("members.actionMessages.memberReactivated")
+      : t("members.actionMessages.memberDisabled"),
+  );
 }
 
 export async function assignMemberToTeamAction(formData: FormData) {
-  const { user, membership } = await requireTeamManager();
+  const { user, membership, t } = await requireTeamManager();
   const userId = String(formData.get("userId") ?? "");
   const teamId = String(formData.get("teamId") ?? "");
-  if (!userId || !teamId) go("Sélectionne un membre et une équipe.", "error");
+  if (!userId || !teamId) {
+    go(t("members.actionMessages.chooseMemberTeam"), "error");
+  }
 
   const admin = createAdminClient();
   const [{ data: targetMember }, { data: team }] = await Promise.all([
@@ -136,7 +169,9 @@ export async function assignMemberToTeamAction(formData: FormData) {
       .maybeSingle(),
   ]);
 
-  if (!targetMember || !team) go("Le membre ou l’équipe n’appartient pas à cette organisation.", "error");
+  if (!targetMember || !team) {
+    go(t("members.actionMessages.memberOrTeamWrongOrg"), "error");
+  }
 
   const { error } = await admin.from("team_members").upsert(
     {
@@ -148,16 +183,25 @@ export async function assignMemberToTeamAction(formData: FormData) {
     { onConflict: "team_id,user_id" },
   );
 
-  if (error) go(`Affectation impossible : ${error.message}`, "error");
+  if (error) {
+    go(
+      t("members.actionMessages.assignmentImpossible", {
+        message: error.message,
+      }),
+      "error",
+    );
+  }
   revalidatePath("/dashboard/members");
-  go("Membre affecté à l’équipe.");
+  go(t("members.actionMessages.assigned"));
 }
 
 export async function removeMemberFromTeamAction(formData: FormData) {
-  const { membership } = await requireTeamManager();
+  const { membership, t } = await requireTeamManager();
   const userId = String(formData.get("userId") ?? "");
   const teamId = String(formData.get("teamId") ?? "");
-  if (!userId || !teamId) go("Affectation invalide.", "error");
+  if (!userId || !teamId) {
+    go(t("members.actionMessages.invalidAssignment"), "error");
+  }
 
   const admin = createAdminClient();
   const { data: team } = await admin
@@ -166,7 +210,7 @@ export async function removeMemberFromTeamAction(formData: FormData) {
     .eq("organization_id", membership.organization_id)
     .eq("id", teamId)
     .maybeSingle();
-  if (!team) go("Équipe introuvable.", "error");
+  if (!team) go(t("members.actionMessages.teamNotFound"), "error");
 
   const { error } = await admin
     .from("team_members")
@@ -174,15 +218,22 @@ export async function removeMemberFromTeamAction(formData: FormData) {
     .eq("team_id", teamId)
     .eq("user_id", userId);
 
-  if (error) go(`Retrait impossible : ${error.message}`, "error");
+  if (error) {
+    go(
+      t("members.actionMessages.removalImpossible", { message: error.message }),
+      "error",
+    );
+  }
   revalidatePath("/dashboard/members");
-  go("Membre retiré de l’équipe.");
+  go(t("members.actionMessages.removed"));
 }
 
 export async function cancelInvitationAction(formData: FormData) {
-  const { membership } = await requirePeopleAdmin();
+  const { membership, t } = await requirePeopleAdmin();
   const invitationId = String(formData.get("invitationId") ?? "");
-  if (!invitationId) go("Invitation invalide.", "error");
+  if (!invitationId) {
+    go(t("members.actionMessages.invalidInvitation"), "error");
+  }
 
   const admin = createAdminClient();
   const { error } = await admin
@@ -192,11 +243,17 @@ export async function cancelInvitationAction(formData: FormData) {
     .eq("organization_id", membership.organization_id)
     .eq("status", "pending");
 
-  if (error) go(`Annulation impossible : ${error.message}`, "error");
+  if (error) {
+    go(
+      t("members.actionMessages.cancellationImpossible", {
+        message: error.message,
+      }),
+      "error",
+    );
+  }
   revalidatePath("/dashboard/members");
-  go("Invitation annulée.");
+  go(t("members.actionMessages.invitationCancelled"));
 }
-
 
 function cleanEnvironmentValue(value: string | undefined): string {
   return (value ?? "").trim().replace(/^['\"]|['\"]$/g, "");
@@ -210,7 +267,7 @@ function getSiteUrl(): string {
   return (configuredUrl || "http://localhost:3002").replace(/\/+$/, "");
 }
 
-function createPublicAuthClient() {
+function createPublicAuthClient(missingConfigMessage: string) {
   const supabaseUrl = cleanEnvironmentValue(
     process.env.NEXT_PUBLIC_SUPABASE_URL,
   ).replace(/\/+$/, "");
@@ -219,7 +276,7 @@ function createPublicAuthClient() {
   );
 
   if (!supabaseUrl || !publishableKey) {
-    throw new Error("Configuration Supabase publique manquante.");
+    throw new Error(missingConfigMessage);
   }
 
   return createSupabaseClient(supabaseUrl, publishableKey, {
@@ -230,8 +287,6 @@ function createPublicAuthClient() {
     },
   });
 }
-
-
 
 export type ManualMemberAccessState = {
   status: "idle" | "success" | "warning" | "error";
@@ -252,7 +307,7 @@ function isRetryableAuthAdminError(message: string): boolean {
 
 async function runAuthAdminWithRetry<
   T extends { error: { message: string } | null },
->(operation: () => Promise<T>): Promise<T> {
+>(operation: () => Promise<T>, emptyResultMessage: string): Promise<T> {
   const maxAttempts = 4;
   let lastResult: T | null = null;
 
@@ -265,16 +320,11 @@ async function runAuthAdminWithRetry<
     }
 
     if (attempt < maxAttempts) {
-      await new Promise((resolve) =>
-        setTimeout(resolve, 250 * attempt),
-      );
+      await new Promise((resolve) => setTimeout(resolve, 250 * attempt));
     }
   }
 
-  if (!lastResult) {
-    throw new Error("La requête Supabase Auth n’a retourné aucun résultat.");
-  }
-
+  if (!lastResult) throw new Error(emptyResultMessage);
   return lastResult;
 }
 
@@ -283,8 +333,7 @@ function improveAuthAdminError(message: string): string {
 
   return (
     `${message}. ` +
-    "Supabase Auth a rejeté temporairement la nouvelle clé sb_secret_. " +
-    "Ajoute la clé legacy service_role dans SUPABASE_LEGACY_SERVICE_ROLE_KEY, puis redémarre l’application."
+    "Supabase Auth rejected the new sb_secret_ key. Add the legacy service_role key to SUPABASE_LEGACY_SERVICE_ROLE_KEY and restart the application."
   );
 }
 
@@ -303,59 +352,64 @@ function fallbackFullName(email: string): string {
 async function findAuthUserByEmail(
   admin: ReturnType<typeof createAdminClient>,
   email: string,
+  t: Translator,
 ): Promise<User | null> {
   const normalizedEmail = email.trim().toLowerCase();
   const perPage = 200;
 
   for (let page = 1; page <= 50; page += 1) {
-    const { data, error } = await runAuthAdminWithRetry(() =>
-      admin.auth.admin.listUsers({ page, perPage }),
+    const { data, error } = await runAuthAdminWithRetry(
+      () => admin.auth.admin.listUsers({ page, perPage }),
+      t("members.actionMessages.emptyAuthResult"),
     );
 
     if (error) {
       throw new Error(
-        `Impossible de rechercher le compte : ${improveAuthAdminError(error.message)}`,
+        t("members.actionMessages.searchImpossible", {
+          message: improveAuthAdminError(error.message),
+        }),
       );
     }
 
     const match = data.users.find(
-      (candidate) => candidate.email?.trim().toLowerCase() === normalizedEmail,
+      (candidate) =>
+        candidate.email?.trim().toLowerCase() === normalizedEmail,
     );
 
     if (match) return match;
     if (data.users.length < perPage) return null;
   }
 
-  throw new Error(
-    "La recherche du compte a dépassé la limite prévue. Contacte l’administrateur technique.",
-  );
+  throw new Error(t("members.actionMessages.searchLimit"));
 }
 
 async function generatePasswordSetupLink(
   admin: ReturnType<typeof createAdminClient>,
   email: string,
+  t: Translator,
 ): Promise<string> {
   const redirectTo = `${getSiteUrl()}/update-password`;
 
-  const { data, error } = await runAuthAdminWithRetry(() =>
-    admin.auth.admin.generateLink({
-      type: "recovery",
-      email,
-      options: { redirectTo },
-    }),
+  const { data, error } = await runAuthAdminWithRetry(
+    () =>
+      admin.auth.admin.generateLink({
+        type: "recovery",
+        email,
+        options: { redirectTo },
+      }),
+    t("members.actionMessages.emptyAuthResult"),
   );
 
   if (error) {
     throw new Error(
-      `Impossible de générer le lien d’accès : ${improveAuthAdminError(error.message)}`,
+      t("members.actionMessages.linkImpossible", {
+        message: improveAuthAdminError(error.message),
+      }),
     );
   }
 
   const actionLink = data.properties?.action_link;
-  if (!actionLink) {
-    throw new Error("Supabase n’a retourné aucun lien d’accès.");
-  }
-
+  if (!actionLink) throw new Error(t("members.actionMessages.noAccessLink"));
   return actionLink;
 }
 
@@ -363,12 +417,15 @@ export async function activateInvitationManuallyAction(
   _previousState: ManualMemberAccessState,
   formData: FormData,
 ): Promise<ManualMemberAccessState> {
-  const { membership } = await requirePeopleAdmin();
+  const { membership, t } = await requirePeopleAdmin();
   const invitationId = String(formData.get("invitationId") ?? "").trim();
   const requestedFullName = String(formData.get("fullName") ?? "").trim();
 
   if (!invitationId) {
-    return { status: "error", message: "Invitation invalide." };
+    return {
+      status: "error",
+      message: t("members.actionMessages.invalidInvitation"),
+    };
   }
 
   const admin = createAdminClient();
@@ -383,14 +440,16 @@ export async function activateInvitationManuallyAction(
   if (invitationError) {
     return {
       status: "error",
-      message: `Chargement impossible : ${invitationError.message}`,
+      message: t("members.actionMessages.loadImpossible", {
+        message: invitationError.message,
+      }),
     };
   }
 
   if (!invitation) {
     return {
       status: "error",
-      message: "Cette invitation est introuvable ou a été annulée.",
+      message: t("members.actionMessages.invitationUnavailable"),
     };
   }
 
@@ -400,27 +459,29 @@ export async function activateInvitationManuallyAction(
   let activated = invitation.status === "accepted";
 
   try {
-    authUser = await findAuthUserByEmail(admin, email);
+    authUser = await findAuthUserByEmail(admin, email, t);
 
     if (!authUser) {
       const temporaryPassword = randomBytes(32).toString("base64url");
       const { data: createData, error: createError } =
-        await runAuthAdminWithRetry(() =>
-          admin.auth.admin.createUser({
-            email,
-            password: temporaryPassword,
-            email_confirm: true,
-            user_metadata: { full_name: fullName },
-          }),
+        await runAuthAdminWithRetry(
+          () =>
+            admin.auth.admin.createUser({
+              email,
+              password: temporaryPassword,
+              email_confirm: true,
+              user_metadata: { full_name: fullName },
+            }),
+          t("members.actionMessages.emptyAuthResult"),
         );
 
       if (createError || !createData.user) {
         throw new Error(
-          `Création du compte impossible : ${
-            createError
+          t("members.actionMessages.createAccountImpossible", {
+            message: createError
               ? improveAuthAdminError(createError.message)
-              : "utilisateur non retourné"
-          }`,
+              : t("members.actionMessages.noReturnedUser"),
+          }),
         );
       }
 
@@ -429,27 +490,31 @@ export async function activateInvitationManuallyAction(
       const existingUserId = authUser.id;
       const currentMetadata = authUser.user_metadata ?? {};
       const { data: updateData, error: updateError } =
-        await runAuthAdminWithRetry(() =>
-          admin.auth.admin.updateUserById(existingUserId, {
-            email_confirm: true,
-            user_metadata: {
-              ...currentMetadata,
-              full_name:
-                requestedFullName ||
-                String(currentMetadata.full_name ?? "").trim() ||
-                fullName,
-            },
-          }),
+        await runAuthAdminWithRetry(
+          () =>
+            admin.auth.admin.updateUserById(existingUserId, {
+              email_confirm: true,
+              user_metadata: {
+                ...currentMetadata,
+                full_name:
+                  requestedFullName ||
+                  String(currentMetadata.full_name ?? "").trim() ||
+                  fullName,
+              },
+            }),
+          t("members.actionMessages.emptyAuthResult"),
         );
 
       if (updateError) {
         throw new Error(
-          `Mise à jour du compte impossible : ${improveAuthAdminError(updateError.message)}`,
+          t("members.actionMessages.updateAccountImpossible", {
+            message: improveAuthAdminError(updateError.message),
+          }),
         );
       }
 
       if (!updateData.user) {
-        throw new Error("Supabase n’a retourné aucun utilisateur après la mise à jour.");
+        throw new Error(t("members.actionMessages.noUserAfterUpdate"));
       }
 
       authUser = updateData.user;
@@ -470,7 +535,11 @@ export async function activateInvitationManuallyAction(
     );
 
     if (profileError) {
-      throw new Error(`Profil impossible à enregistrer : ${profileError.message}`);
+      throw new Error(
+        t("members.actionMessages.profileImpossible", {
+          message: profileError.message,
+        }),
+      );
     }
 
     const { error: membershipError } = await admin
@@ -489,7 +558,9 @@ export async function activateInvitationManuallyAction(
 
     if (membershipError) {
       throw new Error(
-        `Activation dans l’organisation impossible : ${membershipError.message}`,
+        t("members.actionMessages.organisationActivationImpossible", {
+          message: membershipError.message,
+        }),
       );
     }
 
@@ -503,11 +574,13 @@ export async function activateInvitationManuallyAction(
 
     if (invitationUpdateError) {
       throw new Error(
-        `Impossible de clôturer l’invitation : ${invitationUpdateError.message}`,
+        t("members.actionMessages.closeInvitationImpossible", {
+          message: invitationUpdateError.message,
+        }),
       );
     }
 
-    const setupLink = await generatePasswordSetupLink(admin, email);
+    const setupLink = await generatePasswordSetupLink(admin, email, t);
     const loginUrl = `${getSiteUrl()}/login`;
 
     revalidatePath("/dashboard/members");
@@ -521,20 +594,22 @@ export async function activateInvitationManuallyAction(
       activated,
       message:
         invitation.status === "accepted"
-          ? `Un nouveau lien d’accès a été généré pour ${email}.`
-          : `${email} est maintenant un collaborateur actif.`,
+          ? t("members.actionMessages.newAccessLink", { email })
+          : t("members.actionMessages.nowActive", { email }),
       setupLink,
       loginUrl,
     };
   } catch (error) {
     const message =
-      error instanceof Error ? error.message : "Erreur inconnue lors de l’activation.";
+      error instanceof Error
+        ? error.message
+        : t("members.actionMessages.unknownActivationError");
 
     if (activated && authUser) {
       return {
         status: "warning",
         activated: true,
-        message: `Le collaborateur est actif, mais le lien n’a pas pu être généré : ${message}`,
+        message: t("members.actionMessages.activeButLinkFailed", { message }),
         loginUrl: `${getSiteUrl()}/login`,
       };
     }
@@ -544,11 +619,11 @@ export async function activateInvitationManuallyAction(
 }
 
 export async function resendInvitationAction(formData: FormData) {
-  const { membership } = await requirePeopleAdmin();
+  const { membership, t } = await requirePeopleAdmin();
   const invitationId = String(formData.get("invitationId") ?? "").trim();
 
   if (!invitationId) {
-    go("Invitation invalide.", "error");
+    go(t("members.actionMessages.invalidInvitation"), "error");
   }
 
   const admin = createAdminClient();
@@ -561,11 +636,16 @@ export async function resendInvitationAction(formData: FormData) {
     .maybeSingle();
 
   if (invitationError) {
-    go(`Chargement impossible : ${invitationError.message}`, "error");
+    go(
+      t("members.actionMessages.loadImpossible", {
+        message: invitationError.message,
+      }),
+      "error",
+    );
   }
 
   if (!invitation) {
-    go("Cette invitation est introuvable, annulée ou déjà acceptée.", "error");
+    go(t("members.actionMessages.invitationNotResendable"), "error");
   }
 
   const previousToken = invitation.token;
@@ -587,14 +667,21 @@ export async function resendInvitationAction(formData: FormData) {
     .eq("organization_id", membership.organization_id);
 
   if (updateError) {
-    go(`Impossible de renouveler l’invitation : ${updateError.message}`, "error");
+    go(
+      t("members.actionMessages.renewalImpossible", {
+        message: updateError.message,
+      }),
+      "error",
+    );
   }
 
   const nextPath = `/accept-invite?token=${encodeURIComponent(newToken)}`;
   const redirectTo = `${getSiteUrl()}/auth/callback?next=${encodeURIComponent(nextPath)}`;
 
   try {
-    const publicAuth = createPublicAuthClient();
+    const publicAuth = createPublicAuthClient(
+      t("members.actionMessages.publicConfigMissing"),
+    );
     const { error: emailError } = await publicAuth.auth.signInWithOtp({
       email: invitation.email,
       options: {
@@ -603,9 +690,7 @@ export async function resendInvitationAction(formData: FormData) {
       },
     });
 
-    if (emailError) {
-      throw emailError;
-    }
+    if (emailError) throw emailError;
   } catch (error) {
     await admin
       .from("organization_invitations")
@@ -617,11 +702,12 @@ export async function resendInvitationAction(formData: FormData) {
       .eq("id", invitation.id)
       .eq("organization_id", membership.organization_id);
 
-    const message = error instanceof Error ? error.message : "Erreur inconnue";
-    go(`Le nouveau lien n’a pas pu être envoyé : ${message}`, "error");
+    const message =
+      error instanceof Error ? error.message : t("common.unknownError");
+    go(t("members.actionMessages.resendFailed", { message }), "error");
   }
 
   revalidatePath("/dashboard/members");
   revalidatePath("/dashboard/company");
-  go(`Nouveau lien envoyé à ${invitation.email}.`);
+  go(t("members.actionMessages.resent", { email: invitation.email }));
 }
