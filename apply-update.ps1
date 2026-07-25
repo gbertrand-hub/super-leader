@@ -1,15 +1,40 @@
 $ErrorActionPreference = "Stop"
-Write-Host "=== Super Leader - Mise a jour Feedback entre collegues ===" -ForegroundColor Cyan
-if (-not (Test-Path "package.json")) { throw "Lance ce script depuis le dossier racine contenant package.json." }
+
+$root = Split-Path -Parent $MyInvocation.MyCommand.Path
+$payload = Join-Path $root "payload"
+
+if (-not (Test-Path (Join-Path $root "package.json"))) {
+  Write-Host "ERREUR: place apply-update.ps1, apply-update.bat and payload in the project root (same folder as package.json)." -ForegroundColor Red
+  exit 1
+}
+
 $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
-$backup = "backup-peer-feedback-$stamp"
-New-Item -ItemType Directory -Path $backup | Out-Null
-foreach ($item in @("src")) { if (Test-Path $item) { Copy-Item $item $backup -Recurse -Force } }
-Copy-Item "$PSScriptRoot\payload\*" "." -Recurse -Force
-Write-Host "Fichiers copies. Sauvegarde : $backup" -ForegroundColor Green
-Write-Host "Verification TypeScript et production..." -ForegroundColor Cyan
+$backup = Join-Path $root "backup-vercel-supabase-fix-$stamp"
+New-Item -ItemType Directory -Force -Path $backup | Out-Null
+
+$files = @(
+  "proxy.ts",
+  "src/lib/supabase/env.ts",
+  "src/lib/supabase/server.ts",
+  "src/lib/supabase/client.ts",
+  "src/lib/supabase/admin.ts",
+  "src/app/actions/auth.ts",
+  "src/app/api/diagnostic/supabase/route.ts"
+)
+
+foreach ($relative in $files) {
+  $source = Join-Path $root $relative
+  if (Test-Path $source) {
+    $destination = Join-Path $backup $relative
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $destination) | Out-Null
+    Copy-Item $source $destination -Force
+  }
+}
+
+Copy-Item (Join-Path $payload "*") $root -Recurse -Force
+
+Write-Host "Update copied. Backup: $backup" -ForegroundColor Green
+Write-Host "Running build verification..." -ForegroundColor Cyan
 npm run build
-if ($LASTEXITCODE -ne 0) { throw "Le build a echoue. Restaure le dossier $backup si necessaire." }
-Write-Host "Mise a jour appliquee avec succes." -ForegroundColor Green
-Write-Host "Etape manuelle restante :" -ForegroundColor Yellow
-Write-Host "Executer supabase\003_peer_feedback.sql dans Supabase > SQL Editor, puis relancer npm run dev."
+
+Write-Host "DONE. Next: git add ., commit, push, then open /api/diagnostic/supabase on the production domain." -ForegroundColor Green

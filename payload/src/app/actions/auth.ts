@@ -3,25 +3,67 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { getSiteUrl } from "@/lib/supabase/env";
 
-function getBaseUrl() {
-  return process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3002";
+export type AuthState = {
+  error?: string;
+  success?: string;
+};
+
+function authErrorMessage(error: {
+  message?: string;
+  code?: string;
+  status?: number;
+}): string {
+  console.error("Supabase authentication error", {
+    message: error.message,
+    code: error.code,
+    status: error.status,
+  });
+
+  switch (error.code) {
+    case "invalid_credentials":
+      return "Adresse email ou mot de passe incorrect.";
+    case "email_not_confirmed":
+      return "Ton adresse email n’a pas encore été confirmée.";
+    case "over_email_send_rate_limit":
+      return "Trop de demandes ont été envoyées. Réessaie dans quelques minutes.";
+    case "user_already_exists":
+      return "Un compte existe déjà avec cette adresse email.";
+    case "weak_password":
+      return "Le mot de passe choisi n’est pas suffisamment sécurisé.";
+    default:
+      return error.message || "Une erreur d’authentification est survenue.";
+  }
 }
-
-export type AuthState = { error?: string; success?: string };
 
 export async function signInAction(
   _previousState: AuthState,
   formData: FormData,
 ): Promise<AuthState> {
-  const email = String(formData.get("email") ?? "").trim();
+  const email = String(formData.get("email") ?? "").trim().toLowerCase();
   const password = String(formData.get("password") ?? "");
 
-  if (!email || !password) return { error: "Email et mot de passe obligatoires." };
+  if (!email || !password) {
+    return { error: "Email et mot de passe obligatoires." };
+  }
 
-  const supabase = await createClient();
-  const { error } = await supabase.auth.signInWithPassword({ email, password });
-  if (error) return { error: "Connexion impossible. Vérifie tes informations." };
+  try {
+    const supabase = await createClient();
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+
+    if (error) {
+      return { error: authErrorMessage(error) };
+    }
+  } catch (error) {
+    console.error("Supabase sign-in network/configuration error", error);
+    return {
+      error:
+        error instanceof Error
+          ? error.message
+          : "Impossible de joindre le service d’authentification.",
+    };
+  }
 
   revalidatePath("/", "layout");
   redirect("/dashboard");
@@ -32,41 +74,80 @@ export async function signUpAction(
   formData: FormData,
 ): Promise<AuthState> {
   const fullName = String(formData.get("fullName") ?? "").trim();
-  const email = String(formData.get("email") ?? "").trim();
+  const email = String(formData.get("email") ?? "").trim().toLowerCase();
   const password = String(formData.get("password") ?? "");
   const confirmPassword = String(formData.get("confirmPassword") ?? "");
 
-  if (!fullName || !email || !password) return { error: "Tous les champs sont obligatoires." };
-  if (password.length < 8) return { error: "Le mot de passe doit contenir au moins 8 caractères." };
-  if (password !== confirmPassword) return { error: "Les mots de passe ne correspondent pas." };
+  if (!fullName || !email || !password || !confirmPassword) {
+    return { error: "Tous les champs sont obligatoires." };
+  }
 
-  const supabase = await createClient();
-  const { error } = await supabase.auth.signUp({
-    email,
-    password,
-    options: {
-      data: { full_name: fullName },
-      emailRedirectTo: `${getBaseUrl()}/auth/callback?next=/dashboard`,
-    },
-  });
+  if (password.length < 8) {
+    return { error: "Le mot de passe doit contenir au moins 8 caractères." };
+  }
 
-  if (error) return { error: "Création du compte impossible. Essaie une autre adresse email." };
-  return { success: "Compte créé. Consulte ton email pour confirmer ton inscription." };
+  if (password !== confirmPassword) {
+    return { error: "Les mots de passe ne correspondent pas." };
+  }
+
+  try {
+    const supabase = await createClient();
+    const { error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: { full_name: fullName },
+        emailRedirectTo: `${getSiteUrl()}/auth/callback?next=/dashboard`,
+      },
+    });
+
+    if (error) {
+      return { error: authErrorMessage(error) };
+    }
+  } catch (error) {
+    console.error("Supabase sign-up network/configuration error", error);
+    return {
+      error:
+        error instanceof Error
+          ? error.message
+          : "Impossible de joindre le service d’authentification.",
+    };
+  }
+
+  return {
+    success: "Compte créé. Consulte ton email pour confirmer ton inscription.",
+  };
 }
 
 export async function forgotPasswordAction(
   _previousState: AuthState,
   formData: FormData,
 ): Promise<AuthState> {
-  const email = String(formData.get("email") ?? "").trim();
-  if (!email) return { error: "Entre ton adresse email." };
+  const email = String(formData.get("email") ?? "").trim().toLowerCase();
 
-  const supabase = await createClient();
-  const { error } = await supabase.auth.resetPasswordForEmail(email, {
-    redirectTo: `${getBaseUrl()}/auth/callback?next=/update-password`,
-  });
+  if (!email) {
+    return { error: "Entre ton adresse email." };
+  }
 
-  if (error) return { error: "Impossible d’envoyer le lien. Réessaie plus tard." };
+  try {
+    const supabase = await createClient();
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${getSiteUrl()}/auth/callback?next=/update-password`,
+    });
+
+    if (error) {
+      return { error: authErrorMessage(error) };
+    }
+  } catch (error) {
+    console.error("Supabase password reset network/configuration error", error);
+    return {
+      error:
+        error instanceof Error
+          ? error.message
+          : "Impossible de joindre le service d’authentification.",
+    };
+  }
+
   return { success: "Lien envoyé. Consulte ta boîte email." };
 }
 
@@ -77,20 +158,37 @@ export async function updatePasswordAction(
   const password = String(formData.get("password") ?? "");
   const confirmPassword = String(formData.get("confirmPassword") ?? "");
 
-  if (password.length < 8) return { error: "Le mot de passe doit contenir au moins 8 caractères." };
-  if (password !== confirmPassword) return { error: "Les mots de passe ne correspondent pas." };
+  if (!password || !confirmPassword) {
+    return { error: "Les deux champs sont obligatoires." };
+  }
+
+  if (password.length < 8) {
+    return { error: "Le mot de passe doit contenir au moins 8 caractères." };
+  }
+
+  if (password !== confirmPassword) {
+    return { error: "Les mots de passe ne correspondent pas." };
+  }
 
   const supabase = await createClient();
   const { error } = await supabase.auth.updateUser({ password });
-  if (error) return { error: "La mise à jour du mot de passe a échoué." };
+
+  if (error) {
+    return { error: authErrorMessage(error) };
+  }
 
   revalidatePath("/", "layout");
   redirect("/dashboard");
 }
 
-export async function signOutAction() {
+export async function signOutAction(): Promise<void> {
   const supabase = await createClient();
-  await supabase.auth.signOut();
+  const { error } = await supabase.auth.signOut();
+
+  if (error) {
+    console.error("Supabase sign-out error", error.message);
+  }
+
   revalidatePath("/", "layout");
   redirect("/login");
 }

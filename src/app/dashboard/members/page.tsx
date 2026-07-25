@@ -42,25 +42,16 @@ export default async function MembersPage({ searchParams }: { searchParams: Sear
   const { data: authData, error: authError } = await supabase.auth.getUser();
   if (authError || !authData.user) redirect("/login");
 
-const admin = createAdminClient();
+  const { data: currentMembership } = await supabase
+    .from("organization_members")
+    .select("organization_id, role, is_active, organizations(name)")
+    .eq("user_id", authData.user.id)
+    .eq("is_active", true)
+    .limit(1)
+    .maybeSingle();
+  if (!currentMembership) redirect("/dashboard/company");
 
-const { data: currentMembership, error: membershipError } = await admin
-  .from("organization_members")
-  .select("organization_id, role, is_active, organizations(name)")
-  .eq("user_id", authData.user.id)
-  .eq("is_active", true)
-  .limit(1)
-  .maybeSingle();
-
-if (membershipError) {
-  throw new Error(
-    `Impossible de charger l’appartenance à l’organisation : ${membershipError.message}`,
-  );
-}
-
-if (!currentMembership) {
-  redirect("/dashboard/company");
-}
+  const admin = createAdminClient();
   const organizationId = currentMembership.organization_id;
   const [membersResult, teamsResult, assignmentsResult, invitationsResult] = await Promise.all([
     admin
