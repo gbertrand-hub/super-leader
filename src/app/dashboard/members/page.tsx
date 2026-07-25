@@ -4,13 +4,11 @@ import {
   assignMemberToTeamAction,
   cancelInvitationAction,
   removeMemberFromTeamAction,
-  resendInvitationAction,
   toggleMemberStatusAction,
   updateMemberRoleAction,
 } from "@/app/actions/members";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
-import { ManualAccessControls } from "@/components/members/manual-access-controls";
 
 type SearchParams = Promise<{ success?: string; error?: string }>;
 
@@ -44,25 +42,16 @@ export default async function MembersPage({ searchParams }: { searchParams: Sear
   const { data: authData, error: authError } = await supabase.auth.getUser();
   if (authError || !authData.user) redirect("/login");
 
-const admin = createAdminClient();
+  const { data: currentMembership } = await supabase
+    .from("organization_members")
+    .select("organization_id, role, is_active, organizations(name)")
+    .eq("user_id", authData.user.id)
+    .eq("is_active", true)
+    .limit(1)
+    .maybeSingle();
+  if (!currentMembership) redirect("/dashboard/company");
 
-const { data: currentMembership, error: membershipError } = await admin
-  .from("organization_members")
-  .select("organization_id, role, is_active, organizations(name)")
-  .eq("user_id", authData.user.id)
-  .eq("is_active", true)
-  .limit(1)
-  .maybeSingle();
-
-if (membershipError) {
-  throw new Error(
-    `Impossible de charger l’appartenance à l’organisation : ${membershipError.message}`,
-  );
-}
-
-if (!currentMembership) {
-  redirect("/dashboard/company");
-}
+  const admin = createAdminClient();
   const organizationId = currentMembership.organization_id;
   const [membersResult, teamsResult, assignmentsResult, invitationsResult] = await Promise.all([
     admin
@@ -178,40 +167,13 @@ if (!currentMembership) {
 
         <section className="mt-6 rounded-3xl bg-white p-6 shadow-sm">
           <h2 className="text-2xl font-black">Invitations</h2>
-          <p className="mt-1 text-sm text-slate-500">Renvoyer génère un nouvel email. L’activation de secours crée le collaborateur et fournit un lien à transmettre directement.</p>
           <div className="mt-4 overflow-x-auto">
             <table className="w-full min-w-[760px] text-left text-sm">
               <thead><tr className="border-b text-slate-500"><th className="p-3">Email</th><th className="p-3">Rôle</th><th className="p-3">Statut</th><th className="p-3">Expiration</th><th className="p-3">Action</th></tr></thead>
               <tbody>{invitations.length ? invitations.map((invitation) => (
                 <tr key={invitation.id} className="border-b border-slate-100">
                   <td className="p-3 font-semibold">{invitation.email}</td><td className="p-3">{roleLabels[invitation.role] ?? invitation.role}</td><td className="p-3"><span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold uppercase">{invitation.status}</span></td><td className="p-3">{new Intl.DateTimeFormat("fr-FR", { dateStyle: "medium" }).format(new Date(invitation.expires_at))}</td>
-                  <td className="p-3 align-top">
-                    {(["pending", "expired"].includes(invitation.status) && canManagePeople) ? (
-                      <div className="flex flex-wrap items-center gap-3">
-                        <form action={resendInvitationAction}>
-                          <input type="hidden" name="invitationId" value={invitation.id} />
-                          <button className="font-bold text-indigo-700">Renvoyer</button>
-                        </form>
-                        {invitation.status === "pending" && (
-                          <form action={cancelInvitationAction}>
-                            <input type="hidden" name="invitationId" value={invitation.id} />
-                            <button className="font-bold text-red-600">Annuler</button>
-                          </form>
-                        )}
-                      </div>
-                    ) : invitation.status === "accepted" ? (
-                      <span className="text-xs font-semibold text-emerald-700">Compte activé</span>
-                    ) : (
-                      <span className="text-slate-400">—</span>
-                    )}
-
-                    <ManualAccessControls
-                      invitationId={invitation.id}
-                      email={invitation.email}
-                      status={invitation.status}
-                      canManage={canManagePeople}
-                    />
-                  </td>
+                  <td className="p-3">{invitation.status === "pending" && canManagePeople ? <form action={cancelInvitationAction}><input type="hidden" name="invitationId" value={invitation.id} /><button className="font-bold text-red-600">Annuler</button></form> : "—"}</td>
                 </tr>
               )) : <tr><td className="p-4 text-slate-500" colSpan={5}>Aucune invitation.</td></tr>}</tbody>
             </table>

@@ -1,50 +1,44 @@
 $ErrorActionPreference = "Stop"
 
-$root = (Get-Location).Path
-$packageJson = Join-Path $root "package.json"
-
-if (-not (Test-Path $packageJson)) {
-  Write-Host "ERREUR : lance ce script depuis le dossier contenant package.json." -ForegroundColor Red
-  exit 1
+$ProjectRoot = Get-Location
+if (-not (Test-Path (Join-Path $ProjectRoot "package.json"))) {
+  throw "Lance ce script depuis le dossier contenant package.json."
 }
 
-$stamp = Get-Date -Format "yyyyMMdd-HHmmss"
-$backup = Join-Path $root "backup-production-cleanup-$stamp"
-New-Item -ItemType Directory -Path $backup -Force | Out-Null
+$PayloadRoot = Join-Path $PSScriptRoot "payload"
+$BackupRoot = Join-Path (Split-Path $ProjectRoot -Parent) ("backup-password-link-fix-" + (Get-Date -Format "yyyyMMdd-HHmmss"))
+New-Item -ItemType Directory -Force -Path $BackupRoot | Out-Null
 
-$itemsToBackup = @(
-  "src\app\actions\company.ts",
-  ".env.example",
-  "src\app\api\diagnostic\supabase"
+$Targets = @(
+  "src/app/actions/members.ts",
+  "src/app/page.tsx",
+  "src/app/update-password/page.tsx",
+  "src/components/auth/recovery-hash-redirect.tsx"
 )
 
-foreach ($relativePath in $itemsToBackup) {
-  $source = Join-Path $root $relativePath
-  if (Test-Path $source) {
-    $destination = Join-Path $backup $relativePath
-    $destinationParent = Split-Path $destination -Parent
-    New-Item -ItemType Directory -Path $destinationParent -Force | Out-Null
-    Copy-Item $source $destination -Recurse -Force
+foreach ($RelativePath in $Targets) {
+  $Existing = Join-Path $ProjectRoot $RelativePath
+  if (Test-Path $Existing) {
+    $BackupFile = Join-Path $BackupRoot $RelativePath
+    New-Item -ItemType Directory -Force -Path (Split-Path $BackupFile -Parent) | Out-Null
+    Copy-Item $Existing $BackupFile -Force
   }
 }
 
-$payload = Join-Path $PSScriptRoot "payload"
-Copy-Item (Join-Path $payload "*") $root -Recurse -Force
+Copy-Item (Join-Path $PayloadRoot "*") $ProjectRoot -Recurse -Force
+Remove-Item (Join-Path $ProjectRoot ".next") -Recurse -Force -ErrorAction SilentlyContinue
 
-$diagnosticRoute = Join-Path $root "src\app\api\diagnostic\supabase"
-if (Test-Path $diagnosticRoute) {
-  Remove-Item $diagnosticRoute -Recurse -Force
-  Write-Host "Route temporaire de diagnostic supprimée." -ForegroundColor Yellow
-}
-
-Write-Host "Sauvegarde créée : $backup" -ForegroundColor Cyan
-Write-Host "Vérification du projet..." -ForegroundColor Cyan
-
-npm run build
+Write-Host "Verification TypeScript..." -ForegroundColor Cyan
+& npx tsc --noEmit
 if ($LASTEXITCODE -ne 0) {
-  Write-Host "Le build a échoué. Les fichiers précédents sont dans : $backup" -ForegroundColor Red
-  exit $LASTEXITCODE
+  throw "La verification TypeScript a echoue. Sauvegarde: $BackupRoot"
 }
 
-Write-Host "Mise à jour appliquée avec succès." -ForegroundColor Green
-Write-Host "Prochaine étape : git add ., git commit, puis git push." -ForegroundColor Green
+Write-Host "Build Next.js..." -ForegroundColor Cyan
+& npm run build
+if ($LASTEXITCODE -ne 0) {
+  throw "Le build a echoue. Sauvegarde: $BackupRoot"
+}
+
+Write-Host "Correction installee avec succes." -ForegroundColor Green
+Write-Host "Sauvegarde: $BackupRoot"

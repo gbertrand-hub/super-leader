@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
+import { RecoveryHashRedirect } from "@/components/auth/recovery-hash-redirect";
 
 export default async function Home() {
   const supabase = await createClient();
@@ -7,6 +8,7 @@ export default async function Home() {
 
   return (
     <main className="min-h-screen bg-slate-50 px-5 py-10 text-slate-950">
+      <RecoveryHashRedirect />
       <section className="mx-auto max-w-5xl overflow-hidden rounded-[2rem] bg-slate-950 px-8 py-12 text-white shadow-2xl sm:px-12 sm:py-16">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <p className="inline-flex rounded-full bg-white/10 px-4 py-2 text-sm font-bold">

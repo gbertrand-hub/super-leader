@@ -335,9 +335,7 @@ async function generatePasswordSetupLink(
   admin: ReturnType<typeof createAdminClient>,
   email: string,
 ): Promise<string> {
-  const redirectTo = `${getSiteUrl()}/auth/callback?next=${encodeURIComponent(
-    "/update-password",
-  )}`;
+  const redirectTo = `${getSiteUrl()}/update-password`;
 
   const { data, error } = await runAuthAdminWithRetry(() =>
     admin.auth.admin.generateLink({
