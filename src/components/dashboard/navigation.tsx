@@ -33,6 +33,7 @@ type IconName =
   | "actions"
   | "sales"
   | "collections"
+  | "crm"
   | "reports"
   | "settings"
   | "menu"
@@ -88,6 +89,11 @@ const navigationItems: NavigationItem[] = [
     labelKey: "navigation.collections",
     href: "/dashboard/collections",
     icon: "collections",
+  },
+  {
+    labelKey: "navigation.crm",
+    href: "/dashboard/crm",
+    icon: "crm",
   },
   {
     labelKey: "navigation.reports",
@@ -174,6 +180,14 @@ function Icon({ name, className = "h-5 w-5" }: { name: IconName; className?: str
         <path d="M4 7h16v10H4z" />
         <path d="M8 11h8M8 14h5" />
         <path d="M7 4 4 7l3 3M17 20l3-3-3-3" />
+      </>
+    ),
+    crm: (
+      <>
+        <circle cx="8" cy="8" r="3" />
+        <path d="M2.5 20c.5-4.2 2.3-6 5.5-6 3.1 0 5 1.8 5.5 6" />
+        <path d="M15 5h6v10h-4l-2.5 2.5V5Z" />
+        <path d="M17 8h2M17 11h2" />
       </>
     ),
     reports: (

@@ -31,6 +31,7 @@ export default async function DashboardPage() {
   let recognitionCount = 0;
   let actionPlanCount = 0;
   let salesThisMonthCount = 0;
+  let crmClientCount = 0;
 
   if (organization && membership?.organization_id) {
     const [{data: received}, {count: recognitions}, {count: actionPlans}] =
@@ -73,6 +74,11 @@ export default async function DashboardPage() {
       .gte("sale_date", monthStart)
       .not("workflow_status", "in", "(rejected,cancelled,refunded)");
     if (!salesError) salesThisMonthCount = salesCount ?? 0;
+    const {count: clientsCount, error: crmError} = await admin
+      .from("crm_clients")
+      .select("id", {count: "exact", head: true})
+      .eq("organization_id", membership.organization_id);
+    if (!crmError) crmClientCount = clientsCount ?? 0;
   }
 
   const isReportLeader = ["owner", "admin", "hr", "manager"].includes(
@@ -148,6 +154,10 @@ export default async function DashboardPage() {
               <p className="text-lg font-black text-cyan-950">{t("dashboard.salesTitle")}</p>
               <p className="mt-2 text-sm text-cyan-800">{t("dashboard.salesDescription")}</p>
             </Link>
+            <Link href="/dashboard/crm" className="rounded-2xl border border-violet-200 bg-violet-50 p-6 shadow-sm hover:border-violet-400">
+              <p className="text-lg font-black text-violet-950">{t("dashboard.crmTitle")}</p>
+              <p className="mt-2 text-sm text-violet-800">{t("dashboard.crmDescription")}</p>
+            </Link>
             {isReportLeader ? (
               <Link href="/dashboard/reports" className="rounded-2xl border border-emerald-200 bg-emerald-50 p-6 shadow-sm hover:border-emerald-400">
                 <p className="text-lg font-black text-emerald-950">{t("dashboard.reportsTitle")}</p>
@@ -177,6 +187,11 @@ export default async function DashboardPage() {
             <p className="text-sm font-semibold text-slate-500">{t("sales.salesThisMonth")}</p>
             <p className="mt-3 text-4xl font-black">{salesThisMonthCount}</p>
             <p className="mt-3 text-sm leading-6 text-slate-600">{t("sales.scopePersonal")}</p>
+          </Link>
+          <Link href="/dashboard/crm" className="rounded-2xl border border-violet-200 bg-white p-6 shadow-sm hover:bg-violet-50">
+            <p className="text-sm font-semibold text-slate-500">{t("dashboard.crmClients")}</p>
+            <p className="mt-3 text-4xl font-black">{crmClientCount}</p>
+            <p className="mt-3 text-sm leading-6 text-slate-600">{t("dashboard.crmClientsDescription")}</p>
           </Link>
         </section>
       </div>
