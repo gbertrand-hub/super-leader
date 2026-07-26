@@ -30,6 +30,7 @@ export default async function DashboardPage() {
   let averageScore = "0.0";
   let recognitionCount = 0;
   let actionPlanCount = 0;
+  let salesThisMonthCount = 0;
 
   if (organization && membership?.organization_id) {
     const [{data: received}, {count: recognitions}, {count: actionPlans}] =
@@ -62,7 +63,21 @@ export default async function DashboardPage() {
         received!.reduce((sum, item) => sum + item.score, 0) / receivedCount
       ).toFixed(1);
     }
+
+    const monthStart = `${new Date().toISOString().slice(0, 7)}-01`;
+    const {count: salesCount, error: salesError} = await admin
+      .from("sales_records")
+      .select("id", {count: "exact", head: true})
+      .eq("organization_id", membership.organization_id)
+      .eq("seller_id", data.user.id)
+      .gte("sale_date", monthStart)
+      .not("workflow_status", "in", "(rejected,cancelled,refunded)");
+    if (!salesError) salesThisMonthCount = salesCount ?? 0;
   }
+
+  const isReportLeader = ["owner", "admin", "hr", "manager"].includes(
+    membership?.role ?? "",
+  );
 
   return (
     <main className="min-h-screen bg-slate-50 px-5 py-8 text-slate-950">
@@ -108,105 +123,60 @@ export default async function DashboardPage() {
             </Link>
           </section>
         ) : (
-          <nav className="mt-6 grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-            <Link
-              href="/dashboard/company"
-              className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm hover:border-indigo-300"
-            >
+          <nav className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <Link href="/dashboard/company" className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm hover:border-indigo-300">
               <p className="text-lg font-black">{t("dashboard.companyTitle")}</p>
-              <p className="mt-2 text-sm text-slate-600">
-                {t("dashboard.companyDescription")}
-              </p>
+              <p className="mt-2 text-sm text-slate-600">{t("dashboard.companyDescription")}</p>
             </Link>
-            <Link
-              href="/dashboard/team"
-              className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm hover:border-indigo-300"
-            >
+            <Link href="/dashboard/team" className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm hover:border-indigo-300">
               <p className="text-lg font-black">{t("dashboard.teamsTitle")}</p>
-              <p className="mt-2 text-sm text-slate-600">
-                {t("dashboard.teamsDescription")}
-              </p>
+              <p className="mt-2 text-sm text-slate-600">{t("dashboard.teamsDescription")}</p>
             </Link>
-            <Link
-              href="/dashboard/members"
-              className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm hover:border-indigo-300"
-            >
+            <Link href="/dashboard/members" className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm hover:border-indigo-300">
               <p className="text-lg font-black">{t("dashboard.membersTitle")}</p>
-              <p className="mt-2 text-sm text-slate-600">
-                {t("dashboard.membersDescription")}
-              </p>
+              <p className="mt-2 text-sm text-slate-600">{t("dashboard.membersDescription")}</p>
             </Link>
-            <Link
-              href="/dashboard/feedback"
-              className="rounded-2xl border border-indigo-200 bg-indigo-50 p-6 shadow-sm hover:border-indigo-400"
-            >
-              <p className="text-lg font-black text-indigo-950">
-                {t("dashboard.feedbackTitle")}
-              </p>
-              <p className="mt-2 text-sm text-indigo-700">
-                {t("dashboard.feedbackDescription")}
-              </p>
+            <Link href="/dashboard/feedback" className="rounded-2xl border border-indigo-200 bg-indigo-50 p-6 shadow-sm hover:border-indigo-400">
+              <p className="text-lg font-black text-indigo-950">{t("dashboard.feedbackTitle")}</p>
+              <p className="mt-2 text-sm text-indigo-700">{t("dashboard.feedbackDescription")}</p>
             </Link>
-            <Link
-              href="/dashboard/recognition"
-              className="rounded-2xl border border-amber-200 bg-amber-50 p-6 shadow-sm hover:border-amber-400"
-            >
-              <p className="text-lg font-black text-amber-950">
-                {t("dashboard.recognitionTitle")}
-              </p>
-              <p className="mt-2 text-sm text-amber-800">
-                {t("dashboard.recognitionDescription")}
-              </p>
+            <Link href="/dashboard/recognition" className="rounded-2xl border border-amber-200 bg-amber-50 p-6 shadow-sm hover:border-amber-400">
+              <p className="text-lg font-black text-amber-950">{t("dashboard.recognitionTitle")}</p>
+              <p className="mt-2 text-sm text-amber-800">{t("dashboard.recognitionDescription")}</p>
             </Link>
-            {["owner", "admin", "hr", "manager"].includes(membership?.role ?? "") ? (
-              <Link
-                href="/dashboard/reports"
-                className="rounded-2xl border border-emerald-200 bg-emerald-50 p-6 shadow-sm hover:border-emerald-400"
-              >
-                <p className="text-lg font-black text-emerald-950">
-                  {t("dashboard.reportsTitle")}
-                </p>
-                <p className="mt-2 text-sm text-emerald-800">
-                  {t("dashboard.reportsDescription")}
-                </p>
+            <Link href="/dashboard/sales" className="rounded-2xl border border-cyan-200 bg-cyan-50 p-6 shadow-sm hover:border-cyan-400">
+              <p className="text-lg font-black text-cyan-950">{t("dashboard.salesTitle")}</p>
+              <p className="mt-2 text-sm text-cyan-800">{t("dashboard.salesDescription")}</p>
+            </Link>
+            {isReportLeader ? (
+              <Link href="/dashboard/reports" className="rounded-2xl border border-emerald-200 bg-emerald-50 p-6 shadow-sm hover:border-emerald-400">
+                <p className="text-lg font-black text-emerald-950">{t("dashboard.reportsTitle")}</p>
+                <p className="mt-2 text-sm text-emerald-800">{t("dashboard.reportsDescription")}</p>
               </Link>
             ) : null}
           </nav>
         )}
 
-        <section className="mt-6 grid gap-5 md:grid-cols-3">
+        <section className="mt-6 grid gap-5 md:grid-cols-2 xl:grid-cols-4">
           <article className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-            <p className="text-sm font-semibold text-slate-500">
-              {t("dashboard.feedbackReceived")}
-            </p>
+            <p className="text-sm font-semibold text-slate-500">{t("dashboard.feedbackReceived")}</p>
             <p className="mt-3 text-4xl font-black">{receivedCount}</p>
-            <p className="mt-3 text-sm leading-6 text-slate-600">
-              {t("dashboard.averageScore", {score: averageScore})}
-            </p>
+            <p className="mt-3 text-sm leading-6 text-slate-600">{t("dashboard.averageScore", {score: averageScore})}</p>
           </article>
-          <Link
-            href="/dashboard/recognition"
-            className="rounded-2xl border border-amber-200 bg-white p-6 shadow-sm hover:bg-amber-50"
-          >
-            <p className="text-sm font-semibold text-slate-500">
-              {t("dashboard.recognitions")}
-            </p>
+          <Link href="/dashboard/recognition" className="rounded-2xl border border-amber-200 bg-white p-6 shadow-sm hover:bg-amber-50">
+            <p className="text-sm font-semibold text-slate-500">{t("dashboard.recognitions")}</p>
             <p className="mt-3 text-4xl font-black">{recognitionCount}</p>
-            <p className="mt-3 text-sm leading-6 text-slate-600">
-              {t("dashboard.recognitionsDescription")}
-            </p>
+            <p className="mt-3 text-sm leading-6 text-slate-600">{t("dashboard.recognitionsDescription")}</p>
           </Link>
-          <Link
-            href="/dashboard/actions"
-            className="rounded-2xl border border-indigo-200 bg-white p-6 shadow-sm hover:bg-indigo-50"
-          >
-            <p className="text-sm font-semibold text-slate-500">
-              {t("dashboard.actionPlans")}
-            </p>
+          <Link href="/dashboard/actions" className="rounded-2xl border border-indigo-200 bg-white p-6 shadow-sm hover:bg-indigo-50">
+            <p className="text-sm font-semibold text-slate-500">{t("dashboard.actionPlans")}</p>
             <p className="mt-3 text-4xl font-black">{actionPlanCount}</p>
-            <p className="mt-3 text-sm leading-6 text-slate-600">
-              {t("dashboard.actionPlansDescription")}
-            </p>
+            <p className="mt-3 text-sm leading-6 text-slate-600">{t("dashboard.actionPlansDescription")}</p>
+          </Link>
+          <Link href="/dashboard/sales" className="rounded-2xl border border-cyan-200 bg-white p-6 shadow-sm hover:bg-cyan-50">
+            <p className="text-sm font-semibold text-slate-500">{t("sales.salesThisMonth")}</p>
+            <p className="mt-3 text-4xl font-black">{salesThisMonthCount}</p>
+            <p className="mt-3 text-sm leading-6 text-slate-600">{t("sales.scopePersonal")}</p>
           </Link>
         </section>
       </div>

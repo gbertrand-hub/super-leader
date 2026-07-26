@@ -31,6 +31,7 @@ type IconName =
   | "feedback"
   | "recognition"
   | "actions"
+  | "sales"
   | "reports"
   | "settings"
   | "menu"
@@ -76,6 +77,11 @@ const navigationItems: NavigationItem[] = [
     labelKey: "navigation.actions",
     href: "/dashboard/actions",
     icon: "actions",
+  },
+  {
+    labelKey: "navigation.sales",
+    href: "/dashboard/sales",
+    icon: "sales",
   },
   {
     labelKey: "navigation.reports",
@@ -148,6 +154,13 @@ function Icon({ name, className = "h-5 w-5" }: { name: IconName; className?: str
       <>
         <circle cx="12" cy="12" r="9" />
         <path d="m8 12 2.5 2.5L16 9" />
+      </>
+    ),
+    sales: (
+      <>
+        <path d="M4 7h16v10H4z" />
+        <path d="M7 10h.01M11 10h6M7 14h4M15 14h2" />
+        <path d="M8 4v3M16 4v3M8 17v3M16 17v3" />
       </>
     ),
     reports: (
