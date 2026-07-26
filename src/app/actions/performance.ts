@@ -35,6 +35,15 @@ type Membership = {
 
 type ScheduleRow = MemberSchedule & {id: string};
 
+type ReopeningRow = {
+  id: string;
+  user_id: string;
+  report_date: string;
+  score_factor: number | string;
+  status: string;
+  expires_at: string;
+};
+
 function go(message: string, kind: "success" | "error" = "success", view = "overview"): never {
   redirect(`/dashboard/performance?view=${encodeURIComponent(view)}&${kind}=${encodeURIComponent(message)}`);
 }
@@ -171,6 +180,71 @@ async function loadSettingsAndSchedule(
   ]);
   if (!settings) throw new Error("performance_settings_missing");
   return {settings, schedule};
+}
+
+async function canSuperviseEmployee(
+  membership: Membership,
+  actorId: string,
+  employeeId: string,
+  admin: ReturnType<typeof createAdminClient>,
+) {
+  if (actorId === employeeId) return false;
+  if (hrRoles.has(membership.role)) return true;
+  if (membership.role !== "manager") return false;
+  const {data} = await admin
+    .from("member_work_schedules")
+    .select("user_id")
+    .eq("organization_id", membership.organization_id)
+    .eq("user_id", employeeId)
+    .eq("supervisor_id", actorId)
+    .eq("is_active", true)
+    .maybeSingle();
+  return Boolean(data);
+}
+
+async function isActiveLeader(
+  organizationId: string,
+  userId: string,
+  admin: ReturnType<typeof createAdminClient>,
+) {
+  const {data} = await admin
+    .from("organization_members")
+    .select("role")
+    .eq("organization_id", organizationId)
+    .eq("user_id", userId)
+    .eq("is_active", true)
+    .maybeSingle<{role: string}>();
+  return Boolean(data && leaderRoles.has(data.role));
+}
+
+function reportWindowState(
+  reportDate: string,
+  now: Date,
+  settings: PerformanceSettings,
+  schedule: ScheduleRow | null,
+) {
+  const timezone = schedule?.timezone || settings.timezone;
+  const local = zonedParts(now, timezone);
+  const deadline = (schedule?.report_deadline_time || settings.report_deadline_time).slice(0, 5);
+  const isFuture = reportDate > local.date;
+  const isNormallyOpen = reportDate === local.date && timeToMinutes(local.time) <= timeToMinutes(deadline);
+  return {local, deadline, isFuture, isNormallyOpen, isClosed: !isFuture && !isNormallyOpen};
+}
+
+async function expireReopenings(
+  organizationId: string,
+  userId: string,
+  reportDate: string,
+  admin: ReturnType<typeof createAdminClient>,
+) {
+  await admin
+    .from("daily_report_reopenings")
+    .update({status: "expired"})
+    .eq("organization_id", organizationId)
+    .eq("user_id", userId)
+    .eq("report_date", reportDate)
+    .eq("status", "active")
+    .lte("expires_at", new Date().toISOString());
 }
 
 async function audit(
@@ -406,11 +480,43 @@ export async function submitDailyReportAction(formData: FormData) {
   } catch {
     go(t("performance.messages.databaseSetupRequired"), "error", "reports");
   }
-  const local = zonedParts(new Date(), schedule?.timezone || settings.timezone);
-  if (reportDate > local.date) go(t("performance.messages.futureReport"), "error", "reports");
-  const deadline = (schedule?.report_deadline_time || settings.report_deadline_time).slice(0, 5);
-  const status = reportDate < local.date || timeToMinutes(local.time) > timeToMinutes(deadline) ? "late" : "on_time";
 
+  const now = new Date();
+  const window = reportWindowState(reportDate, now, settings, schedule);
+  if (window.isFuture) go(t("performance.messages.futureReport"), "error", "reports");
+
+  let reopening: ReopeningRow | null = null;
+  if (settings.report_lock_enabled !== false && !window.isNormallyOpen) {
+    await expireReopenings(membership.organization_id, user.id, reportDate, admin);
+    const {data} = await admin
+      .from("daily_report_reopenings")
+      .select("id, user_id, report_date, score_factor, status, expires_at")
+      .eq("organization_id", membership.organization_id)
+      .eq("user_id", user.id)
+      .eq("report_date", reportDate)
+      .eq("status", "active")
+      .gt("expires_at", now.toISOString())
+      .order("opened_at", {ascending: false})
+      .limit(1)
+      .maybeSingle<ReopeningRow>();
+    reopening = data;
+    if (!reopening) go(t("performance.messages.reportLocked"), "error", "reports");
+  }
+
+  const {data: existingReport} = await admin
+    .from("daily_reports")
+    .select("id, status, submission_mode")
+    .eq("organization_id", membership.organization_id)
+    .eq("user_id", user.id)
+    .eq("report_date", reportDate)
+    .maybeSingle<{id: string; status: string; submission_mode: string}>();
+  if (existingReport?.status === "validated" || existingReport?.submission_mode === "supervisor") {
+    go(t("performance.messages.reportImmutable"), "error", "reports");
+  }
+
+  const submissionMode = reopening ? "reopened_employee" : "employee";
+  const scoreFactor = reopening ? Math.min(1, Math.max(0, Number(reopening.score_factor))) : 1;
+  const status = reopening ? "late" : "on_time";
   const {data, error} = await admin.from("daily_reports").upsert({
     organization_id: membership.organization_id,
     user_id: user.id,
@@ -420,23 +526,239 @@ export async function submitDailyReportAction(formData: FormData) {
     blockers,
     next_priorities: nextPriorities,
     status,
-    submitted_at: new Date().toISOString(),
+    submitted_at: now.toISOString(),
+    submitted_by: user.id,
+    submission_mode: submissionMode,
+    submission_score_factor: Number.isFinite(scoreFactor) ? scoreFactor : 1,
+    supervisor_reason: null,
+    reopening_id: reopening?.id ?? null,
     review_note: null,
     reviewed_by: null,
     reviewed_at: null,
   }, {onConflict: "organization_id,user_id,report_date"}).select("id").single<{id: string}>();
   if (error) go(t("performance.messages.reportSaveFailed", {message: error.message}), "error", "reports");
+
+  if (reopening) {
+    await admin
+      .from("daily_report_reopenings")
+      .update({status: "used", used_at: now.toISOString()})
+      .eq("id", reopening.id)
+      .eq("status", "active");
+  }
+
   await audit(admin, {
     organizationId: membership.organization_id,
     actorId: user.id,
     subjectUserId: user.id,
     entityType: "daily_report",
     entityId: data.id,
-    action: "submitted",
-    details: {report_date: reportDate, status},
+    action: reopening ? "submitted_after_reopening" : "submitted",
+    details: {
+      report_date: reportDate,
+      status,
+      submission_mode: submissionMode,
+      score_factor: scoreFactor,
+      reopening_id: reopening?.id ?? null,
+    },
   });
   revalidatePath("/dashboard/performance");
-  go(t("performance.messages.reportSubmitted"), "success", "reports");
+  go(reopening ? t("performance.messages.reopenedReportSubmitted") : t("performance.messages.reportSubmitted"), "success", "reports");
+}
+
+export async function reopenDailyReportAction(formData: FormData) {
+  const {user, membership, admin, t} = await getContext();
+  if (!leaderRoles.has(membership.role)) go(t("performance.messages.permissionDenied"), "error", "reports");
+  const employeeId = String(formData.get("userId") ?? "").trim();
+  const reportDate = normalizeDate(formData.get("reportDate"));
+  const reason = cleanText(formData.get("reason"), 2000);
+  const requestedHours = parseInteger(formData.get("durationHours"));
+  const justified = formData.get("justified") === "on";
+  if (!employeeId || !reportDate || reason.length < 10 || !Number.isInteger(requestedHours) || requestedHours < 1) {
+    go(t("performance.messages.invalidReopening"), "error", "reports");
+  }
+  if (!(await ensureMember(membership.organization_id, employeeId, admin))) go(t("performance.messages.memberNotFound"), "error", "reports");
+  if (!(await canSuperviseEmployee(membership, user.id, employeeId, admin))) go(t("performance.messages.notAssignedSupervisor"), "error", "reports");
+
+  let settings: PerformanceSettings;
+  let schedule: ScheduleRow | null;
+  try {
+    ({settings, schedule} = await loadSettingsAndSchedule(membership.organization_id, employeeId, admin));
+  } catch {
+    go(t("performance.messages.databaseSetupRequired"), "error", "reports");
+  }
+  const now = new Date();
+  const window = reportWindowState(reportDate, now, settings, schedule);
+  if (window.isFuture) go(t("performance.messages.futureReport"), "error", "reports");
+  if (!window.isClosed) go(t("performance.messages.reportDayStillOpen"), "error", "reports");
+
+  const {data: existingReport} = await admin
+    .from("daily_reports")
+    .select("id, status")
+    .eq("organization_id", membership.organization_id)
+    .eq("user_id", employeeId)
+    .eq("report_date", reportDate)
+    .maybeSingle<{id: string; status: string}>();
+  if (existingReport?.status === "validated") go(t("performance.messages.validatedReportCannotReopen"), "error", "reports");
+
+  await expireReopenings(membership.organization_id, employeeId, reportDate, admin);
+  const {data: activeReopening} = await admin
+    .from("daily_report_reopenings")
+    .select("id")
+    .eq("organization_id", membership.organization_id)
+    .eq("user_id", employeeId)
+    .eq("report_date", reportDate)
+    .eq("status", "active")
+    .gt("expires_at", now.toISOString())
+    .maybeSingle<{id: string}>();
+  if (activeReopening) go(t("performance.messages.reopeningAlreadyActive"), "error", "reports");
+  const {count} = await admin
+    .from("daily_report_reopenings")
+    .select("id", {head: true, count: "exact"})
+    .eq("organization_id", membership.organization_id)
+    .eq("user_id", employeeId)
+    .eq("report_date", reportDate);
+  const maximumReopenings = settings.maximum_reopenings_per_day ?? 1;
+  if ((count ?? 0) >= maximumReopenings) go(t("performance.messages.reopeningLimitReached"), "error", "reports");
+
+  const maximumHours = settings.maximum_reopen_hours ?? 24;
+  const durationHours = Math.min(requestedHours, maximumHours);
+  const scorePercent = justified ? 100 : Number(settings.reopened_report_score_percent ?? 70);
+  const scoreFactor = Math.min(1, Math.max(0, scorePercent / 100));
+  const expiresAt = new Date(now.getTime() + durationHours * 60 * 60 * 1000);
+  const {data, error} = await admin.from("daily_report_reopenings").insert({
+    organization_id: membership.organization_id,
+    user_id: employeeId,
+    report_date: reportDate,
+    reason,
+    justified,
+    score_factor: scoreFactor,
+    status: "active",
+    opened_by: user.id,
+    opened_at: now.toISOString(),
+    expires_at: expiresAt.toISOString(),
+  }).select("id").single<{id: string}>();
+  if (error) go(t("performance.messages.reopeningFailed", {message: error.message}), "error", "reports");
+
+  await audit(admin, {
+    organizationId: membership.organization_id,
+    actorId: user.id,
+    subjectUserId: employeeId,
+    entityType: "daily_report_reopening",
+    entityId: data.id,
+    action: "opened",
+    details: {report_date: reportDate, reason, justified, duration_hours: durationHours, expires_at: expiresAt.toISOString(), score_factor: scoreFactor},
+  });
+  revalidatePath("/dashboard/performance");
+  go(t("performance.messages.reportReopened"), "success", "reports");
+}
+
+export async function revokeDailyReportReopeningAction(formData: FormData) {
+  const {user, membership, admin, t} = await getContext();
+  if (!leaderRoles.has(membership.role)) go(t("performance.messages.permissionDenied"), "error", "reports");
+  const reopeningId = String(formData.get("reopeningId") ?? "").trim();
+  if (!reopeningId) go(t("performance.messages.invalidReopening"), "error", "reports");
+  const {data: reopening} = await admin
+    .from("daily_report_reopenings")
+    .select("id, user_id, report_date, status")
+    .eq("id", reopeningId)
+    .eq("organization_id", membership.organization_id)
+    .maybeSingle<{id: string; user_id: string; report_date: string; status: string}>();
+  if (!reopening || reopening.status !== "active") go(t("performance.messages.reopeningNotFound"), "error", "reports");
+  if (!(await canSuperviseEmployee(membership, user.id, reopening.user_id, admin))) go(t("performance.messages.notAssignedSupervisor"), "error", "reports");
+  const now = new Date().toISOString();
+  const {error} = await admin.from("daily_report_reopenings").update({status: "revoked", revoked_by: user.id, revoked_at: now}).eq("id", reopeningId).eq("status", "active");
+  if (error) go(t("performance.messages.reopeningRevokeFailed", {message: error.message}), "error", "reports");
+  await audit(admin, {
+    organizationId: membership.organization_id,
+    actorId: user.id,
+    subjectUserId: reopening.user_id,
+    entityType: "daily_report_reopening",
+    entityId: reopeningId,
+    action: "revoked",
+    details: {report_date: reopening.report_date},
+  });
+  revalidatePath("/dashboard/performance");
+  go(t("performance.messages.reopeningRevoked"), "success", "reports");
+}
+
+export async function completeDailyReportForEmployeeAction(formData: FormData) {
+  const {user, membership, admin, t} = await getContext();
+  if (!leaderRoles.has(membership.role)) go(t("performance.messages.permissionDenied"), "error", "reports");
+  const employeeId = String(formData.get("userId") ?? "").trim();
+  const reportDate = normalizeDate(formData.get("reportDate"));
+  const supervisorReason = cleanText(formData.get("supervisorReason"), 2000);
+  const accomplishments = cleanText(formData.get("accomplishments"), 3000);
+  const results = cleanText(formData.get("results"), 3000);
+  const blockers = cleanText(formData.get("blockers"), 3000) || t("performance.noBlockers");
+  const nextPriorities = cleanText(formData.get("nextPriorities"), 3000);
+  if (!employeeId || !reportDate || supervisorReason.length < 10 || accomplishments.length < 3 || results.length < 3 || nextPriorities.length < 3) {
+    go(t("performance.messages.invalidSupervisorReport"), "error", "reports");
+  }
+  if (!(await ensureMember(membership.organization_id, employeeId, admin))) go(t("performance.messages.memberNotFound"), "error", "reports");
+  if (!(await canSuperviseEmployee(membership, user.id, employeeId, admin))) go(t("performance.messages.notAssignedSupervisor"), "error", "reports");
+
+  let settings: PerformanceSettings;
+  let schedule: ScheduleRow | null;
+  try {
+    ({settings, schedule} = await loadSettingsAndSchedule(membership.organization_id, employeeId, admin));
+  } catch {
+    go(t("performance.messages.databaseSetupRequired"), "error", "reports");
+  }
+  const now = new Date();
+  const window = reportWindowState(reportDate, now, settings, schedule);
+  if (window.isFuture) go(t("performance.messages.futureReport"), "error", "reports");
+  if (!window.isClosed) go(t("performance.messages.reportDayStillOpen"), "error", "reports");
+
+  const {data: existingReport} = await admin
+    .from("daily_reports")
+    .select("id, status")
+    .eq("organization_id", membership.organization_id)
+    .eq("user_id", employeeId)
+    .eq("report_date", reportDate)
+    .maybeSingle<{id: string; status: string}>();
+  if (existingReport?.status === "validated") go(t("performance.messages.validatedReportCannotReplace"), "error", "reports");
+
+  const scoreFactor = Math.min(1, Math.max(0, Number(settings.supervisor_report_score_percent ?? 50) / 100));
+  const {data, error} = await admin.from("daily_reports").upsert({
+    organization_id: membership.organization_id,
+    user_id: employeeId,
+    report_date: reportDate,
+    accomplishments,
+    results,
+    blockers,
+    next_priorities: nextPriorities,
+    status: "supervisor_completed",
+    submitted_at: now.toISOString(),
+    submitted_by: user.id,
+    submission_mode: "supervisor",
+    submission_score_factor: scoreFactor,
+    supervisor_reason: supervisorReason,
+    reopening_id: null,
+    review_note: null,
+    reviewed_by: null,
+    reviewed_at: null,
+  }, {onConflict: "organization_id,user_id,report_date"}).select("id").single<{id: string}>();
+  if (error) go(t("performance.messages.reportSaveFailed", {message: error.message}), "error", "reports");
+
+  await admin
+    .from("daily_report_reopenings")
+    .update({status: "revoked", revoked_by: user.id, revoked_at: now.toISOString()})
+    .eq("organization_id", membership.organization_id)
+    .eq("user_id", employeeId)
+    .eq("report_date", reportDate)
+    .eq("status", "active");
+
+  await audit(admin, {
+    organizationId: membership.organization_id,
+    actorId: user.id,
+    subjectUserId: employeeId,
+    entityType: "daily_report",
+    entityId: data.id,
+    action: "completed_by_supervisor",
+    details: {report_date: reportDate, supervisor_reason: supervisorReason, score_factor: scoreFactor},
+  });
+  revalidatePath("/dashboard/performance");
+  go(t("performance.messages.supervisorReportSaved"), "success", "reports");
 }
 
 export async function reviewDailyReportAction(formData: FormData) {
@@ -448,6 +770,7 @@ export async function reviewDailyReportAction(formData: FormData) {
   if (!reportId || !reportReviewStatuses.has(status)) go(t("performance.messages.invalidReportReview"), "error", "reports");
   const {data: report} = await admin.from("daily_reports").select("id, user_id").eq("id", reportId).eq("organization_id", membership.organization_id).maybeSingle<{id: string; user_id: string}>();
   if (!report) go(t("performance.messages.reportNotFound"), "error", "reports");
+  if (!(await canSuperviseEmployee(membership, user.id, report.user_id, admin))) go(t("performance.messages.notAssignedSupervisor"), "error", "reports");
   const {error} = await admin.from("daily_reports").update({
     status,
     review_note: reviewNote,
@@ -476,6 +799,11 @@ export async function updatePerformanceSettingsAction(formData: FormData) {
   const defaultEnd = normalizeTime(formData.get("defaultEnd"));
   const reportDeadline = normalizeTime(formData.get("reportDeadline"));
   const graceMinutes = parseInteger(formData.get("graceMinutes"));
+  const reportLockEnabled = formData.get("reportLockEnabled") === "on";
+  const maximumReopenHours = parseInteger(formData.get("maximumReopenHours"));
+  const maximumReopeningsPerDay = parseInteger(formData.get("maximumReopeningsPerDay"));
+  const reopenedReportScorePercent = parseNumber(formData.get("reopenedReportScorePercent"));
+  const supervisorReportScorePercent = parseNumber(formData.get("supervisorReportScorePercent"));
   const minimumWorkDays = parseInteger(formData.get("minimumWorkDays"));
   const minimumReportRate = parseNumber(formData.get("minimumReportRate"));
   const minimumScore = parseNumber(formData.get("minimumScore"));
@@ -495,6 +823,9 @@ export async function updatePerformanceSettingsAction(formData: FormData) {
   if (!Number.isInteger(minimumWorkDays) || minimumWorkDays < 1 || minimumWorkDays > 31 || minimumReportRate < 0 || minimumReportRate > 100 || minimumScore < 0 || minimumScore > 100 || !Number.isInteger(maximumUnexcusedAbsences) || maximumUnexcusedAbsences < 0 || maximumUnexcusedAbsences > 31) {
     go(t("performance.messages.invalidEligibility"), "error", "settings");
   }
+  if (!Number.isInteger(maximumReopenHours) || maximumReopenHours < 1 || maximumReopenHours > 168 || !Number.isInteger(maximumReopeningsPerDay) || maximumReopeningsPerDay < 1 || maximumReopeningsPerDay > 10 || reopenedReportScorePercent < 0 || reopenedReportScorePercent > 100 || supervisorReportScorePercent < 0 || supervisorReportScorePercent > 100) {
+    go(t("performance.messages.invalidReportGovernance"), "error", "settings");
+  }
   if (Object.values(weights).some((value) => !Number.isFinite(value) || value < 0 || value > 100) || Math.abs(weightSum - 100) > 0.01) {
     go(t("performance.messages.weightsMustEqual100"), "error", "settings");
   }
@@ -505,6 +836,11 @@ export async function updatePerformanceSettingsAction(formData: FormData) {
     default_end_time: defaultEnd,
     grace_minutes: graceMinutes,
     report_deadline_time: reportDeadline,
+    report_lock_enabled: reportLockEnabled,
+    maximum_reopen_hours: maximumReopenHours,
+    maximum_reopenings_per_day: maximumReopeningsPerDay,
+    reopened_report_score_percent: reopenedReportScorePercent,
+    supervisor_report_score_percent: supervisorReportScorePercent,
     minimum_work_days: minimumWorkDays,
     minimum_report_rate: minimumReportRate,
     minimum_score: minimumScore,
@@ -527,6 +863,7 @@ export async function upsertMemberScheduleAction(formData: FormData) {
   const {user, membership, admin, t} = await getContext();
   if (!leaderRoles.has(membership.role)) go(t("performance.messages.permissionDenied"), "error", "settings");
   const userId = String(formData.get("userId") ?? "").trim();
+  const supervisorId = String(formData.get("supervisorId") ?? "").trim();
   const timezone = cleanText(formData.get("timezone"), 100) || "Europe/Dublin";
   const startTime = normalizeTime(formData.get("startTime"));
   const endTime = normalizeTime(formData.get("endTime"));
@@ -537,6 +874,19 @@ export async function upsertMemberScheduleAction(formData: FormData) {
     go(t("performance.messages.invalidSchedule"), "error", "settings");
   }
   if (!(await ensureMember(membership.organization_id, userId, admin))) go(t("performance.messages.memberNotFound"), "error", "settings");
+  if (supervisorId && !(await isActiveLeader(membership.organization_id, supervisorId, admin))) go(t("performance.messages.invalidSupervisor"), "error", "settings");
+  if (membership.role === "manager") {
+    const {data: existingSchedule} = await admin
+      .from("member_work_schedules")
+      .select("supervisor_id")
+      .eq("organization_id", membership.organization_id)
+      .eq("user_id", userId)
+      .eq("is_active", true)
+      .maybeSingle<{supervisor_id: string | null}>();
+    if (!existingSchedule || existingSchedule.supervisor_id !== user.id || supervisorId !== user.id) {
+      go(t("performance.messages.supervisorAssignmentRestricted"), "error", "settings");
+    }
+  }
   const {data, error} = await admin.from("member_work_schedules").upsert({
     organization_id: membership.organization_id,
     user_id: userId,
@@ -546,6 +896,7 @@ export async function upsertMemberScheduleAction(formData: FormData) {
     end_time: endTime,
     grace_minutes: graceMinutes,
     report_deadline_time: reportDeadline,
+    supervisor_id: supervisorId || null,
     is_active: true,
     updated_by: user.id,
   }, {onConflict: "organization_id,user_id"}).select("id").single<{id: string}>();
@@ -557,7 +908,7 @@ export async function upsertMemberScheduleAction(formData: FormData) {
     entityType: "member_schedule",
     entityId: data.id,
     action: "upserted",
-    details: {work_days: workDays, start_time: startTime, end_time: endTime},
+    details: {work_days: workDays, start_time: startTime, end_time: endTime, supervisor_id: supervisorId || null},
   });
   revalidatePath("/dashboard/performance");
   go(t("performance.messages.scheduleSaved"), "success", "settings");
@@ -702,7 +1053,7 @@ export async function calculateMonthlyPerformanceAction(formData: FormData) {
     admin.from("member_work_schedules").select("*").eq("organization_id", membership.organization_id).eq("is_active", true),
     admin.from("attendance_records").select("user_id, work_date, status, late_minutes").eq("organization_id", membership.organization_id).gte("work_date", bounds.start).lte("work_date", bounds.end),
     admin.from("leave_requests").select("user_id, start_date, end_date, status").eq("organization_id", membership.organization_id).eq("status", "approved").lte("start_date", bounds.end).gte("end_date", bounds.start),
-    admin.from("daily_reports").select("user_id, report_date, status").eq("organization_id", membership.organization_id).gte("report_date", bounds.start).lte("report_date", bounds.end),
+    admin.from("daily_reports").select("user_id, report_date, status, submission_mode, submission_score_factor").eq("organization_id", membership.organization_id).gte("report_date", bounds.start).lte("report_date", bounds.end),
     admin.from("performance_meetings").select("id, mandatory, starts_at").eq("organization_id", membership.organization_id).gte("starts_at", `${bounds.start}T00:00:00Z`).lte("starts_at", `${bounds.end}T23:59:59Z`),
     admin.from("performance_meeting_attendance").select("meeting_id, user_id, status").eq("organization_id", membership.organization_id),
     admin.from("peer_feedback").select("recipient_id, score, created_at").eq("organization_id", membership.organization_id).eq("status", "published").gte("created_at", `${bounds.start}T00:00:00Z`).lte("created_at", `${bounds.end}T23:59:59Z`),

@@ -4,12 +4,15 @@ import {redirect} from "next/navigation";
 import {
   calculateMonthlyPerformanceAction,
   clockInAction,
+  completeDailyReportForEmployeeAction,
   clockOutAction,
   createPerformanceMeetingAction,
   markMeetingAttendanceAction,
   publishEmployeeOfMonthAction,
   reviewPerformanceAppealAction,
   recordAttendanceAction,
+  reopenDailyReportAction,
+  revokeDailyReportReopeningAction,
   reviewDailyReportAction,
   reviewLeaveRequestAction,
   submitDailyReportAction,
@@ -40,6 +43,11 @@ type SettingsRow = {
   default_end_time: string;
   grace_minutes: number;
   report_deadline_time: string;
+  report_lock_enabled: boolean;
+  maximum_reopen_hours: number;
+  maximum_reopenings_per_day: number;
+  reopened_report_score_percent: number | string;
+  supervisor_report_score_percent: number | string;
   minimum_work_days: number;
   minimum_report_rate: number | string;
   minimum_score: number | string;
@@ -60,6 +68,7 @@ type ScheduleRow = {
   end_time: string;
   grace_minutes: number;
   report_deadline_time: string;
+  supervisor_id: string | null;
 };
 type AttendanceRow = {
   id: string;
@@ -94,6 +103,24 @@ type DailyReportRow = {
   status: string;
   review_note: string | null;
   submitted_at: string;
+  submitted_by: string;
+  submission_mode: "employee" | "reopened_employee" | "supervisor" | string;
+  submission_score_factor: number | string;
+  supervisor_reason: string | null;
+  reopening_id: string | null;
+};
+type ReopeningRow = {
+  id: string;
+  user_id: string;
+  report_date: string;
+  reason: string;
+  justified: boolean;
+  score_factor: number | string;
+  status: string;
+  opened_by: string;
+  opened_at: string;
+  expires_at: string;
+  used_at: string | null;
 };
 type MeetingRow = {
   id: string;
@@ -177,6 +204,25 @@ function zonedDate(date: Date, timezone: string) {
   return `${get("year")}-${get("month")}-${get("day")}`;
 }
 
+function zonedDateTime(date: Date, timezone: string) {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(date);
+  const get = (type: string) => parts.find((part) => part.type === type)?.value ?? "";
+  return {date: `${get("year")}-${get("month")}-${get("day")}`, time: `${get("hour")}:${get("minute")}`};
+}
+
+function timeToMinutes(value: string) {
+  const [hour = 0, minute = 0] = value.slice(0, 5).split(":").map(Number);
+  return hour * 60 + minute;
+}
+
 function number(value: number | string | null | undefined) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
@@ -217,7 +263,7 @@ function Badge({children, tone = "slate"}: {children: ReactNode; tone?: "slate" 
 function statusTone(status: string): "slate" | "indigo" | "emerald" | "amber" | "red" {
   if (["present", "approved", "accepted", "validated", "on_time", "published"].includes(status)) return "emerald";
   if (["late", "pending", "submitted", "invited"].includes(status)) return "amber";
-  if (["remote", "training"].includes(status)) return "indigo";
+  if (["remote", "training", "supervisor_completed", "reopened_employee"].includes(status)) return "indigo";
   if (["absent", "rejected", "incomplete", "needs_revision"].includes(status)) return "red";
   return "slate";
 }
@@ -232,6 +278,8 @@ export default async function PerformancePage({searchParams}: PageProps) {
   const success = firstValue(params.success);
   const errorMessage = firstValue(params.error);
   const dateLocale = locale === "fr" ? "fr-FR" : "en-GB";
+  const requestNow = new Date();
+  const requestNowTimestamp = requestNow.getTime();
 
   const supabase = await createClient();
   const {data: authData, error: authError} = await supabase.auth.getUser();
@@ -271,6 +319,29 @@ export default async function PerformancePage({searchParams}: PageProps) {
     );
   }
 
+  const governanceSchemaCheck = await admin.from("daily_report_reopenings").select("id", {head: true, count: "exact"}).limit(1);
+  if (governanceSchemaCheck.error) {
+    const missingTable = governanceSchemaCheck.error.code === "42P01" || governanceSchemaCheck.error.code === "PGRST205";
+    if (missingTable) {
+      return (
+        <main className="min-h-screen bg-slate-50 px-5 py-8 text-slate-950">
+          <div className="mx-auto max-w-4xl">
+            <header className="rounded-3xl bg-slate-950 p-7 text-white">
+              <p className="text-sm font-black uppercase tracking-[0.18em] text-amber-400">{t("performance.eyebrow")}</p>
+              <h1 className="mt-2 text-3xl font-black">{t("performance.title")}</h1>
+            </header>
+            <section className="mt-6 rounded-3xl border border-amber-200 bg-amber-50 p-7">
+              <h2 className="text-2xl font-black text-amber-950">{t("performance.reportGovernanceSetupTitle")}</h2>
+              <p className="mt-3 leading-7 text-amber-900">{t("performance.reportGovernanceSetupDescription")}</p>
+              <code className="mt-5 block rounded-xl bg-slate-950 px-4 py-3 font-bold text-white">supabase/013_daily_report_locking_supervisor.sql</code>
+            </section>
+          </div>
+        </main>
+      );
+    }
+    throw new Error(governanceSchemaCheck.error.message);
+  }
+
   let {data: settings} = await admin.from("performance_settings").select("*").eq("organization_id", membership.organization_id).maybeSingle<SettingsRow>();
   if (!settings) {
     const {data} = await admin.from("performance_settings").upsert({organization_id: membership.organization_id}, {onConflict: "organization_id"}).select("*").single<SettingsRow>();
@@ -296,17 +367,19 @@ export default async function PerformancePage({searchParams}: PageProps) {
     role: roleById.get(id) || "employee",
   })).sort((a, b) => a.name.localeCompare(b.name));
   const memberName = (id: string) => memberOptions.find((member) => member.id === id)?.name || t("common.member");
+  const leaderOptions = memberOptions.filter((member) => leaderRoles.has(member.role));
 
-  const today = zonedDate(new Date(), settings.timezone);
+  const today = zonedDate(requestNow, settings.timezone);
   const monthStart = `${month}-01`;
   const [year, monthNumber] = month.split("-").map(Number);
   const monthEnd = new Date(Date.UTC(year, monthNumber, 0)).toISOString().slice(0, 10);
 
-  const [schedulesResult, attendanceResult, leavesResult, reportsResult, meetingsResult, meetingAttendanceResult, kpiResult, scoresResult, awardsResult, appealsResult] = await Promise.all([
-    admin.from("member_work_schedules").select("id, user_id, timezone, work_days, start_time, end_time, grace_minutes, report_deadline_time").eq("organization_id", membership.organization_id).eq("is_active", true),
+  const [schedulesResult, attendanceResult, leavesResult, reportsResult, reopeningsResult, meetingsResult, meetingAttendanceResult, kpiResult, scoresResult, awardsResult, appealsResult] = await Promise.all([
+    admin.from("member_work_schedules").select("id, user_id, timezone, work_days, start_time, end_time, grace_minutes, report_deadline_time, supervisor_id").eq("organization_id", membership.organization_id).eq("is_active", true),
     admin.from("attendance_records").select("id, user_id, work_date, clock_in_at, clock_out_at, status, late_minutes, justification, source").eq("organization_id", membership.organization_id).gte("work_date", monthStart).lte("work_date", monthEnd).order("work_date", {ascending: false}).limit(500),
     admin.from("leave_requests").select("id, user_id, leave_type, start_date, end_date, reason, status, review_note, created_at").eq("organization_id", membership.organization_id).order("created_at", {ascending: false}).limit(300),
-    admin.from("daily_reports").select("id, user_id, report_date, accomplishments, results, blockers, next_priorities, status, review_note, submitted_at").eq("organization_id", membership.organization_id).gte("report_date", monthStart).lte("report_date", monthEnd).order("report_date", {ascending: false}).limit(500),
+    admin.from("daily_reports").select("id, user_id, report_date, accomplishments, results, blockers, next_priorities, status, review_note, submitted_at, submitted_by, submission_mode, submission_score_factor, supervisor_reason, reopening_id").eq("organization_id", membership.organization_id).gte("report_date", monthStart).lte("report_date", monthEnd).order("report_date", {ascending: false}).limit(500),
+    admin.from("daily_report_reopenings").select("id, user_id, report_date, reason, justified, score_factor, status, opened_by, opened_at, expires_at, used_at").eq("organization_id", membership.organization_id).gte("report_date", monthStart).lte("report_date", monthEnd).order("opened_at", {ascending: false}).limit(500),
     admin.from("performance_meetings").select("id, title, meeting_type, mandatory, starts_at, ends_at, notes").eq("organization_id", membership.organization_id).gte("starts_at", `${monthStart}T00:00:00Z`).lte("starts_at", `${monthEnd}T23:59:59Z`).order("starts_at", {ascending: false}).limit(200),
     admin.from("performance_meeting_attendance").select("id, meeting_id, user_id, status, late_minutes, notes").eq("organization_id", membership.organization_id),
     admin.from("monthly_kpi_scores").select("user_id, score, notes").eq("organization_id", membership.organization_id).eq("score_month", scoreMonth),
@@ -315,22 +388,26 @@ export default async function PerformancePage({searchParams}: PageProps) {
     admin.from("performance_score_appeals").select("id, user_id, score_month, reason, status, resolution_note, created_at").eq("organization_id", membership.organization_id).eq("score_month", scoreMonth).order("created_at", {ascending: false}),
   ]);
 
-  const loadError = [schedulesResult.error, attendanceResult.error, leavesResult.error, reportsResult.error, meetingsResult.error, meetingAttendanceResult.error, kpiResult.error, scoresResult.error, awardsResult.error, appealsResult.error].find(Boolean);
+  const loadError = [schedulesResult.error, attendanceResult.error, leavesResult.error, reportsResult.error, reopeningsResult.error, meetingsResult.error, meetingAttendanceResult.error, kpiResult.error, scoresResult.error, awardsResult.error, appealsResult.error].find(Boolean);
   if (loadError) throw new Error(t("performance.messages.loadFailed", {message: loadError.message}));
 
   const schedules = (schedulesResult.data ?? []) as ScheduleRow[];
   const allAttendance = (attendanceResult.data ?? []) as AttendanceRow[];
   const allLeaves = (leavesResult.data ?? []) as LeaveRow[];
   const allReports = (reportsResult.data ?? []) as DailyReportRow[];
+  const reopenings = (reopeningsResult.data ?? []) as ReopeningRow[];
   const meetings = (meetingsResult.data ?? []) as MeetingRow[];
   const meetingAttendance = (meetingAttendanceResult.data ?? []) as MeetingAttendanceRow[];
   const kpis = (kpiResult.data ?? []) as KpiRow[];
   const scores = (scoresResult.data ?? []) as ScoreRow[];
   const awards = (awardsResult.data ?? []) as AwardRow[];
   const appeals = (appealsResult.data ?? []) as AppealRow[];
+  const managerSupervisedIds = new Set(schedules.filter((schedule) => schedule.supervisor_id === authData.user.id).map((schedule) => schedule.user_id));
   const visibleAttendance = isLeader ? allAttendance : allAttendance.filter((row) => row.user_id === authData.user.id);
   const visibleLeaves = isLeader ? allLeaves : allLeaves.filter((row) => row.user_id === authData.user.id);
-  const visibleReports = isLeader ? allReports : allReports.filter((row) => row.user_id === authData.user.id);
+  const visibleReports = membership.role === "manager"
+    ? allReports.filter((row) => row.user_id === authData.user.id || managerSupervisedIds.has(row.user_id))
+    : isLeader ? allReports : allReports.filter((row) => row.user_id === authData.user.id);
   const visibleMeetingAttendance = isLeader ? meetingAttendance : meetingAttendance.filter((row) => row.user_id === authData.user.id);
   const ownAttendanceToday = allAttendance.find((row) => row.user_id === authData.user.id && row.work_date === today);
   const ownScore = scores.find((score) => score.user_id === authData.user.id);
@@ -340,6 +417,20 @@ export default async function PerformancePage({searchParams}: PageProps) {
   const ownAppeal = appeals.find((appeal) => appeal.user_id === authData.user.id);
   const currentReport = allReports.find((row) => row.user_id === authData.user.id && row.report_date === today);
   const currentSchedule = schedules.find((row) => row.user_id === authData.user.id);
+  const localNow = zonedDateTime(requestNow, currentSchedule?.timezone || settings.timezone);
+  const ownReportDeadline = (currentSchedule?.report_deadline_time || settings.report_deadline_time).slice(0, 5);
+  const currentDayReportOpen = settings.report_lock_enabled === false || timeToMinutes(localNow.time) <= timeToMinutes(ownReportDeadline);
+  const activeOwnReopenings = reopenings.filter((row) => row.user_id === authData.user.id && row.status === "active" && new Date(row.expires_at).getTime() > requestNowTimestamp);
+  const availableReportDates = Array.from(new Set([
+    ...(currentDayReportOpen ? [localNow.date] : []),
+    ...activeOwnReopenings.map((row) => row.report_date),
+  ])).sort().reverse();
+  const supervisedMemberOptions = membership.role === "manager"
+    ? memberOptions.filter((member) => schedules.some((schedule) => schedule.user_id === member.id && schedule.supervisor_id === authData.user.id))
+    : memberOptions.filter((member) => member.id !== authData.user.id);
+  const visibleReopenings = isLeader
+    ? reopenings.filter((row) => membership.role !== "manager" || supervisedMemberOptions.some((member) => member.id === row.user_id))
+    : activeOwnReopenings;
   const reportRate = ownScore?.reports_expected ? Math.round((ownScore.reports_submitted / ownScore.reports_expected) * 100) : 0;
 
   const tabHref = (target: string) => `/dashboard/performance?view=${target}&month=${month}`;
@@ -505,25 +596,61 @@ export default async function PerformancePage({searchParams}: PageProps) {
         ) : null}
 
         {view === "reports" ? (
-          <section className="mt-6 grid gap-6 xl:grid-cols-[0.85fr_1.15fr]">
-            <article className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-              <h2 className="text-2xl font-black">{t("performance.dailyReportTitle")}</h2>
-              <p className="mt-1 text-sm text-slate-500">{t("performance.dailyReportHelp", {deadline: (currentSchedule?.report_deadline_time || settings.report_deadline_time).slice(0, 5)})}</p>
-              <form action={submitDailyReportAction} className="mt-5 space-y-4">
-                <label className="block text-sm font-black">{t("performance.reportDate")}<input name="reportDate" type="date" max={today} defaultValue={today} required className={fieldClass()} /></label>
-                <label className="block text-sm font-black">{t("performance.accomplishments")}<textarea name="accomplishments" rows={4} defaultValue={currentReport?.accomplishments || ""} required className={fieldClass()} /></label>
-                <label className="block text-sm font-black">{t("performance.results")}<textarea name="results" rows={3} defaultValue={currentReport?.results || ""} required className={fieldClass()} /></label>
-                <label className="block text-sm font-black">{t("performance.blockers")}<textarea name="blockers" rows={3} defaultValue={currentReport?.blockers || ""} className={fieldClass()} /></label>
-                <label className="block text-sm font-black">{t("performance.nextPriorities")}<textarea name="nextPriorities" rows={3} defaultValue={currentReport?.next_priorities || ""} required className={fieldClass()} /></label>
-                <button className="w-full rounded-xl bg-indigo-700 px-5 py-3 font-black text-white">{currentReport ? t("performance.updateReport") : t("performance.submitReport")}</button>
-              </form>
-            </article>
+          <section className="mt-6 space-y-6">
+            <div className="grid gap-6 xl:grid-cols-[0.8fr_1.2fr]">
+              <article className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h2 className="text-2xl font-black">{t("performance.dailyReportTitle")}</h2>
+                    <p className="mt-1 text-sm text-slate-500">{t("performance.dailyReportHelp", {deadline: ownReportDeadline})}</p>
+                  </div>
+                  <Badge tone={availableReportDates.length ? "emerald" : "red"}>{availableReportDates.length ? t("performance.reportWindowOpen") : t("performance.reportWindowLocked")}</Badge>
+                </div>
+                {availableReportDates.length ? (
+                  <form action={submitDailyReportAction} className="mt-5 space-y-4">
+                    <label className="block text-sm font-black">{t("performance.reportDate")}
+                      <select name="reportDate" defaultValue={availableReportDates[0]} required className={fieldClass()}>
+                        {availableReportDates.map((date) => <option key={date} value={date}>{formatDate(date)}{date !== localNow.date ? ` · ${t("performance.exceptionallyReopened")}` : ""}</option>)}
+                      </select>
+                    </label>
+                    <label className="block text-sm font-black">{t("performance.accomplishments")}<textarea name="accomplishments" minLength={3} rows={4} required className={fieldClass()} /></label>
+                    <label className="block text-sm font-black">{t("performance.results")}<textarea name="results" minLength={3} rows={3} required className={fieldClass()} /></label>
+                    <label className="block text-sm font-black">{t("performance.blockers")}<textarea name="blockers" rows={3} className={fieldClass()} /></label>
+                    <label className="block text-sm font-black">{t("performance.nextPriorities")}<textarea name="nextPriorities" minLength={3} rows={3} required className={fieldClass()} /></label>
+                    <button className="w-full rounded-xl bg-indigo-700 px-5 py-3 font-black text-white">{currentReport ? t("performance.updateReport") : t("performance.submitReport")}</button>
+                  </form>
+                ) : (
+                  <div className="mt-5 rounded-2xl border border-red-200 bg-red-50 p-5 text-red-900">
+                    <p className="font-black">{t("performance.reportLockedTitle")}</p>
+                    <p className="mt-2 text-sm leading-6">{t("performance.reportLockedHelp")}</p>
+                  </div>
+                )}
+                {activeOwnReopenings.length ? <div className="mt-5 space-y-3">{activeOwnReopenings.map((reopening) => <div key={reopening.id} className="rounded-xl border border-indigo-200 bg-indigo-50 p-4"><div className="flex flex-wrap items-center justify-between gap-3"><p className="font-black text-indigo-950">{formatDate(reopening.report_date)}</p><Badge tone="indigo">{t("performance.availableUntil", {date: formatDateTime(reopening.expires_at)})}</Badge></div><p className="mt-2 text-sm text-indigo-800">{reopening.reason}</p><p className="mt-2 text-xs font-bold text-indigo-700">{t("performance.scoreFactor", {percent: Math.round(number(reopening.score_factor) * 100)})}</p></div>)}</div> : null}
+              </article>
 
-            <article className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-              <h2 className="text-2xl font-black">{t("performance.reportHistory")}</h2>
-              <div className="mt-5 space-y-4">{visibleReports.map((report) => <details key={report.id} className="rounded-2xl border border-slate-200 p-5"><summary className="cursor-pointer list-none"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="font-black">{isLeader ? `${memberName(report.user_id)} · ` : ""}{formatDate(report.report_date)}</p><p className="mt-1 text-xs text-slate-500">{formatDateTime(report.submitted_at)}</p></div><Badge tone={statusTone(report.status)}>{t(`performance.reportStatuses.${report.status}`)}</Badge></div></summary><div className="mt-5 grid gap-4 sm:grid-cols-2"><div><p className="text-xs font-black uppercase text-slate-500">{t("performance.accomplishments")}</p><p className="mt-2 whitespace-pre-wrap text-sm leading-6">{report.accomplishments}</p></div><div><p className="text-xs font-black uppercase text-slate-500">{t("performance.results")}</p><p className="mt-2 whitespace-pre-wrap text-sm leading-6">{report.results}</p></div><div><p className="text-xs font-black uppercase text-slate-500">{t("performance.blockers")}</p><p className="mt-2 whitespace-pre-wrap text-sm leading-6">{report.blockers}</p></div><div><p className="text-xs font-black uppercase text-slate-500">{t("performance.nextPriorities")}</p><p className="mt-2 whitespace-pre-wrap text-sm leading-6">{report.next_priorities}</p></div></div>{report.review_note ? <p className="mt-4 rounded-xl bg-slate-50 p-3 text-sm text-slate-600">{report.review_note}</p> : null}{isLeader ? <form action={reviewDailyReportAction} className="mt-5 grid gap-3 sm:grid-cols-[1fr_1fr_auto]"><input type="hidden" name="reportId" value={report.id} /><select name="status" className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm">{["validated", "needs_revision", "incomplete"].map((status) => <option key={status} value={status}>{t(`performance.reportStatuses.${status}`)}</option>)}</select><input name="reviewNote" placeholder={t("performance.reviewNote")} className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm" /><button className="rounded-xl bg-slate-950 px-4 py-2.5 font-black text-white">{t("performance.review")}</button></form> : null}</details>)}</div>
-              {!visibleReports.length ? <p className="py-12 text-center text-slate-500">{t("performance.noReports")}</p> : null}
-            </article>
+              <article className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+                <h2 className="text-2xl font-black">{t("performance.reportHistory")}</h2>
+                <div className="mt-5 space-y-4">{visibleReports.map((report) => <details key={report.id} className="rounded-2xl border border-slate-200 p-5"><summary className="cursor-pointer list-none"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="font-black">{isLeader ? `${memberName(report.user_id)} · ` : ""}{formatDate(report.report_date)}</p><p className="mt-1 text-xs text-slate-500">{formatDateTime(report.submitted_at)} · {t(`performance.submissionModes.${report.submission_mode || "employee"}`)}</p></div><div className="flex flex-wrap gap-2"><Badge tone={statusTone(report.status)}>{t(`performance.reportStatuses.${report.status}`)}</Badge><Badge tone="indigo">{t("performance.scoreFactor", {percent: Math.round(number(report.submission_score_factor) * 100)})}</Badge></div></div></summary><div className="mt-5 grid gap-4 sm:grid-cols-2"><div><p className="text-xs font-black uppercase text-slate-500">{t("performance.accomplishments")}</p><p className="mt-2 whitespace-pre-wrap text-sm leading-6">{report.accomplishments}</p></div><div><p className="text-xs font-black uppercase text-slate-500">{t("performance.results")}</p><p className="mt-2 whitespace-pre-wrap text-sm leading-6">{report.results}</p></div><div><p className="text-xs font-black uppercase text-slate-500">{t("performance.blockers")}</p><p className="mt-2 whitespace-pre-wrap text-sm leading-6">{report.blockers}</p></div><div><p className="text-xs font-black uppercase text-slate-500">{t("performance.nextPriorities")}</p><p className="mt-2 whitespace-pre-wrap text-sm leading-6">{report.next_priorities}</p></div></div>{report.supervisor_reason ? <p className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"><strong>{t("performance.supervisorReason")}:</strong> {report.supervisor_reason}</p> : null}{report.review_note ? <p className="mt-4 rounded-xl bg-slate-50 p-3 text-sm text-slate-600">{report.review_note}</p> : null}{isLeader ? <form action={reviewDailyReportAction} className="mt-5 grid gap-3 sm:grid-cols-[1fr_1fr_auto]"><input type="hidden" name="reportId" value={report.id} /><select name="status" className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm">{["validated", "needs_revision", "incomplete"].map((status) => <option key={status} value={status}>{t(`performance.reportStatuses.${status}`)}</option>)}</select><input name="reviewNote" placeholder={t("performance.reviewNote")} className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm" /><button className="rounded-xl bg-slate-950 px-4 py-2.5 font-black text-white">{t("performance.review")}</button></form> : null}</details>)}</div>
+                {!visibleReports.length ? <p className="py-12 text-center text-slate-500">{t("performance.noReports")}</p> : null}
+              </article>
+            </div>
+
+            {isLeader ? (
+              <div className="grid gap-6 xl:grid-cols-2">
+                <article className="rounded-3xl border border-indigo-200 bg-indigo-50 p-6 shadow-sm">
+                  <h2 className="text-2xl font-black text-indigo-950">{t("performance.reopenReportTitle")}</h2>
+                  <p className="mt-1 text-sm text-indigo-800">{t("performance.reopenReportHelp")}</p>
+                  {supervisedMemberOptions.length ? <form action={reopenDailyReportAction} className="mt-5 space-y-4"><label className="block text-sm font-black text-indigo-950">{t("performance.employee")}<select name="userId" required className={fieldClass()}>{supervisedMemberOptions.map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}</select></label><div className="grid gap-4 sm:grid-cols-2"><label className="block text-sm font-black text-indigo-950">{t("performance.reportDate")}<input name="reportDate" type="date" max={today} required className={fieldClass()} /></label><label className="block text-sm font-black text-indigo-950">{t("performance.reopenDuration")}<input name="durationHours" type="number" min="1" max={settings.maximum_reopen_hours} defaultValue={Math.min(24, settings.maximum_reopen_hours)} required className={fieldClass()} /></label></div><label className="block text-sm font-black text-indigo-950">{t("performance.reopeningReason")}<textarea name="reason" minLength={10} rows={3} required className={fieldClass()} /></label><label className="flex items-center gap-3 rounded-xl bg-white/70 p-4 text-sm font-bold text-indigo-950"><input name="justified" type="checkbox" />{t("performance.justifiedReopening")}</label><button className="w-full rounded-xl bg-indigo-700 px-5 py-3 font-black text-white">{t("performance.reopenButton")}</button></form> : <p className="mt-5 rounded-xl bg-white/70 p-4 text-sm text-indigo-900">{t("performance.noSupervisedEmployees")}</p>}
+                  <div className="mt-6 space-y-3">{visibleReopenings.map((reopening) => <div key={reopening.id} className="rounded-xl bg-white p-4"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="font-black">{memberName(reopening.user_id)} · {formatDate(reopening.report_date)}</p><p className="mt-1 text-xs text-slate-500">{t(`performance.reopeningStatuses.${reopening.status}`)} · {formatDateTime(reopening.expires_at)}</p></div>{reopening.status === "active" && new Date(reopening.expires_at).getTime() > requestNowTimestamp ? <form action={revokeDailyReportReopeningAction}><input type="hidden" name="reopeningId" value={reopening.id} /><button className="rounded-lg border border-red-200 px-3 py-2 text-xs font-black text-red-700">{t("performance.revokeReopening")}</button></form> : null}</div><p className="mt-2 text-sm text-slate-600">{reopening.reason}</p></div>)}</div>
+                </article>
+
+                <article className="rounded-3xl border border-amber-200 bg-amber-50 p-6 shadow-sm">
+                  <h2 className="text-2xl font-black text-amber-950">{t("performance.completeForEmployeeTitle")}</h2>
+                  <p className="mt-1 text-sm text-amber-800">{t("performance.completeForEmployeeHelp", {percent: number(settings.supervisor_report_score_percent)})}</p>
+                  {supervisedMemberOptions.length ? <form action={completeDailyReportForEmployeeAction} className="mt-5 space-y-4"><label className="block text-sm font-black text-amber-950">{t("performance.employee")}<select name="userId" required className={fieldClass()}>{supervisedMemberOptions.map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}</select></label><label className="block text-sm font-black text-amber-950">{t("performance.reportDate")}<input name="reportDate" type="date" max={today} required className={fieldClass()} /></label><label className="block text-sm font-black text-amber-950">{t("performance.supervisorReason")}<textarea name="supervisorReason" minLength={10} rows={3} required className={fieldClass()} /></label><label className="block text-sm font-black text-amber-950">{t("performance.accomplishments")}<textarea name="accomplishments" minLength={3} rows={3} required className={fieldClass()} /></label><label className="block text-sm font-black text-amber-950">{t("performance.results")}<textarea name="results" minLength={3} rows={3} required className={fieldClass()} /></label><label className="block text-sm font-black text-amber-950">{t("performance.blockers")}<textarea name="blockers" rows={2} className={fieldClass()} /></label><label className="block text-sm font-black text-amber-950">{t("performance.nextPriorities")}<textarea name="nextPriorities" minLength={3} rows={3} required className={fieldClass()} /></label><button className="w-full rounded-xl bg-amber-500 px-5 py-3 font-black text-slate-950">{t("performance.completeForEmployeeButton")}</button></form> : <p className="mt-5 rounded-xl bg-white/70 p-4 text-sm text-amber-900">{t("performance.noSupervisedEmployees")}</p>}
+                </article>
+              </div>
+            ) : null}
           </section>
         ) : null}
 
@@ -566,9 +693,9 @@ export default async function PerformancePage({searchParams}: PageProps) {
 
         {view === "settings" && isLeader ? (
           <section className="mt-6 grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
-            {canConfigure ? <article className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"><h2 className="text-2xl font-black">{t("performance.scoringSettings")}</h2><p className="mt-1 text-sm text-slate-500">{t("performance.scoringSettingsHelp")}</p><form action={updatePerformanceSettingsAction} className="mt-5 space-y-5"><div className="grid gap-4 sm:grid-cols-2"><label className="block text-sm font-black">{t("performance.timezone")}<input name="timezone" defaultValue={settings.timezone} required className={fieldClass()} /></label><label className="block text-sm font-black">{t("performance.graceMinutes")}<input name="graceMinutes" type="number" min="0" max="180" defaultValue={settings.grace_minutes} required className={fieldClass()} /></label><label className="block text-sm font-black">{t("performance.defaultStart")}<input name="defaultStart" type="time" defaultValue={settings.default_start_time.slice(0, 5)} required className={fieldClass()} /></label><label className="block text-sm font-black">{t("performance.defaultEnd")}<input name="defaultEnd" type="time" defaultValue={settings.default_end_time.slice(0, 5)} required className={fieldClass()} /></label><label className="block text-sm font-black">{t("performance.reportDeadline")}<input name="reportDeadline" type="time" defaultValue={settings.report_deadline_time.slice(0, 5)} required className={fieldClass()} /></label><label className="block text-sm font-black">{t("performance.minimumWorkDays")}<input name="minimumWorkDays" type="number" min="1" max="31" defaultValue={settings.minimum_work_days} required className={fieldClass()} /></label><label className="block text-sm font-black">{t("performance.minimumReportRate")}<input name="minimumReportRate" type="number" min="0" max="100" step="0.1" defaultValue={number(settings.minimum_report_rate)} required className={fieldClass()} /></label><label className="block text-sm font-black">{t("performance.minimumScore")}<input name="minimumScore" type="number" min="0" max="100" step="0.1" defaultValue={number(settings.minimum_score)} required className={fieldClass()} /></label><label className="block text-sm font-black">{t("performance.maximumUnexcusedAbsences")}<input name="maximumUnexcusedAbsences" type="number" min="0" max="31" defaultValue={settings.maximum_unexcused_absences} required className={fieldClass()} /></label></div><div><h3 className="font-black">{t("performance.weights")}</h3><p className="mt-1 text-xs text-slate-500">{t("performance.weightsHelp")}</p><div className="mt-3 grid gap-4 sm:grid-cols-2">{[["attendanceWeight", "attendance", settings.attendance_weight], ["punctualityWeight", "punctuality", settings.punctuality_weight], ["meetingsWeight", "meetings", settings.meetings_weight], ["reportsWeight", "reports", settings.reports_weight], ["collaborationWeight", "collaboration", settings.collaboration_weight], ["roleKpiWeight", "roleKpi", settings.role_kpi_weight]].map(([name, key, value]) => <label key={String(name)} className="block text-sm font-black">{t(`performance.criteria.${key}`)}<input name={String(name)} type="number" min="0" max="100" step="0.1" defaultValue={number(value)} required className={fieldClass()} /></label>)}</div></div><button className="w-full rounded-xl bg-slate-950 px-5 py-3 font-black text-white">{t("performance.saveSettings")}</button></form></article> : <article className="rounded-3xl border border-slate-200 bg-white p-6"><h2 className="text-2xl font-black">{t("performance.scoringSettings")}</h2><p className="mt-2 text-slate-600">{t("performance.hrOnlySettings")}</p></article>}
+            {canConfigure ? <article className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"><h2 className="text-2xl font-black">{t("performance.scoringSettings")}</h2><p className="mt-1 text-sm text-slate-500">{t("performance.scoringSettingsHelp")}</p><form action={updatePerformanceSettingsAction} className="mt-5 space-y-5"><div className="grid gap-4 sm:grid-cols-2"><label className="block text-sm font-black">{t("performance.timezone")}<input name="timezone" defaultValue={settings.timezone} required className={fieldClass()} /></label><label className="block text-sm font-black">{t("performance.graceMinutes")}<input name="graceMinutes" type="number" min="0" max="180" defaultValue={settings.grace_minutes} required className={fieldClass()} /></label><label className="block text-sm font-black">{t("performance.defaultStart")}<input name="defaultStart" type="time" defaultValue={settings.default_start_time.slice(0, 5)} required className={fieldClass()} /></label><label className="block text-sm font-black">{t("performance.defaultEnd")}<input name="defaultEnd" type="time" defaultValue={settings.default_end_time.slice(0, 5)} required className={fieldClass()} /></label><label className="block text-sm font-black">{t("performance.reportDeadline")}<input name="reportDeadline" type="time" defaultValue={settings.report_deadline_time.slice(0, 5)} required className={fieldClass()} /></label><label className="flex items-center gap-3 rounded-xl bg-slate-50 p-4 text-sm font-bold"><input name="reportLockEnabled" type="checkbox" defaultChecked={settings.report_lock_enabled} />{t("performance.reportLockEnabled")}</label><label className="block text-sm font-black">{t("performance.maximumReopenHours")}<input name="maximumReopenHours" type="number" min="1" max="168" defaultValue={settings.maximum_reopen_hours} required className={fieldClass()} /></label><label className="block text-sm font-black">{t("performance.maximumReopeningsPerDay")}<input name="maximumReopeningsPerDay" type="number" min="1" max="10" defaultValue={settings.maximum_reopenings_per_day} required className={fieldClass()} /></label><label className="block text-sm font-black">{t("performance.reopenedReportScorePercent")}<input name="reopenedReportScorePercent" type="number" min="0" max="100" step="0.1" defaultValue={number(settings.reopened_report_score_percent)} required className={fieldClass()} /></label><label className="block text-sm font-black">{t("performance.supervisorReportScorePercent")}<input name="supervisorReportScorePercent" type="number" min="0" max="100" step="0.1" defaultValue={number(settings.supervisor_report_score_percent)} required className={fieldClass()} /></label><label className="block text-sm font-black">{t("performance.minimumWorkDays")}<input name="minimumWorkDays" type="number" min="1" max="31" defaultValue={settings.minimum_work_days} required className={fieldClass()} /></label><label className="block text-sm font-black">{t("performance.minimumReportRate")}<input name="minimumReportRate" type="number" min="0" max="100" step="0.1" defaultValue={number(settings.minimum_report_rate)} required className={fieldClass()} /></label><label className="block text-sm font-black">{t("performance.minimumScore")}<input name="minimumScore" type="number" min="0" max="100" step="0.1" defaultValue={number(settings.minimum_score)} required className={fieldClass()} /></label><label className="block text-sm font-black">{t("performance.maximumUnexcusedAbsences")}<input name="maximumUnexcusedAbsences" type="number" min="0" max="31" defaultValue={settings.maximum_unexcused_absences} required className={fieldClass()} /></label></div><div><h3 className="font-black">{t("performance.weights")}</h3><p className="mt-1 text-xs text-slate-500">{t("performance.weightsHelp")}</p><div className="mt-3 grid gap-4 sm:grid-cols-2">{[["attendanceWeight", "attendance", settings.attendance_weight], ["punctualityWeight", "punctuality", settings.punctuality_weight], ["meetingsWeight", "meetings", settings.meetings_weight], ["reportsWeight", "reports", settings.reports_weight], ["collaborationWeight", "collaboration", settings.collaboration_weight], ["roleKpiWeight", "roleKpi", settings.role_kpi_weight]].map(([name, key, value]) => <label key={String(name)} className="block text-sm font-black">{t(`performance.criteria.${key}`)}<input name={String(name)} type="number" min="0" max="100" step="0.1" defaultValue={number(value)} required className={fieldClass()} /></label>)}</div></div><button className="w-full rounded-xl bg-slate-950 px-5 py-3 font-black text-white">{t("performance.saveSettings")}</button></form></article> : <article className="rounded-3xl border border-slate-200 bg-white p-6"><h2 className="text-2xl font-black">{t("performance.scoringSettings")}</h2><p className="mt-2 text-slate-600">{t("performance.hrOnlySettings")}</p></article>}
 
-            <article className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"><h2 className="text-2xl font-black">{t("performance.memberSchedule")}</h2><p className="mt-1 text-sm text-slate-500">{t("performance.memberScheduleHelp")}</p><form action={upsertMemberScheduleAction} className="mt-5 space-y-4"><label className="block text-sm font-black">{t("performance.employee")}<select name="userId" className={fieldClass()}>{memberOptions.map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}</select></label><label className="block text-sm font-black">{t("performance.timezone")}<input name="timezone" defaultValue={settings.timezone} required className={fieldClass()} /></label><div className="grid gap-4 sm:grid-cols-2"><label className="block text-sm font-black">{t("performance.startTime")}<input name="startTime" type="time" defaultValue={settings.default_start_time.slice(0, 5)} required className={fieldClass()} /></label><label className="block text-sm font-black">{t("performance.endTime")}<input name="endTime" type="time" defaultValue={settings.default_end_time.slice(0, 5)} required className={fieldClass()} /></label><label className="block text-sm font-black">{t("performance.graceMinutes")}<input name="graceMinutes" type="number" min="0" max="180" defaultValue={settings.grace_minutes} required className={fieldClass()} /></label><label className="block text-sm font-black">{t("performance.reportDeadline")}<input name="reportDeadline" type="time" defaultValue={settings.report_deadline_time.slice(0, 5)} required className={fieldClass()} /></label></div><fieldset><legend className="text-sm font-black">{t("performance.workDays")}</legend><div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">{[1,2,3,4,5,6,7].map((day) => <label key={day} className="flex items-center gap-2 rounded-xl bg-slate-50 p-3 text-sm font-bold"><input name="workDays" type="checkbox" value={day} defaultChecked={day <= 5} />{t(`performance.weekdays.${day}`)}</label>)}</div></fieldset><button className="w-full rounded-xl bg-indigo-700 px-5 py-3 font-black text-white">{t("performance.saveSchedule")}</button></form><div className="mt-6 space-y-3">{schedules.map((schedule) => <div key={schedule.id} className="rounded-xl bg-slate-50 p-4"><div className="flex flex-wrap items-center justify-between gap-3"><p className="font-black">{memberName(schedule.user_id)}</p><Badge tone="indigo">{schedule.start_time.slice(0,5)}–{schedule.end_time.slice(0,5)}</Badge></div><p className="mt-2 text-xs text-slate-500">{schedule.work_days.map((day) => t(`performance.weekdays.${day}`)).join(" · ")} · {schedule.timezone}</p></div>)}</div></article>
+            <article className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"><h2 className="text-2xl font-black">{t("performance.memberSchedule")}</h2><p className="mt-1 text-sm text-slate-500">{t("performance.memberScheduleHelp")}</p><form action={upsertMemberScheduleAction} className="mt-5 space-y-4"><label className="block text-sm font-black">{t("performance.employee")}<select name="userId" className={fieldClass()}>{memberOptions.map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}</select></label><label className="block text-sm font-black">{t("performance.assignedSupervisor")}<select name="supervisorId" required className={fieldClass()}><option value="">{t("performance.selectSupervisor")}</option>{leaderOptions.map((leader) => <option key={leader.id} value={leader.id}>{leader.name} · {t(`roles.${leader.role}`)}</option>)}</select></label><label className="block text-sm font-black">{t("performance.timezone")}<input name="timezone" defaultValue={settings.timezone} required className={fieldClass()} /></label><div className="grid gap-4 sm:grid-cols-2"><label className="block text-sm font-black">{t("performance.startTime")}<input name="startTime" type="time" defaultValue={settings.default_start_time.slice(0, 5)} required className={fieldClass()} /></label><label className="block text-sm font-black">{t("performance.endTime")}<input name="endTime" type="time" defaultValue={settings.default_end_time.slice(0, 5)} required className={fieldClass()} /></label><label className="block text-sm font-black">{t("performance.graceMinutes")}<input name="graceMinutes" type="number" min="0" max="180" defaultValue={settings.grace_minutes} required className={fieldClass()} /></label><label className="block text-sm font-black">{t("performance.reportDeadline")}<input name="reportDeadline" type="time" defaultValue={settings.report_deadline_time.slice(0, 5)} required className={fieldClass()} /></label></div><fieldset><legend className="text-sm font-black">{t("performance.workDays")}</legend><div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">{[1,2,3,4,5,6,7].map((day) => <label key={day} className="flex items-center gap-2 rounded-xl bg-slate-50 p-3 text-sm font-bold"><input name="workDays" type="checkbox" value={day} defaultChecked={day <= 5} />{t(`performance.weekdays.${day}`)}</label>)}</div></fieldset><button className="w-full rounded-xl bg-indigo-700 px-5 py-3 font-black text-white">{t("performance.saveSchedule")}</button></form><div className="mt-6 space-y-3">{schedules.map((schedule) => <div key={schedule.id} className="rounded-xl bg-slate-50 p-4"><div className="flex flex-wrap items-center justify-between gap-3"><p className="font-black">{memberName(schedule.user_id)}</p><Badge tone="indigo">{schedule.start_time.slice(0,5)}–{schedule.end_time.slice(0,5)}</Badge></div><p className="mt-2 text-xs text-slate-500">{schedule.work_days.map((day) => t(`performance.weekdays.${day}`)).join(" · ")} · {schedule.timezone}</p><p className="mt-1 text-xs font-bold text-indigo-700">{t("performance.supervisorLabel", {name: schedule.supervisor_id ? memberName(schedule.supervisor_id) : t("performance.notAssigned")})}</p></div>)}</div></article>
           </section>
         ) : null}
       </div>

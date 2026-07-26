@@ -4,6 +4,11 @@ export type PerformanceSettings = {
   default_end_time: string;
   grace_minutes: number;
   report_deadline_time: string;
+  report_lock_enabled?: boolean;
+  maximum_reopen_hours?: number;
+  maximum_reopenings_per_day?: number;
+  reopened_report_score_percent?: number | string;
+  supervisor_report_score_percent?: number | string;
   minimum_work_days: number;
   minimum_report_rate: number | string;
   minimum_score: number | string;
@@ -24,6 +29,7 @@ export type MemberSchedule = {
   end_time: string;
   grace_minutes: number;
   report_deadline_time: string;
+  supervisor_id?: string | null;
   effective_from: string;
   effective_to: string | null;
   is_active: boolean;
@@ -47,6 +53,8 @@ export type DailyReportRecord = {
   user_id: string;
   report_date: string;
   status: string;
+  submission_mode?: "employee" | "reopened_employee" | "supervisor" | string;
+  submission_score_factor?: number | string | null;
 };
 
 export type MeetingRecord = {
@@ -158,11 +166,21 @@ function overlapsDate(date: string, leave: LeaveRequest) {
   return leave.status === "approved" && date >= leave.start_date && date <= leave.end_date;
 }
 
-function reportValue(status: string) {
-  if (["on_time", "validated", "submitted"].includes(status)) return 1;
-  if (status === "late") return 0.75;
-  if (["incomplete", "needs_revision"].includes(status)) return 0.5;
-  return 0;
+function reportValue(report: DailyReportRecord | undefined) {
+  if (!report) return 0;
+  const explicitFactor = Number(report.submission_score_factor);
+  let value = Number.isFinite(explicitFactor)
+    ? Math.min(1, Math.max(0, explicitFactor))
+    : ["on_time", "validated", "submitted", "supervisor_completed"].includes(report.status)
+      ? 1
+      : report.status === "late"
+        ? 0.75
+        : ["incomplete", "needs_revision"].includes(report.status)
+          ? 0.5
+          : 0;
+
+  if (["incomplete", "needs_revision"].includes(report.status)) value = Math.min(value, 0.5);
+  return value;
 }
 
 function meetingValue(status: string) {
@@ -220,7 +238,7 @@ export function calculatePerformanceScore(input: ScoreInput): CalculatedPerforma
       .filter((row) => row.user_id === input.userId)
       .map((row) => [row.report_date, row]),
   );
-  const reportValues = scheduledDates.map((date) => reportValue(reportByDate.get(date)?.status ?? "missing"));
+  const reportValues = scheduledDates.map((date) => reportValue(reportByDate.get(date)));
   const reportsExpected = scheduledDates.length;
   const reportsSubmitted = reportValues.filter((value) => value > 0).length;
   const reportRate = reportsExpected ? (reportsSubmitted / reportsExpected) * 100 : 0;
