@@ -5,6 +5,7 @@ import {clockInAction, clockOutAction} from "@/app/actions/performance";
 import {getI18n} from "@/i18n/server";
 import {createAdminClient} from "@/lib/supabase/admin";
 import {createClient} from "@/lib/supabase/server";
+import {normalizeTimeZone} from "@/lib/timezone";
 
 type Membership = {organization_id: string; role: string};
 type SettingsRow = {
@@ -22,6 +23,19 @@ type ScheduleRow = {
   end_time: string;
   report_deadline_time: string;
   supervisor_id: string | null;
+};
+type ScheduleEntryRow = {
+  user_id: string;
+  work_date: string;
+  timezone: string;
+  start_time: string | null;
+  end_time: string | null;
+  grace_minutes: number;
+  report_deadline_time: string | null;
+  work_mode: "onsite" | "remote" | "hybrid" | "off";
+  location: string | null;
+  report_required: boolean;
+  status: "draft" | "published" | "cancelled";
 };
 type AttendanceRow = {
   user_id: string;
@@ -67,7 +81,7 @@ const leaderRoles = new Set(["owner", "admin", "hr", "manager"]);
 
 function zonedParts(date: Date, timezone: string) {
   const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: timezone,
+    timeZone: normalizeTimeZone(timezone),
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -175,18 +189,35 @@ export default async function MyDayPage() {
     report_lock_enabled: true,
   };
   const currentSchedule = currentScheduleData ?? null;
-  const timezone = currentSchedule?.timezone || settings.timezone;
+  const baselineTimezone = normalizeTimeZone(currentSchedule?.timezone || settings.timezone);
+  const baselineLocalNow = zonedParts(requestNow, baselineTimezone);
+  const today = baselineLocalNow.date;
+  const {data: todayScheduleData, error: todayScheduleError} = await admin
+    .from("work_schedule_entries")
+    .select("user_id, work_date, timezone, start_time, end_time, grace_minutes, report_deadline_time, work_mode, location, report_required, status")
+    .eq("organization_id", membership.organization_id)
+    .eq("user_id", authData.user.id)
+    .eq("work_date", today)
+    .eq("status", "published")
+    .maybeSingle<ScheduleEntryRow>();
+  if (todayScheduleError && todayScheduleError.code !== "42P01" && todayScheduleError.code !== "PGRST205") {
+    console.error("Ma journée : planning détaillé indisponible", todayScheduleError.message);
+  }
+  const todaySchedule = todayScheduleData ?? null;
+  const timezone = normalizeTimeZone(todaySchedule?.timezone, baselineTimezone);
   const localNow = zonedParts(requestNow, timezone);
-  const today = localNow.date;
   const monthStart = `${today.slice(0, 7)}-01`;
   const scoreMonth = monthStart;
-  const startTime = (currentSchedule?.start_time || settings.default_start_time).slice(0, 5);
-  const endTime = (currentSchedule?.end_time || settings.default_end_time).slice(0, 5);
-  const reportDeadline = (currentSchedule?.report_deadline_time || settings.report_deadline_time).slice(0, 5);
-  const reportWindowOpen = settings.report_lock_enabled === false || timeToMinutes(localNow.time) <= timeToMinutes(reportDeadline);
+  const startTime = (todaySchedule?.start_time || currentSchedule?.start_time || settings.default_start_time).slice(0, 5);
+  const endTime = (todaySchedule?.end_time || currentSchedule?.end_time || settings.default_end_time).slice(0, 5);
+  const reportDeadline = (todaySchedule?.report_deadline_time || currentSchedule?.report_deadline_time || settings.report_deadline_time).slice(0, 5);
   const weekday = new Date(`${today}T00:00:00Z`).getUTCDay();
   const ownWorkDays = currentSchedule?.work_days ?? [1, 2, 3, 4, 5];
-  const isScheduledToday = ownWorkDays.includes(weekday);
+  const isScheduledToday = todaySchedule
+    ? todaySchedule.work_mode !== "off"
+    : ownWorkDays.includes(weekday);
+  const reportRequiredToday = todaySchedule ? todaySchedule.report_required && todaySchedule.work_mode !== "off" : isScheduledToday;
+  const reportWindowOpen = reportRequiredToday && (settings.report_lock_enabled === false || timeToMinutes(localNow.time) <= timeToMinutes(reportDeadline));
 
   const meetingWindowStart = new Date(`${today}T00:00:00Z`);
   meetingWindowStart.setUTCDate(meetingWindowStart.getUTCDate() - 1);
@@ -256,11 +287,11 @@ export default async function MyDayPage() {
   if (attendance?.clock_in_at && !attendance.clock_out_at && timeToMinutes(localNow.time) >= timeToMinutes(endTime)) {
     priorities.push({key: "clock-out", title: t("myDay.priorities.clockOut"), detail: t("myDay.priorities.clockOutDetail", {time: endTime}), href: "/dashboard/performance?view=attendance", tone: "today", rank: 2});
   }
-  if (isScheduledToday && !report && reportWindowOpen) {
+  if (reportRequiredToday && !report && reportWindowOpen) {
     priorities.push({key: "report", title: t("myDay.priorities.report"), detail: t("myDay.priorities.reportDetail", {time: reportDeadline}), href: "/dashboard/performance?view=reports", tone: timeToMinutes(localNow.time) + 60 >= timeToMinutes(reportDeadline) ? "urgent" : "today", rank: 2});
-  } else if (isScheduledToday && !report && !reportWindowOpen && activeReopening) {
+  } else if (reportRequiredToday && !report && !reportWindowOpen && activeReopening) {
     priorities.push({key: "reopened-report", title: t("myDay.priorities.reopenedReport"), detail: t("myDay.priorities.reopenedReportDetail", {date: new Intl.DateTimeFormat(dateLocale, {dateStyle: "medium", timeStyle: "short", timeZone: timezone}).format(new Date(activeReopening.expires_at))}), href: "/dashboard/performance?view=reports", tone: "urgent", rank: 1});
-  } else if (isScheduledToday && !report && !reportWindowOpen) {
+  } else if (reportRequiredToday && !report && !reportWindowOpen) {
     priorities.push({key: "missing-report", title: t("myDay.priorities.missingReport"), detail: t("myDay.priorities.missingReportDetail"), href: "/dashboard/performance?view=reports", tone: "urgent", rank: 1});
   }
 
@@ -307,13 +338,14 @@ export default async function MyDayPage() {
     const teamIds = Array.from(new Set(candidateIds));
 
     if (teamIds.length) {
-      const [profilesResult, attendanceTeamResult, reportsTeamResult, leavesTeamResult, tasksTeamResult, feedbackTeamResult] = await Promise.all([
+      const [profilesResult, attendanceTeamResult, reportsTeamResult, leavesTeamResult, tasksTeamResult, feedbackTeamResult, detailedSchedulesResult] = await Promise.all([
         admin.from("profiles").select("id, full_name, email").in("id", teamIds),
         admin.from("attendance_records").select("user_id, work_date, clock_in_at, clock_out_at, status, late_minutes").eq("organization_id", membership.organization_id).eq("work_date", today).in("user_id", teamIds),
         admin.from("daily_reports").select("user_id, report_date, status, submitted_at").eq("organization_id", membership.organization_id).eq("report_date", today).in("user_id", teamIds),
         admin.from("leave_requests").select("user_id, status, start_date, end_date").eq("organization_id", membership.organization_id).eq("status", "approved").lte("start_date", today).gte("end_date", today).in("user_id", teamIds),
         admin.from("crm_follow_up_tasks").select("id, client_id, title, due_at, priority, status, assigned_to").eq("organization_id", membership.organization_id).in("assigned_to", teamIds).in("status", ["todo", "in_progress", "overdue"]).lt("due_at", `${today}T00:00:00Z`),
         admin.from("crm_feedback_responses").select("id, client_id, rating, resolution_status, resolution_assigned_to").eq("organization_id", membership.organization_id).in("resolution_assigned_to", teamIds).in("resolution_status", ["open", "in_progress"]).lte("rating", 2),
+        admin.from("work_schedule_entries").select("user_id, work_date, timezone, start_time, end_time, grace_minutes, report_deadline_time, work_mode, location, report_required, status").eq("organization_id", membership.organization_id).eq("work_date", today).eq("status", "published").in("user_id", teamIds),
       ]);
 
       const profiles = (profilesResult.data ?? []) as ProfileRow[];
@@ -322,7 +354,13 @@ export default async function MyDayPage() {
       const teamLeaves = (leavesTeamResult.data ?? []) as LeaveRow[];
       const profileById = new Map(profiles.map((profile) => [profile.id, profile]));
       const scheduleById = new Map(schedules.map((schedule) => [schedule.user_id, schedule]));
-      const plannedIds = teamIds.filter((id) => (scheduleById.get(id)?.work_days ?? [1, 2, 3, 4, 5]).includes(weekday));
+      const detailedSchedules = (detailedSchedulesResult.data ?? []) as ScheduleEntryRow[];
+      const detailedById = new Map(detailedSchedules.map((schedule) => [schedule.user_id, schedule]));
+      const plannedIds = teamIds.filter((id) => {
+        const detailed = detailedById.get(id);
+        if (detailed) return detailed.work_mode !== "off";
+        return (scheduleById.get(id)?.work_days ?? [1, 2, 3, 4, 5]).includes(weekday);
+      });
       const onLeaveIds = new Set(teamLeaves.map((leave) => leave.user_id));
       const presentIds = new Set(teamAttendance.filter((row) => Boolean(row.clock_in_at) && row.status !== "absent").map((row) => row.user_id));
       const lateIds = new Set(teamAttendance.filter((row) => row.status === "late" || row.late_minutes > 0).map((row) => row.user_id));
@@ -358,7 +396,7 @@ export default async function MyDayPage() {
         : t("myDay.attendance.notScheduled");
   const reportLabel = report
     ? t("myDay.report.submitted")
-    : !isScheduledToday
+    : !reportRequiredToday
       ? t("myDay.report.notRequired")
       : reportWindowOpen
       ? t("myDay.report.toSubmit")
@@ -416,6 +454,7 @@ export default async function MyDayPage() {
               </form>
               <Link href="/dashboard/performance?view=reports" className="rounded-xl border border-slate-200 px-5 py-3 text-center font-black text-slate-800 transition hover:bg-slate-50">{t("myDay.quickActions.dailyReport")}</Link>
               <Link href="/dashboard/notifications" className="rounded-xl border border-slate-200 px-5 py-3 text-center font-black text-slate-800 transition hover:bg-slate-50">{t("myDay.quickActions.notifications")}</Link>
+              <Link href="/dashboard/schedule" className="rounded-xl border border-slate-200 px-5 py-3 text-center font-black text-slate-800 transition hover:bg-slate-50">{t("myDay.quickActions.schedule")}</Link>
               <Link href="/dashboard/crm" className="rounded-xl border border-slate-200 px-5 py-3 text-center font-black text-slate-800 transition hover:bg-slate-50">{t("myDay.quickActions.crm")}</Link>
               <Link href="/dashboard/collections" className="rounded-xl border border-slate-200 px-5 py-3 text-center font-black text-slate-800 transition hover:bg-slate-50">{t("myDay.quickActions.collections")}</Link>
             </div>

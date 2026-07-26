@@ -39,6 +39,7 @@ type IconName =
   | "crm"
   | "automation"
   | "performance"
+  | "schedule"
   | "reports"
   | "settings"
   | "menu"
@@ -120,6 +121,11 @@ const navigationItems: NavigationItem[] = [
     labelKey: "navigation.performance",
     href: "/dashboard/performance",
     icon: "performance",
+  },
+  {
+    labelKey: "navigation.schedule",
+    href: "/dashboard/schedule",
+    icon: "schedule",
   },
   {
     labelKey: "navigation.reports",
@@ -240,6 +246,13 @@ function Icon({ name, className = "h-5 w-5" }: { name: IconName; className?: str
       <>
         <path d="M4 20V10M10 20V4M16 20v-7M22 20H2" />
         <path d="m5 7 3-3 3 2 4-4 4 3" />
+      </>
+    ),
+    schedule: (
+      <>
+        <rect x="3" y="5" width="18" height="16" rx="2" />
+        <path d="M8 3v4M16 3v4M3 10h18" />
+        <path d="M7 14h3M14 14h3M7 18h3M14 18h3" />
       </>
     ),
     reports: (

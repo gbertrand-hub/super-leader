@@ -35,6 +35,14 @@ export type MemberSchedule = {
   is_active: boolean;
 };
 
+export type WorkScheduleEntry = {
+  user_id: string;
+  work_date: string;
+  status: string;
+  work_mode: string;
+  report_required: boolean;
+};
+
 export type AttendanceRecord = {
   user_id: string;
   work_date: string;
@@ -91,6 +99,7 @@ export type ScoreInput = {
   today: string;
   settings: PerformanceSettings;
   schedule?: MemberSchedule | null;
+  scheduleEntries?: WorkScheduleEntry[];
   attendance: AttendanceRecord[];
   leaves: LeaveRequest[];
   reports: DailyReportRecord[];
@@ -198,11 +207,22 @@ export function calculatePerformanceScore(input: ScoreInput): CalculatedPerforma
   const effectiveTo = schedule?.effective_to ?? end;
 
   const candidateDates = end ? dateRange(start, end) : [];
+  const detailedByDate = new Map(
+    (input.scheduleEntries ?? [])
+      .filter((entry) => entry.user_id === input.userId)
+      .map((entry) => [entry.work_date, entry]),
+  );
   const scheduledDates = candidateDates.filter((date) => {
-    if (!workDays.includes(isoWeekday(date))) return false;
-    if (date < effectiveFrom) return false;
-    if (effectiveTo && date > effectiveTo) return false;
+    const detailed = detailedByDate.get(date);
+    const planned = detailed
+      ? detailed.status === "published" && detailed.work_mode !== "off"
+      : workDays.includes(isoWeekday(date)) && date >= effectiveFrom && (!effectiveTo || date <= effectiveTo);
+    if (!planned) return false;
     return !input.leaves.some((leave) => leave.user_id === input.userId && overlapsDate(date, leave));
+  });
+  const reportDates = scheduledDates.filter((date) => {
+    const detailed = detailedByDate.get(date);
+    return detailed ? detailed.report_required : true;
   });
 
   const attendanceByDate = new Map(
@@ -238,8 +258,8 @@ export function calculatePerformanceScore(input: ScoreInput): CalculatedPerforma
       .filter((row) => row.user_id === input.userId)
       .map((row) => [row.report_date, row]),
   );
-  const reportValues = scheduledDates.map((date) => reportValue(reportByDate.get(date)));
-  const reportsExpected = scheduledDates.length;
+  const reportValues = reportDates.map((date) => reportValue(reportByDate.get(date)));
+  const reportsExpected = reportDates.length;
   const reportsSubmitted = reportValues.filter((value) => value > 0).length;
   const reportRate = reportsExpected ? (reportsSubmitted / reportsExpected) * 100 : 0;
   const reportsScore = reportsExpected

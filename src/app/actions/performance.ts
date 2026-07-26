@@ -14,6 +14,7 @@ import {
   type MeetingRecord,
   type MemberSchedule,
   type PerformanceSettings,
+  type WorkScheduleEntry,
 } from "@/lib/performance/scoring";
 import {
   finalizeTemporaryAttachment,
@@ -22,6 +23,7 @@ import {
 } from "@/lib/storage/private-attachments";
 import {createAdminClient} from "@/lib/supabase/admin";
 import {createClient} from "@/lib/supabase/server";
+import {normalizeTimeZone} from "@/lib/timezone";
 
 const leaderRoles = new Set(["owner", "admin", "hr", "manager"]);
 const hrRoles = new Set(["owner", "admin", "hr"]);
@@ -39,6 +41,19 @@ type Membership = {
 };
 
 type ScheduleRow = MemberSchedule & {id: string};
+
+type DetailedScheduleRow = {
+  user_id: string;
+  work_date: string;
+  timezone: string;
+  start_time: string | null;
+  end_time: string | null;
+  grace_minutes: number;
+  report_deadline_time: string | null;
+  work_mode: "onsite" | "remote" | "hybrid" | "off";
+  report_required: boolean;
+  status: "published" | "draft" | "cancelled";
+};
 
 type ReopeningRow = {
   id: string;
@@ -92,7 +107,7 @@ function timeToMinutes(value: string) {
 
 function zonedParts(date: Date, timezone: string) {
   const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: timezone,
+    timeZone: normalizeTimeZone(timezone),
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -187,6 +202,24 @@ async function loadSettingsAndSchedule(
   return {settings, schedule};
 }
 
+async function loadPublishedDetailedSchedule(
+  organizationId: string,
+  userId: string,
+  workDate: string,
+  admin: ReturnType<typeof createAdminClient>,
+) {
+  const {data, error} = await admin
+    .from("work_schedule_entries")
+    .select("user_id, work_date, timezone, start_time, end_time, grace_minutes, report_deadline_time, work_mode, report_required, status")
+    .eq("organization_id", organizationId)
+    .eq("user_id", userId)
+    .eq("work_date", workDate)
+    .eq("status", "published")
+    .maybeSingle<DetailedScheduleRow>();
+  if (error && error.code !== "42P01" && error.code !== "PGRST205") throw error;
+  return data ?? null;
+}
+
 async function canSuperviseEmployee(
   membership: Membership,
   actorId: string,
@@ -227,13 +260,15 @@ function reportWindowState(
   now: Date,
   settings: PerformanceSettings,
   schedule: ScheduleRow | null,
+  detailedSchedule: DetailedScheduleRow | null = null,
 ) {
-  const timezone = schedule?.timezone || settings.timezone;
+  const timezone = detailedSchedule?.timezone || schedule?.timezone || settings.timezone;
   const local = zonedParts(now, timezone);
-  const deadline = (schedule?.report_deadline_time || settings.report_deadline_time).slice(0, 5);
+  const deadline = (detailedSchedule?.report_deadline_time || schedule?.report_deadline_time || settings.report_deadline_time).slice(0, 5);
+  const reportRequired = detailedSchedule ? detailedSchedule.report_required && detailedSchedule.work_mode !== "off" : true;
   const isFuture = reportDate > local.date;
-  const isNormallyOpen = reportDate === local.date && timeToMinutes(local.time) <= timeToMinutes(deadline);
-  return {local, deadline, isFuture, isNormallyOpen, isClosed: !isFuture && !isNormallyOpen};
+  const isNormallyOpen = reportRequired && reportDate === local.date && timeToMinutes(local.time) <= timeToMinutes(deadline);
+  return {local, deadline, reportRequired, isFuture, isNormallyOpen, isClosed: !isFuture && !isNormallyOpen};
 }
 
 async function expireReopenings(
@@ -286,12 +321,25 @@ export async function clockInAction() {
     go(t("performance.messages.databaseSetupRequired"), "error");
   }
 
-  const timezone = schedule?.timezone || settings.timezone;
+  const baselineTimezone = schedule?.timezone || settings.timezone;
   const now = new Date();
+  const baselineLocal = zonedParts(now, baselineTimezone);
+  let detailedSchedule: DetailedScheduleRow | null = null;
+  try {
+    detailedSchedule = await loadPublishedDetailedSchedule(membership.organization_id, user.id, baselineLocal.date, admin);
+  } catch (error) {
+    go(t("performance.messages.clockInFailed", {message: error instanceof Error ? error.message : String(error)}), "error", "attendance");
+  }
+  if (detailedSchedule?.work_mode === "off") go(t("performance.messages.notScheduledToday"), "error", "attendance");
+  if (!detailedSchedule && schedule?.work_days?.length) {
+    const weekday = new Date(`${baselineLocal.date}T00:00:00Z`).getUTCDay();
+    if (!schedule.work_days.includes(weekday)) go(t("performance.messages.notScheduledToday"), "error", "attendance");
+  }
+  const timezone = detailedSchedule?.timezone || baselineTimezone;
   const local = zonedParts(now, timezone);
-  const scheduledStart = (schedule?.start_time || settings.default_start_time).slice(0, 5);
-  const scheduledEnd = (schedule?.end_time || settings.default_end_time).slice(0, 5);
-  const graceMinutes = schedule?.grace_minutes ?? settings.grace_minutes;
+  const scheduledStart = (detailedSchedule?.start_time || schedule?.start_time || settings.default_start_time).slice(0, 5);
+  const scheduledEnd = (detailedSchedule?.end_time || schedule?.end_time || settings.default_end_time).slice(0, 5);
+  const graceMinutes = detailedSchedule?.grace_minutes ?? schedule?.grace_minutes ?? settings.grace_minutes;
   const lateMinutes = Math.max(0, timeToMinutes(local.time) - timeToMinutes(scheduledStart) - graceMinutes);
 
   const {data: existing} = await admin
@@ -310,7 +358,7 @@ export async function clockInAction() {
     scheduled_start: scheduledStart,
     scheduled_end: scheduledEnd,
     clock_in_at: now.toISOString(),
-    status: lateMinutes > 0 ? "late" : "present",
+    status: lateMinutes > 0 ? "late" : detailedSchedule?.work_mode === "remote" ? "remote" : "present",
     late_minutes: lateMinutes,
     source: "web",
   };
@@ -522,8 +570,15 @@ export async function submitDailyReportAction(formData: FormData) {
   }
 
   const now = new Date();
-  const window = reportWindowState(reportDate, now, settings, schedule);
+  let detailedSchedule: DetailedScheduleRow | null = null;
+  try {
+    detailedSchedule = await loadPublishedDetailedSchedule(membership.organization_id, user.id, reportDate, admin);
+  } catch (error) {
+    go(t("performance.messages.reportSaveFailed", {message: error instanceof Error ? error.message : String(error)}), "error", "reports");
+  }
+  const window = reportWindowState(reportDate, now, settings, schedule, detailedSchedule);
   if (window.isFuture) go(t("performance.messages.futureReport"), "error", "reports");
+  if (!window.reportRequired) go(t("performance.messages.reportNotRequired"), "error", "reports");
 
   let reopening: ReopeningRow | null = null;
   if (settings.report_lock_enabled !== false && !window.isNormallyOpen) {
@@ -627,8 +682,15 @@ export async function reopenDailyReportAction(formData: FormData) {
     go(t("performance.messages.databaseSetupRequired"), "error", "reports");
   }
   const now = new Date();
-  const window = reportWindowState(reportDate, now, settings, schedule);
+  let detailedSchedule: DetailedScheduleRow | null = null;
+  try {
+    detailedSchedule = await loadPublishedDetailedSchedule(membership.organization_id, employeeId, reportDate, admin);
+  } catch (error) {
+    go(t("performance.messages.reopeningFailed", {message: error instanceof Error ? error.message : String(error)}), "error", "reports");
+  }
+  const window = reportWindowState(reportDate, now, settings, schedule, detailedSchedule);
   if (window.isFuture) go(t("performance.messages.futureReport"), "error", "reports");
+  if (!window.reportRequired) go(t("performance.messages.reportNotRequired"), "error", "reports");
   if (!window.isClosed) go(t("performance.messages.reportDayStillOpen"), "error", "reports");
 
   const {data: existingReport} = await admin
@@ -745,8 +807,15 @@ export async function completeDailyReportForEmployeeAction(formData: FormData) {
     go(t("performance.messages.databaseSetupRequired"), "error", "reports");
   }
   const now = new Date();
-  const window = reportWindowState(reportDate, now, settings, schedule);
+  let detailedSchedule: DetailedScheduleRow | null = null;
+  try {
+    detailedSchedule = await loadPublishedDetailedSchedule(membership.organization_id, employeeId, reportDate, admin);
+  } catch (error) {
+    go(t("performance.messages.reportSaveFailed", {message: error instanceof Error ? error.message : String(error)}), "error", "reports");
+  }
+  const window = reportWindowState(reportDate, now, settings, schedule, detailedSchedule);
   if (window.isFuture) go(t("performance.messages.futureReport"), "error", "reports");
+  if (!window.reportRequired) go(t("performance.messages.reportNotRequired"), "error", "reports");
   if (!window.isClosed) go(t("performance.messages.reportDayStillOpen"), "error", "reports");
 
   const {data: existingReport} = await admin
@@ -834,7 +903,7 @@ export async function reviewDailyReportAction(formData: FormData) {
 export async function updatePerformanceSettingsAction(formData: FormData) {
   const {user, membership, admin, t} = await getContext();
   if (!hrRoles.has(membership.role)) go(t("performance.messages.permissionDenied"), "error", "settings");
-  const timezone = cleanText(formData.get("timezone"), 100) || "Europe/Dublin";
+  const timezone = normalizeTimeZone(cleanText(formData.get("timezone"), 100));
   const defaultStart = normalizeTime(formData.get("defaultStart"));
   const defaultEnd = normalizeTime(formData.get("defaultEnd"));
   const reportDeadline = normalizeTime(formData.get("reportDeadline"));
@@ -904,7 +973,7 @@ export async function upsertMemberScheduleAction(formData: FormData) {
   if (!leaderRoles.has(membership.role)) go(t("performance.messages.permissionDenied"), "error", "settings");
   const userId = String(formData.get("userId") ?? "").trim();
   const supervisorId = String(formData.get("supervisorId") ?? "").trim();
-  const timezone = cleanText(formData.get("timezone"), 100) || "Europe/Dublin";
+  const timezone = normalizeTimeZone(cleanText(formData.get("timezone"), 100));
   const startTime = normalizeTime(formData.get("startTime"));
   const endTime = normalizeTime(formData.get("endTime"));
   const reportDeadline = normalizeTime(formData.get("reportDeadline"));
@@ -1087,10 +1156,11 @@ export async function calculateMonthlyPerformanceAction(formData: FormData) {
   const {data: lockedScores} = await admin.from("employee_month_scores").select("id").eq("organization_id", membership.organization_id).eq("score_month", scoreMonth).not("locked_at", "is", null).limit(1);
   if (lockedScores?.length) go(t("performance.messages.monthLocked"), "error", "ranking");
 
-  const [settingsResult, membersResult, schedulesResult, attendanceResult, leavesResult, reportsResult, meetingsResult, meetingAttendanceResult, feedbackResult, recognitionsResult, kpiResult] = await Promise.all([
+  const [settingsResult, membersResult, schedulesResult, detailedSchedulesResult, attendanceResult, leavesResult, reportsResult, meetingsResult, meetingAttendanceResult, feedbackResult, recognitionsResult, kpiResult] = await Promise.all([
     admin.from("performance_settings").select("*").eq("organization_id", membership.organization_id).maybeSingle<PerformanceSettings>(),
     admin.from("organization_members").select("user_id").eq("organization_id", membership.organization_id).eq("is_active", true),
     admin.from("member_work_schedules").select("*").eq("organization_id", membership.organization_id).eq("is_active", true),
+    admin.from("work_schedule_entries").select("user_id, work_date, status, work_mode, report_required").eq("organization_id", membership.organization_id).gte("work_date", bounds.start).lte("work_date", bounds.end),
     admin.from("attendance_records").select("user_id, work_date, status, late_minutes").eq("organization_id", membership.organization_id).gte("work_date", bounds.start).lte("work_date", bounds.end),
     admin.from("leave_requests").select("user_id, start_date, end_date, status").eq("organization_id", membership.organization_id).eq("status", "approved").lte("start_date", bounds.end).gte("end_date", bounds.start),
     admin.from("daily_reports").select("user_id, report_date, status, submission_mode, submission_score_factor").eq("organization_id", membership.organization_id).gte("report_date", bounds.start).lte("report_date", bounds.end),
@@ -1101,12 +1171,14 @@ export async function calculateMonthlyPerformanceAction(formData: FormData) {
     admin.from("monthly_kpi_scores").select("user_id, score").eq("organization_id", membership.organization_id).eq("score_month", scoreMonth),
   ]);
 
-  const anyError = [settingsResult.error, membersResult.error, schedulesResult.error, attendanceResult.error, leavesResult.error, reportsResult.error, meetingsResult.error, meetingAttendanceResult.error, feedbackResult.error, recognitionsResult.error, kpiResult.error].find(Boolean);
+  const detailedScheduleError = detailedSchedulesResult.error && !["42P01", "PGRST205"].includes(detailedSchedulesResult.error.code) ? detailedSchedulesResult.error : null;
+  const anyError = [settingsResult.error, membersResult.error, schedulesResult.error, detailedScheduleError, attendanceResult.error, leavesResult.error, reportsResult.error, meetingsResult.error, meetingAttendanceResult.error, feedbackResult.error, recognitionsResult.error, kpiResult.error].find(Boolean);
   if (anyError || !settingsResult.data) go(t("performance.messages.calculationFailed", {message: anyError?.message || t("performance.messages.settingsMissing")}), "error", "ranking");
 
   const settings = settingsResult.data;
   const members = (membersResult.data ?? []) as {user_id: string}[];
   const schedules = (schedulesResult.data ?? []) as MemberSchedule[];
+  const detailedSchedules = (detailedSchedulesResult.data ?? []) as WorkScheduleEntry[];
   const attendance = (attendanceResult.data ?? []) as AttendanceRecord[];
   const leaves = (leavesResult.data ?? []) as LeaveRequest[];
   const reports = (reportsResult.data ?? []) as DailyReportRecord[];
@@ -1125,6 +1197,7 @@ export async function calculateMonthlyPerformanceAction(formData: FormData) {
       today,
       settings,
       schedule: schedules.find((row) => row.user_id === member.user_id) ?? null,
+      scheduleEntries: detailedSchedules,
       attendance,
       leaves,
       reports,

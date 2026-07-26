@@ -26,6 +26,7 @@ import {SecureAttachmentUpload} from "@/components/forms/secure-attachment-uploa
 import {getI18n} from "@/i18n/server";
 import {createAdminClient} from "@/lib/supabase/admin";
 import {createClient} from "@/lib/supabase/server";
+import {normalizeTimeZone} from "@/lib/timezone";
 
 type SearchParams = {
   view?: string | string[];
@@ -70,6 +71,18 @@ type ScheduleRow = {
   grace_minutes: number;
   report_deadline_time: string;
   supervisor_id: string | null;
+};
+type DetailedScheduleRow = {
+  user_id: string;
+  work_date: string;
+  timezone: string;
+  start_time: string | null;
+  end_time: string | null;
+  grace_minutes: number;
+  report_deadline_time: string | null;
+  work_mode: "onsite" | "remote" | "hybrid" | "off";
+  report_required: boolean;
+  status: string;
 };
 type AttendanceRow = {
   id: string;
@@ -199,7 +212,7 @@ function monthValue(value: string) {
 
 function zonedDate(date: Date, timezone: string) {
   const parts = new Intl.DateTimeFormat("en-GB", {
-    timeZone: timezone,
+    timeZone: normalizeTimeZone(timezone),
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -210,7 +223,7 @@ function zonedDate(date: Date, timezone: string) {
 
 function zonedDateTime(date: Date, timezone: string) {
   const parts = new Intl.DateTimeFormat("en-GB", {
-    timeZone: timezone,
+    timeZone: normalizeTimeZone(timezone),
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -373,13 +386,15 @@ export default async function PerformancePage({searchParams}: PageProps) {
   const memberName = (id: string) => memberOptions.find((member) => member.id === id)?.name || t("common.member");
   const leaderOptions = memberOptions.filter((member) => leaderRoles.has(member.role));
 
+  settings.timezone = normalizeTimeZone(settings.timezone);
   const today = zonedDate(requestNow, settings.timezone);
   const monthStart = `${month}-01`;
   const [year, monthNumber] = month.split("-").map(Number);
   const monthEnd = new Date(Date.UTC(year, monthNumber, 0)).toISOString().slice(0, 10);
 
-  const [schedulesResult, attendanceResult, leavesResult, reportsResult, reopeningsResult, meetingsResult, meetingAttendanceResult, kpiResult, scoresResult, awardsResult, appealsResult] = await Promise.all([
+  const [schedulesResult, detailedSchedulesResult, attendanceResult, leavesResult, reportsResult, reopeningsResult, meetingsResult, meetingAttendanceResult, kpiResult, scoresResult, awardsResult, appealsResult] = await Promise.all([
     admin.from("member_work_schedules").select("id, user_id, timezone, work_days, start_time, end_time, grace_minutes, report_deadline_time, supervisor_id").eq("organization_id", membership.organization_id).eq("is_active", true),
+    admin.from("work_schedule_entries").select("user_id, work_date, timezone, start_time, end_time, grace_minutes, report_deadline_time, work_mode, report_required, status").eq("organization_id", membership.organization_id).eq("status", "published").gte("work_date", monthStart).lte("work_date", monthEnd),
     admin.from("attendance_records").select("id, user_id, work_date, clock_in_at, clock_out_at, status, late_minutes, justification, source").eq("organization_id", membership.organization_id).gte("work_date", monthStart).lte("work_date", monthEnd).order("work_date", {ascending: false}).limit(500),
     admin.from("leave_requests").select("id, user_id, leave_type, start_date, end_date, reason, document_url, document_storage_path, document_file_name, status, review_note, created_at").eq("organization_id", membership.organization_id).order("created_at", {ascending: false}).limit(300),
     admin.from("daily_reports").select("id, user_id, report_date, accomplishments, results, blockers, next_priorities, status, review_note, submitted_at, submitted_by, submission_mode, submission_score_factor, supervisor_reason, reopening_id").eq("organization_id", membership.organization_id).gte("report_date", monthStart).lte("report_date", monthEnd).order("report_date", {ascending: false}).limit(500),
@@ -392,10 +407,12 @@ export default async function PerformancePage({searchParams}: PageProps) {
     admin.from("performance_score_appeals").select("id, user_id, score_month, reason, status, resolution_note, created_at").eq("organization_id", membership.organization_id).eq("score_month", scoreMonth).order("created_at", {ascending: false}),
   ]);
 
-  const loadError = [schedulesResult.error, attendanceResult.error, leavesResult.error, reportsResult.error, reopeningsResult.error, meetingsResult.error, meetingAttendanceResult.error, kpiResult.error, scoresResult.error, awardsResult.error, appealsResult.error].find(Boolean);
+  const detailedScheduleError = detailedSchedulesResult.error && !["42P01", "PGRST205"].includes(detailedSchedulesResult.error.code) ? detailedSchedulesResult.error : null;
+  const loadError = [schedulesResult.error, detailedScheduleError, attendanceResult.error, leavesResult.error, reportsResult.error, reopeningsResult.error, meetingsResult.error, meetingAttendanceResult.error, kpiResult.error, scoresResult.error, awardsResult.error, appealsResult.error].find(Boolean);
   if (loadError) throw new Error(t("performance.messages.loadFailed", {message: loadError.message}));
 
   const schedules = (schedulesResult.data ?? []) as ScheduleRow[];
+  const detailedSchedules = (detailedSchedulesResult.data ?? []) as DetailedScheduleRow[];
   const allAttendance = (attendanceResult.data ?? []) as AttendanceRow[];
   const allLeaves = (leavesResult.data ?? []) as LeaveRow[];
   const allReports = (reportsResult.data ?? []) as DailyReportRow[];
@@ -421,9 +438,12 @@ export default async function PerformancePage({searchParams}: PageProps) {
   const ownAppeal = appeals.find((appeal) => appeal.user_id === authData.user.id);
   const currentReport = allReports.find((row) => row.user_id === authData.user.id && row.report_date === today);
   const currentSchedule = schedules.find((row) => row.user_id === authData.user.id);
-  const localNow = zonedDateTime(requestNow, currentSchedule?.timezone || settings.timezone);
-  const ownReportDeadline = (currentSchedule?.report_deadline_time || settings.report_deadline_time).slice(0, 5);
-  const currentDayReportOpen = settings.report_lock_enabled === false || timeToMinutes(localNow.time) <= timeToMinutes(ownReportDeadline);
+  const baselineLocalNow = zonedDateTime(requestNow, currentSchedule?.timezone || settings.timezone);
+  const currentDetailedSchedule = detailedSchedules.find((row) => row.user_id === authData.user.id && row.work_date === baselineLocalNow.date) ?? null;
+  const localNow = zonedDateTime(requestNow, currentDetailedSchedule?.timezone || currentSchedule?.timezone || settings.timezone);
+  const ownReportDeadline = (currentDetailedSchedule?.report_deadline_time || currentSchedule?.report_deadline_time || settings.report_deadline_time).slice(0, 5);
+  const reportRequiredToday = currentDetailedSchedule ? currentDetailedSchedule.report_required && currentDetailedSchedule.work_mode !== "off" : true;
+  const currentDayReportOpen = reportRequiredToday && (settings.report_lock_enabled === false || timeToMinutes(localNow.time) <= timeToMinutes(ownReportDeadline));
   const activeOwnReopenings = reopenings.filter((row) => row.user_id === authData.user.id && row.status === "active" && new Date(row.expires_at).getTime() > requestNowTimestamp);
   const availableReportDates = Array.from(new Set([
     ...(currentDayReportOpen ? [localNow.date] : []),
@@ -439,8 +459,8 @@ export default async function PerformancePage({searchParams}: PageProps) {
 
   const tabHref = (target: string) => `/dashboard/performance?view=${target}&month=${month}`;
   const formatDate = (value: string) => new Intl.DateTimeFormat(dateLocale, {dateStyle: "medium"}).format(new Date(`${value.slice(0, 10)}T00:00:00Z`));
-  const formatDateTime = (value: string) => new Intl.DateTimeFormat(dateLocale, {dateStyle: "medium", timeStyle: "short", timeZone: settings.timezone}).format(new Date(value));
-  const formatTime = (value: string | null) => value ? new Intl.DateTimeFormat(dateLocale, {hour: "2-digit", minute: "2-digit", timeZone: settings.timezone}).format(new Date(value)) : "—";
+  const formatDateTime = (value: string) => new Intl.DateTimeFormat(dateLocale, {dateStyle: "medium", timeStyle: "short", timeZone: normalizeTimeZone(settings.timezone)}).format(new Date(value));
+  const formatTime = (value: string | null) => value ? new Intl.DateTimeFormat(dateLocale, {hour: "2-digit", minute: "2-digit", timeZone: normalizeTimeZone(settings.timezone)}).format(new Date(value)) : "—";
 
   return (
     <main className="min-h-screen bg-slate-50 px-5 py-8 text-slate-950">
@@ -710,7 +730,7 @@ export default async function PerformancePage({searchParams}: PageProps) {
           <section className="mt-6 grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
             {canConfigure ? <article className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"><h2 className="text-2xl font-black">{t("performance.scoringSettings")}</h2><p className="mt-1 text-sm text-slate-500">{t("performance.scoringSettingsHelp")}</p><form action={updatePerformanceSettingsAction} className="mt-5 space-y-5"><div className="grid gap-4 sm:grid-cols-2"><label className="block text-sm font-black">{t("performance.timezone")}<input name="timezone" defaultValue={settings.timezone} required className={fieldClass()} /></label><label className="block text-sm font-black">{t("performance.graceMinutes")}<input name="graceMinutes" type="number" min="0" max="180" defaultValue={settings.grace_minutes} required className={fieldClass()} /></label><label className="block text-sm font-black">{t("performance.defaultStart")}<input name="defaultStart" type="time" defaultValue={settings.default_start_time.slice(0, 5)} required className={fieldClass()} /></label><label className="block text-sm font-black">{t("performance.defaultEnd")}<input name="defaultEnd" type="time" defaultValue={settings.default_end_time.slice(0, 5)} required className={fieldClass()} /></label><label className="block text-sm font-black">{t("performance.reportDeadline")}<input name="reportDeadline" type="time" defaultValue={settings.report_deadline_time.slice(0, 5)} required className={fieldClass()} /></label><label className="flex items-center gap-3 rounded-xl bg-slate-50 p-4 text-sm font-bold"><input name="reportLockEnabled" type="checkbox" defaultChecked={settings.report_lock_enabled} />{t("performance.reportLockEnabled")}</label><label className="block text-sm font-black">{t("performance.maximumReopenHours")}<input name="maximumReopenHours" type="number" min="1" max="168" defaultValue={settings.maximum_reopen_hours} required className={fieldClass()} /></label><label className="block text-sm font-black">{t("performance.maximumReopeningsPerDay")}<input name="maximumReopeningsPerDay" type="number" min="1" max="10" defaultValue={settings.maximum_reopenings_per_day} required className={fieldClass()} /></label><label className="block text-sm font-black">{t("performance.reopenedReportScorePercent")}<input name="reopenedReportScorePercent" type="number" min="0" max="100" step="0.1" defaultValue={number(settings.reopened_report_score_percent)} required className={fieldClass()} /></label><label className="block text-sm font-black">{t("performance.supervisorReportScorePercent")}<input name="supervisorReportScorePercent" type="number" min="0" max="100" step="0.1" defaultValue={number(settings.supervisor_report_score_percent)} required className={fieldClass()} /></label><label className="block text-sm font-black">{t("performance.minimumWorkDays")}<input name="minimumWorkDays" type="number" min="1" max="31" defaultValue={settings.minimum_work_days} required className={fieldClass()} /></label><label className="block text-sm font-black">{t("performance.minimumReportRate")}<input name="minimumReportRate" type="number" min="0" max="100" step="0.1" defaultValue={number(settings.minimum_report_rate)} required className={fieldClass()} /></label><label className="block text-sm font-black">{t("performance.minimumScore")}<input name="minimumScore" type="number" min="0" max="100" step="0.1" defaultValue={number(settings.minimum_score)} required className={fieldClass()} /></label><label className="block text-sm font-black">{t("performance.maximumUnexcusedAbsences")}<input name="maximumUnexcusedAbsences" type="number" min="0" max="31" defaultValue={settings.maximum_unexcused_absences} required className={fieldClass()} /></label></div><div><h3 className="font-black">{t("performance.weights")}</h3><p className="mt-1 text-xs text-slate-500">{t("performance.weightsHelp")}</p><div className="mt-3 grid gap-4 sm:grid-cols-2">{[["attendanceWeight", "attendance", settings.attendance_weight], ["punctualityWeight", "punctuality", settings.punctuality_weight], ["meetingsWeight", "meetings", settings.meetings_weight], ["reportsWeight", "reports", settings.reports_weight], ["collaborationWeight", "collaboration", settings.collaboration_weight], ["roleKpiWeight", "roleKpi", settings.role_kpi_weight]].map(([name, key, value]) => <label key={String(name)} className="block text-sm font-black">{t(`performance.criteria.${key}`)}<input name={String(name)} type="number" min="0" max="100" step="0.1" defaultValue={number(value)} required className={fieldClass()} /></label>)}</div></div><button className="w-full rounded-xl bg-slate-950 px-5 py-3 font-black text-white">{t("performance.saveSettings")}</button></form></article> : <article className="rounded-3xl border border-slate-200 bg-white p-6"><h2 className="text-2xl font-black">{t("performance.scoringSettings")}</h2><p className="mt-2 text-slate-600">{t("performance.hrOnlySettings")}</p></article>}
 
-            <article className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"><h2 className="text-2xl font-black">{t("performance.memberSchedule")}</h2><p className="mt-1 text-sm text-slate-500">{t("performance.memberScheduleHelp")}</p><form action={upsertMemberScheduleAction} className="mt-5 space-y-4"><label className="block text-sm font-black">{t("performance.employee")}<select name="userId" className={fieldClass()}>{memberOptions.map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}</select></label><label className="block text-sm font-black">{t("performance.assignedSupervisor")}<select name="supervisorId" required className={fieldClass()}><option value="">{t("performance.selectSupervisor")}</option>{leaderOptions.map((leader) => <option key={leader.id} value={leader.id}>{leader.name} · {t(`roles.${leader.role}`)}</option>)}</select></label><label className="block text-sm font-black">{t("performance.timezone")}<input name="timezone" defaultValue={settings.timezone} required className={fieldClass()} /></label><div className="grid gap-4 sm:grid-cols-2"><label className="block text-sm font-black">{t("performance.startTime")}<input name="startTime" type="time" defaultValue={settings.default_start_time.slice(0, 5)} required className={fieldClass()} /></label><label className="block text-sm font-black">{t("performance.endTime")}<input name="endTime" type="time" defaultValue={settings.default_end_time.slice(0, 5)} required className={fieldClass()} /></label><label className="block text-sm font-black">{t("performance.graceMinutes")}<input name="graceMinutes" type="number" min="0" max="180" defaultValue={settings.grace_minutes} required className={fieldClass()} /></label><label className="block text-sm font-black">{t("performance.reportDeadline")}<input name="reportDeadline" type="time" defaultValue={settings.report_deadline_time.slice(0, 5)} required className={fieldClass()} /></label></div><fieldset><legend className="text-sm font-black">{t("performance.workDays")}</legend><div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">{[1,2,3,4,5,6,7].map((day) => <label key={day} className="flex items-center gap-2 rounded-xl bg-slate-50 p-3 text-sm font-bold"><input name="workDays" type="checkbox" value={day} defaultChecked={day <= 5} />{t(`performance.weekdays.${day}`)}</label>)}</div></fieldset><button className="w-full rounded-xl bg-indigo-700 px-5 py-3 font-black text-white">{t("performance.saveSchedule")}</button></form><div className="mt-6 space-y-3">{schedules.map((schedule) => <div key={schedule.id} className="rounded-xl bg-slate-50 p-4"><div className="flex flex-wrap items-center justify-between gap-3"><p className="font-black">{memberName(schedule.user_id)}</p><Badge tone="indigo">{schedule.start_time.slice(0,5)}–{schedule.end_time.slice(0,5)}</Badge></div><p className="mt-2 text-xs text-slate-500">{schedule.work_days.map((day) => t(`performance.weekdays.${day}`)).join(" · ")} · {schedule.timezone}</p><p className="mt-1 text-xs font-bold text-indigo-700">{t("performance.supervisorLabel", {name: schedule.supervisor_id ? memberName(schedule.supervisor_id) : t("performance.notAssigned")})}</p></div>)}</div></article>
+            <article className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"><h2 className="text-2xl font-black">{t("performance.memberSchedule")}</h2><p className="mt-1 text-sm text-slate-500">{t("performance.memberScheduleHelp")}</p><form action={upsertMemberScheduleAction} className="mt-5 space-y-4"><label className="block text-sm font-black">{t("performance.employee")}<select name="userId" className={fieldClass()}>{memberOptions.map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}</select></label><label className="block text-sm font-black">{t("performance.assignedSupervisor")}<select name="supervisorId" required className={fieldClass()}><option value="">{t("performance.selectSupervisor")}</option>{leaderOptions.map((leader) => <option key={leader.id} value={leader.id}>{leader.name} · {t(`roles.${leader.role}`)}</option>)}</select></label><label className="block text-sm font-black">{t("performance.timezone")}<input name="timezone" defaultValue={settings.timezone} required className={fieldClass()} /></label><div className="grid gap-4 sm:grid-cols-2"><label className="block text-sm font-black">{t("performance.startTime")}<input name="startTime" type="time" defaultValue={settings.default_start_time.slice(0, 5)} required className={fieldClass()} /></label><label className="block text-sm font-black">{t("performance.endTime")}<input name="endTime" type="time" defaultValue={settings.default_end_time.slice(0, 5)} required className={fieldClass()} /></label><label className="block text-sm font-black">{t("performance.graceMinutes")}<input name="graceMinutes" type="number" min="0" max="180" defaultValue={settings.grace_minutes} required className={fieldClass()} /></label><label className="block text-sm font-black">{t("performance.reportDeadline")}<input name="reportDeadline" type="time" defaultValue={settings.report_deadline_time.slice(0, 5)} required className={fieldClass()} /></label></div><fieldset><legend className="text-sm font-black">{t("performance.workDays")}</legend><div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">{[1,2,3,4,5,6,7].map((day) => <label key={day} className="flex items-center gap-2 rounded-xl bg-slate-50 p-3 text-sm font-bold"><input name="workDays" type="checkbox" value={day} defaultChecked={day <= 5} />{t(`performance.weekdays.${day}`)}</label>)}</div></fieldset><button className="w-full rounded-xl bg-indigo-700 px-5 py-3 font-black text-white">{t("performance.saveSchedule")}</button></form><div className="mt-6 space-y-3">{schedules.map((schedule) => <div key={schedule.id} className="rounded-xl bg-slate-50 p-4"><div className="flex flex-wrap items-center justify-between gap-3"><p className="font-black">{memberName(schedule.user_id)}</p><Badge tone="indigo">{schedule.start_time.slice(0,5)}–{schedule.end_time.slice(0,5)}</Badge></div><p className="mt-2 text-xs text-slate-500">{schedule.work_days.map((day) => t(`performance.weekdays.${day}`)).join(" · ")} · {normalizeTimeZone(schedule.timezone, settings.timezone)}</p><p className="mt-1 text-xs font-bold text-indigo-700">{t("performance.supervisorLabel", {name: schedule.supervisor_id ? memberName(schedule.supervisor_id) : t("performance.notAssigned")})}</p></div>)}</div></article>
           </section>
         ) : null}
       </div>

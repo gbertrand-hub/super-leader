@@ -3,6 +3,7 @@ import {verifyCronRequest} from "@/lib/crm/webhook-security";
 import {sendNotificationEmail} from "@/lib/notifications/email";
 import {createNotification} from "@/lib/notifications/service";
 import {createAdminClient} from "@/lib/supabase/admin";
+import {normalizeTimeZone} from "@/lib/timezone";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -66,7 +67,7 @@ function timeToMinutes(value: string) {
 
 function zonedParts(date: Date, timezone: string) {
   const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: timezone,
+    timeZone: normalizeTimeZone(timezone),
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
