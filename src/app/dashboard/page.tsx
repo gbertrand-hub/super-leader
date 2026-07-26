@@ -32,6 +32,7 @@ export default async function DashboardPage() {
   let actionPlanCount = 0;
   let salesThisMonthCount = 0;
   let crmClientCount = 0;
+  let unreadNotificationCount = 0;
 
   if (organization && membership?.organization_id) {
     const [{data: received}, {count: recognitions}, {count: actionPlans}] =
@@ -79,6 +80,14 @@ export default async function DashboardPage() {
       .select("id", {count: "exact", head: true})
       .eq("organization_id", membership.organization_id);
     if (!crmError) crmClientCount = clientsCount ?? 0;
+
+    const {count: notificationCount, error: notificationError} = await admin
+      .from("notifications")
+      .select("id", {count: "exact", head: true})
+      .eq("organization_id", membership.organization_id)
+      .eq("user_id", data.user.id)
+      .eq("status", "unread");
+    if (!notificationError) unreadNotificationCount = notificationCount ?? 0;
   }
 
   const isReportLeader = ["owner", "admin", "hr", "manager"].includes(
@@ -130,6 +139,11 @@ export default async function DashboardPage() {
           </section>
         ) : (
           <nav className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <Link href="/dashboard/notifications" className="rounded-2xl border border-red-200 bg-red-50 p-6 shadow-sm hover:border-red-400">
+              <p className="text-lg font-black text-red-950">{t("dashboard.notificationsTitle")}</p>
+              <p className="mt-2 text-sm text-red-800">{t("dashboard.notificationsDescription")}</p>
+              {unreadNotificationCount > 0 ? <span className="mt-4 inline-flex rounded-full bg-red-600 px-3 py-1 text-xs font-black text-white">{unreadNotificationCount} {t("dashboard.unreadNotifications")}</span> : null}
+            </Link>
             <Link href="/dashboard/company" className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm hover:border-indigo-300">
               <p className="text-lg font-black">{t("dashboard.companyTitle")}</p>
               <p className="mt-2 text-sm text-slate-600">{t("dashboard.companyDescription")}</p>
@@ -178,6 +192,11 @@ export default async function DashboardPage() {
         )}
 
         <section className="mt-6 grid gap-5 md:grid-cols-2 xl:grid-cols-4">
+          <Link href="/dashboard/notifications" className="rounded-2xl border border-red-200 bg-white p-6 shadow-sm hover:bg-red-50">
+            <p className="text-sm font-semibold text-slate-500">{t("dashboard.notificationsTitle")}</p>
+            <p className="mt-3 text-4xl font-black">{unreadNotificationCount}</p>
+            <p className="mt-3 text-sm leading-6 text-slate-600">{t("dashboard.notificationsDescription")}</p>
+          </Link>
           <article className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
             <p className="text-sm font-semibold text-slate-500">{t("dashboard.feedbackReceived")}</p>
             <p className="mt-3 text-4xl font-black">{receivedCount}</p>

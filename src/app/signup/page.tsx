@@ -8,7 +8,7 @@ import {createClient} from "@/lib/supabase/server";
 export default async function SignupPage() {
   const supabase = await createClient();
   const {data} = await supabase.auth.getUser();
-  if (data.user) redirect("/dashboard");
+  if (data.user) redirect("/dashboard/my-day");
 
   const {t} = await getI18n();
 

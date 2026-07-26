@@ -66,7 +66,7 @@ export async function signInAction(
   }
 
   revalidatePath("/", "layout");
-  redirect("/dashboard");
+  redirect("/dashboard/my-day");
 }
 
 export async function signUpAction(
@@ -178,7 +178,7 @@ export async function updatePasswordAction(
   }
 
   revalidatePath("/", "layout");
-  redirect("/dashboard");
+  redirect("/dashboard/my-day");
 }
 
 export async function signOutAction(): Promise<void> {

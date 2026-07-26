@@ -23,7 +23,7 @@ export default async function Home() {
               {data.user ? (
                 <Link
                   className="rounded-xl bg-white px-4 py-2 font-bold text-slate-950"
-                  href="/dashboard"
+                  href="/dashboard/my-day"
                 >
                   {t("home.dashboard")}
                 </Link>

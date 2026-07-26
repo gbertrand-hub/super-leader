@@ -14,6 +14,7 @@ type DashboardNavigationProps = {
   role: string;
   organizationName: string;
   hasOrganization: boolean;
+  unreadNotificationCount: number;
 };
 
 type NavigationItem = {
@@ -24,7 +25,9 @@ type NavigationItem = {
 };
 
 type IconName =
+  | "myday"
   | "dashboard"
+  | "notifications"
   | "company"
   | "teams"
   | "members"
@@ -45,9 +48,19 @@ type IconName =
 
 const navigationItems: NavigationItem[] = [
   {
+    labelKey: "navigation.myDay",
+    href: "/dashboard/my-day",
+    icon: "myday",
+  },
+  {
     labelKey: "navigation.dashboard",
     href: "/dashboard",
     icon: "dashboard",
+  },
+  {
+    labelKey: "navigation.notifications",
+    href: "/dashboard/notifications",
+    icon: "notifications",
   },
   {
     labelKey: "navigation.company",
@@ -133,6 +146,19 @@ function Icon({ name, className = "h-5 w-5" }: { name: IconName; className?: str
   };
 
   const paths: Record<IconName, React.ReactNode> = {
+    myday: (
+      <>
+        <circle cx="12" cy="12" r="9" />
+        <path d="M12 7v5l3 2" />
+        <path d="M8 3.8 6.5 2.5M16 3.8l1.5-1.3" />
+      </>
+    ),
+    notifications: (
+      <>
+        <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9" />
+        <path d="M10 21h4" />
+      </>
+    ),
     dashboard: (
       <>
         <rect x="3" y="3" width="7" height="7" rx="1" />
@@ -260,6 +286,7 @@ export function DashboardNavigation({
   role,
   organizationName,
   hasOrganization,
+  unreadNotificationCount,
 }: DashboardNavigationProps) {
   const pathname = usePathname();
   const { t } = useI18n();
@@ -283,7 +310,7 @@ export function DashboardNavigation({
     <div className="flex h-full flex-col bg-slate-950 text-white">
       <div className="border-b border-white/10 px-5 py-5">
         <Link
-          href="/dashboard"
+          href={hasOrganization ? "/dashboard/my-day" : "/dashboard"}
           onClick={() => setMobileOpen(false)}
           className="flex items-center gap-3"
         >
@@ -341,6 +368,11 @@ export function DashboardNavigation({
               >
                 <Icon name={item.icon} className="h-5 w-5 shrink-0" />
                 <span>{t(item.labelKey)}</span>
+                {item.href === "/dashboard/notifications" && unreadNotificationCount > 0 ? (
+                  <span className="ml-auto rounded-full bg-red-500 px-2 py-0.5 text-[10px] font-black text-white">
+                    {unreadNotificationCount > 99 ? "99+" : unreadNotificationCount}
+                  </span>
+                ) : null}
               </Link>
             );
           })}
@@ -396,7 +428,7 @@ export function DashboardNavigation({
       </aside>
 
       <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-slate-200 bg-white/95 px-4 shadow-sm backdrop-blur print:hidden lg:hidden">
-        <Link href="/dashboard" className="flex items-center gap-2 font-black text-slate-950">
+        <Link href={hasOrganization ? "/dashboard/my-day" : "/dashboard"} className="flex items-center gap-2 font-black text-slate-950">
           <span className="text-amber-500">★</span>
           SUPER LEADER
         </Link>

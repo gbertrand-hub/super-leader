@@ -31,6 +31,7 @@ export default async function DashboardLayout({
   let role = "employee";
   let organizationName = "Super Leader";
   let hasOrganization = false;
+  let unreadNotificationCount = 0;
 
   try {
     const admin = createAdminClient();
@@ -48,6 +49,14 @@ export default async function DashboardLayout({
         firstOrganization(membership.organizations as OrganizationRelation)
           ?.name ?? "Organisation";
       hasOrganization = true;
+
+      const {count: unreadCount} = await admin
+        .from("notifications")
+        .select("id", {count: "exact", head: true})
+        .eq("organization_id", membership.organization_id)
+        .eq("user_id", authData.user.id)
+        .eq("status", "unread");
+      unreadNotificationCount = unreadCount ?? 0;
     }
   } catch (error) {
     console.error("Navigation dashboard : profil organisation indisponible", error);
@@ -60,6 +69,7 @@ export default async function DashboardLayout({
       role={role}
       organizationName={organizationName}
       hasOrganization={hasOrganization}
+      unreadNotificationCount={unreadNotificationCount}
     >
       {children}
     </DashboardNavigation>
