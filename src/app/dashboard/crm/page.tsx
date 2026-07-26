@@ -453,7 +453,10 @@ export default async function CrmPage({searchParams}: PageProps) {
               {canConfigure ? (
                 <form action={updateCrmSettingsAction} className="rounded-3xl border border-indigo-200 bg-indigo-50 p-6">
                   <input type="hidden" name="returnTo" value="/dashboard/crm?view=feedback" />
-                  <h2 className="text-xl font-black text-indigo-950">{t("crm.settings.title")}</h2>
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <h2 className="text-xl font-black text-indigo-950">{t("crm.settings.title")}</h2>
+                    <Link href="/dashboard/feedback-automation" className="rounded-lg bg-indigo-900 px-4 py-2 text-xs font-black text-white">{t("crm.settings.manageAutomation")}</Link>
+                  </div>
                   <div className="mt-5 grid gap-4">
                     <div className="grid gap-4 sm:grid-cols-3">
                       <label className="text-sm font-bold text-indigo-950">{t("crm.settings.defaultChannel")}<select name="defaultFeedbackChannel" defaultValue={settings.default_feedback_channel} className="mt-2 w-full rounded-xl border border-indigo-200 bg-white px-3 py-3 font-normal"><option value="email">Email</option><option value="whatsapp">WhatsApp</option><option value="sms">SMS</option><option value="web">Web</option></select></label>

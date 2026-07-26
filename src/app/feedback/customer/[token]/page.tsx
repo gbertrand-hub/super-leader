@@ -123,6 +123,15 @@ export default async function CustomerFeedbackPage({params, searchParams}: PageP
     .maybeSingle<{full_name: string | null; email: string | null}>();
   const employeeName = employee?.full_name?.trim() || employee?.email || "Super Leader";
 
+  if (["ready", "pending", "sent", "delivered"].includes(request.status)) {
+    await admin.from("crm_feedback_requests").update({
+      status: "opened",
+      opened_at: new Date().toISOString(),
+      last_provider_status: "feedback_form_opened",
+      last_delivery_at: new Date().toISOString(),
+    }).eq("id", request.id);
+  }
+
   return (
     <main className="min-h-screen bg-slate-950 px-5 py-10 text-slate-950">
       <section className="mx-auto max-w-2xl overflow-hidden rounded-3xl bg-white shadow-2xl">

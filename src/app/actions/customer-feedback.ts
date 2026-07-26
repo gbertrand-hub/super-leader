@@ -83,7 +83,7 @@ export async function submitCustomerFeedbackAction(formData: FormData) {
 
   await admin
     .from("crm_feedback_requests")
-    .update({status: "completed", completed_at: new Date().toISOString()})
+    .update({status: "completed", completed_at: new Date().toISOString(), next_reminder_at: null, scheduled_send_at: null})
     .eq("id", request.id);
 
   if (needsResolution && client?.follow_up_owner_id) {

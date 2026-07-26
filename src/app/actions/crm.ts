@@ -4,7 +4,8 @@ import {randomUUID} from "node:crypto";
 import {revalidatePath} from "next/cache";
 import {redirect} from "next/navigation";
 import {getI18n} from "@/i18n/server";
-import {buildFeedbackMessage, getFeedbackUrl, sendFeedbackEmail} from "@/lib/crm/feedback-delivery";
+import {buildFeedbackMessage, getFeedbackProviderConfiguration, getFeedbackUrl, sendFeedbackByChannel} from "@/lib/crm/feedback-delivery";
+import {recordOutboundFeedbackDelivery} from "@/lib/crm/feedback-events";
 import {createAdminClient} from "@/lib/supabase/admin";
 import {createClient} from "@/lib/supabase/server";
 
@@ -50,6 +51,16 @@ type SettingsRow = {
   feedback_expiry_days: number;
   low_score_threshold: number;
   auto_send_email: boolean;
+  auto_send_sms: boolean;
+  auto_send_whatsapp: boolean;
+  auto_request_feedback: boolean;
+  auto_request_delay_minutes: number;
+  auto_request_outcomes: string[];
+  reminders_enabled: boolean;
+  first_reminder_hours: number;
+  reminder_interval_hours: number;
+  max_reminders: number;
+  fallback_channel: string;
   feedback_message_fr: string;
   feedback_message_en: string;
 };
@@ -176,7 +187,7 @@ function canAccessClient(role: string, userId: string, client: ClientRow) {
 async function getSettings(organizationId: string, userId: string, admin: ReturnType<typeof createAdminClient>): Promise<SettingsRow> {
   const {data, error} = await admin
     .from("crm_settings")
-    .select("organization_id, default_feedback_channel, feedback_cooldown_days, feedback_expiry_days, low_score_threshold, auto_send_email, feedback_message_fr, feedback_message_en")
+    .select("organization_id, default_feedback_channel, feedback_cooldown_days, feedback_expiry_days, low_score_threshold, auto_send_email, auto_send_sms, auto_send_whatsapp, auto_request_feedback, auto_request_delay_minutes, auto_request_outcomes, reminders_enabled, first_reminder_hours, reminder_interval_hours, max_reminders, fallback_channel, feedback_message_fr, feedback_message_en")
     .eq("organization_id", organizationId)
     .maybeSingle<SettingsRow>();
 
@@ -190,6 +201,16 @@ async function getSettings(organizationId: string, userId: string, admin: Return
     feedback_expiry_days: 14,
     low_score_threshold: 2,
     auto_send_email: false,
+    auto_send_sms: false,
+    auto_send_whatsapp: false,
+    auto_request_feedback: false,
+    auto_request_delay_minutes: 0,
+    auto_request_outcomes: ["resolved", "follow_up", "payment_promise", "escalated", "other"],
+    reminders_enabled: true,
+    first_reminder_hours: 24,
+    reminder_interval_hours: 48,
+    max_reminders: 2,
+    fallback_channel: "web",
     feedback_message_fr: "Merci pour votre échange avec notre équipe. Votre avis nous aide à mieux vous servir.",
     feedback_message_en: "Thank you for speaking with our team. Your feedback helps us serve you better.",
   };
@@ -197,11 +218,24 @@ async function getSettings(organizationId: string, userId: string, admin: Return
   const {data: inserted, error: insertError} = await admin
     .from("crm_settings")
     .insert({...defaults, created_by: userId, updated_by: userId})
-    .select("organization_id, default_feedback_channel, feedback_cooldown_days, feedback_expiry_days, low_score_threshold, auto_send_email, feedback_message_fr, feedback_message_en")
+    .select("organization_id, default_feedback_channel, feedback_cooldown_days, feedback_expiry_days, low_score_threshold, auto_send_email, auto_send_sms, auto_send_whatsapp, auto_request_feedback, auto_request_delay_minutes, auto_request_outcomes, reminders_enabled, first_reminder_hours, reminder_interval_hours, max_reminders, fallback_channel, feedback_message_fr, feedback_message_en")
     .single<SettingsRow>();
 
   if (insertError || !inserted) throw new Error(insertError?.message ?? "Unable to create CRM settings.");
   return inserted;
+}
+
+function isAutoChannelEnabled(settings: SettingsRow, channel: string) {
+  if (channel === "email") return settings.auto_send_email;
+  if (channel === "sms") return settings.auto_send_sms;
+  if (channel === "whatsapp") return settings.auto_send_whatsapp;
+  return false;
+}
+
+function getNextReminderAt(settings: SettingsRow, reminderCount = 0) {
+  if (!settings.reminders_enabled || settings.max_reminders <= reminderCount) return null;
+  const hours = reminderCount === 0 ? settings.first_reminder_hours : settings.reminder_interval_hours;
+  return new Date(Date.now() + hours * 60 * 60 * 1000).toISOString();
 }
 
 async function getOrganizationName(organizationId: string, admin: ReturnType<typeof createAdminClient>) {
@@ -242,6 +276,7 @@ async function createFeedbackRequestForClient(params: {
   organizationId: string;
   createdBy: string;
   force?: boolean;
+  automated?: boolean;
   admin: ReturnType<typeof createAdminClient>;
   t: (key: string, values?: Record<string, string | number>) => string;
 }): Promise<FeedbackRequestResult> {
@@ -251,19 +286,37 @@ async function createFeedbackRequestForClient(params: {
   }
 
   const settings = await getSettings(params.organizationId, params.createdBy, admin);
-  const channel = feedbackChannels.has(params.requestedChannel ?? "")
+  let channel = feedbackChannels.has(params.requestedChannel ?? "")
     ? String(params.requestedChannel)
     : feedbackChannels.has(client.preferred_feedback_channel)
       ? client.preferred_feedback_channel
       : settings.default_feedback_channel;
 
-  const recipient = channel === "email"
+  let recipient = channel === "email"
     ? client.email
     : channel === "whatsapp"
       ? client.whatsapp_phone || client.phone
       : channel === "sms"
         ? client.phone
         : null;
+
+  const providerConfiguration = getFeedbackProviderConfiguration();
+  const configured = channel === "email"
+    ? providerConfiguration.email
+    : channel === "sms"
+      ? providerConfiguration.sms
+      : channel === "whatsapp"
+        ? providerConfiguration.whatsapp
+        : true;
+  if (channel !== "web" && isAutoChannelEnabled(settings, channel) && !configured) {
+    if (settings.fallback_channel === "email" && settings.auto_send_email && providerConfiguration.email && client.email) {
+      channel = "email";
+      recipient = client.email;
+    } else if (settings.fallback_channel === "web") {
+      channel = "web";
+      recipient = null;
+    }
+  }
 
   if (channel !== "web" && !recipient) {
     return {created: false, message: t("crm.messages.feedbackRecipientMissing")};
@@ -290,6 +343,8 @@ async function createFeedbackRequestForClient(params: {
   const locale = client.preferred_language === "en" ? "en" : "fr";
   const message = locale === "en" ? settings.feedback_message_en : settings.feedback_message_fr;
   const expiresAt = new Date(Date.now() + settings.feedback_expiry_days * 86400000).toISOString();
+  const scheduledSendAt = new Date(Date.now() + settings.auto_request_delay_minutes * 60 * 1000).toISOString();
+  const shouldAutoSend = isAutoChannelEnabled(settings, channel);
 
   const {data: request, error} = await admin
     .from("crm_feedback_requests")
@@ -303,8 +358,11 @@ async function createFeedbackRequestForClient(params: {
       locale,
       recipient,
       message,
-      status: "ready",
+      status: shouldAutoSend && settings.auto_request_delay_minutes > 0 ? "pending" : "ready",
       expires_at: expiresAt,
+      automated: params.automated ?? false,
+      scheduled_send_at: shouldAutoSend ? scheduledSendAt : null,
+      idempotency_key: params.interactionId ? `interaction:${params.interactionId}` : null,
       created_by: params.createdBy,
     })
     .select("id, public_token")
@@ -321,9 +379,10 @@ async function createFeedbackRequestForClient(params: {
   const employeeName = await getMemberName(params.employeeId, admin);
   let sent = false;
 
-  if (channel === "email" && settings.auto_send_email && recipient) {
-    const delivery = await sendFeedbackEmail({
-      to: recipient,
+  if (shouldAutoSend && settings.auto_request_delay_minutes === 0 && recipient) {
+    const delivery = await sendFeedbackByChannel({
+      channel: channel as "email" | "whatsapp" | "sms" | "web",
+      recipient,
       clientName: client.full_name,
       organizationName,
       employeeName,
@@ -342,8 +401,23 @@ async function createFeedbackRequestForClient(params: {
           delivery_provider: delivery.provider,
           provider_message_id: delivery.providerMessageId ?? null,
           delivery_error: null,
+          delivery_attempts: 1,
+          last_delivery_at: new Date().toISOString(),
+          last_provider_status: delivery.providerStatus ?? "sent",
+          next_reminder_at: getNextReminderAt(settings),
+          scheduled_send_at: null,
+          provider_metadata: delivery.providerMetadata ?? {},
         })
         .eq("id", request.id);
+      await recordOutboundFeedbackDelivery({
+        organizationId: params.organizationId,
+        requestId: request.id,
+        provider: delivery.provider,
+        providerMessageId: delivery.providerMessageId,
+        deliveryKind: "initial",
+        status: delivery.providerStatus,
+        metadata: delivery.providerMetadata,
+      });
     } else {
       await admin
         .from("crm_feedback_requests")
@@ -351,6 +425,10 @@ async function createFeedbackRequestForClient(params: {
           status: delivery.configurationMissing ? "ready" : "failed",
           delivery_provider: delivery.provider,
           delivery_error: delivery.error ?? null,
+          delivery_attempts: 1,
+          last_delivery_at: new Date().toISOString(),
+          last_provider_status: delivery.providerStatus ?? "failed",
+          provider_metadata: delivery.providerMetadata ?? {},
         })
         .eq("id", request.id);
     }
@@ -673,7 +751,7 @@ export async function createCrmInteractionAction(formData: FormData) {
   const occurredAt = occurredAtInput === null ? new Date().toISOString() : occurredAtInput;
   const nextFollowUpAt = normalizeDateTime(formData.get("nextFollowUpAt"));
   const durationMinutes = parseInteger(formData.get("durationMinutes"));
-  const requestFeedback = formData.get("requestFeedback") === "on";
+  const manualRequestFeedback = formData.get("requestFeedback") === "on";
   const feedbackChannel = String(formData.get("feedbackChannel") ?? "").trim() || null;
 
   const {data: client} = await getClient(clientId, membership.organization_id, admin);
@@ -687,6 +765,12 @@ export async function createCrmInteractionAction(formData: FormData) {
   if (occurredAt === "" || nextFollowUpAt === "" || (durationMinutes !== null && (!Number.isInteger(durationMinutes) || durationMinutes < 0 || durationMinutes > 1440))) {
     go(returnTo, t("crm.messages.invalidInteractionData"), "error");
   }
+
+  const interactionSettings = await getSettings(membership.organization_id, user.id, admin);
+  const autoRequestFeedback = interactionSettings.auto_request_feedback
+    && interactionSettings.auto_request_outcomes.includes(outcome)
+    && outcome !== "no_answer";
+  const requestFeedback = manualRequestFeedback || autoRequestFeedback;
 
   if (contractId) {
     const {data: contract} = await admin.from("crm_contracts").select("id").eq("id", contractId).eq("client_id", clientId).eq("organization_id", membership.organization_id).maybeSingle();
@@ -742,6 +826,7 @@ export async function createCrmInteractionAction(formData: FormData) {
       requestedChannel: feedbackChannel,
       organizationId: membership.organization_id,
       createdBy: user.id,
+      automated: autoRequestFeedback && !manualRequestFeedback,
       admin,
       t,
     });
@@ -875,9 +960,10 @@ export async function sendCustomerFeedbackRequestAction(formData: FormData) {
   const {data: client} = await getClient(request.client_id, membership.organization_id, admin);
   if (!client || !canAccessClient(membership.role, user.id, client)) go(returnTo, t("crm.messages.clientPermissionDenied"), "error");
 
-  if (request.channel === "email" && request.recipient) {
-    const delivery = await sendFeedbackEmail({
-      to: request.recipient,
+  if (request.channel !== "web" && request.recipient) {
+    const delivery = await sendFeedbackByChannel({
+      channel: request.channel as "email" | "whatsapp" | "sms" | "web",
+      recipient: request.recipient,
       clientName: client.full_name,
       organizationName: await getOrganizationName(membership.organization_id, admin),
       employeeName: await getMemberName(request.employee_id, admin),
@@ -886,12 +972,42 @@ export async function sendCustomerFeedbackRequestAction(formData: FormData) {
       message: request.message,
     });
     if (!delivery.sent) {
-      await admin.from("crm_feedback_requests").update({status: delivery.configurationMissing ? "ready" : "failed", delivery_provider: delivery.provider, delivery_error: delivery.error ?? null}).eq("id", request.id);
-      go(returnTo, delivery.configurationMissing ? t("crm.messages.emailNotConfigured") : t("crm.messages.feedbackSendFailed", {message: delivery.error ?? t("common.unknownError")}), "error");
+      await admin.from("crm_feedback_requests").update({
+        status: delivery.configurationMissing ? "ready" : "failed",
+        delivery_provider: delivery.provider,
+        delivery_error: delivery.error ?? null,
+        delivery_attempts: 1,
+        last_delivery_at: new Date().toISOString(),
+        last_provider_status: delivery.providerStatus ?? "failed",
+        provider_metadata: delivery.providerMetadata ?? {},
+      }).eq("id", request.id);
+      go(returnTo, delivery.configurationMissing ? t("crm.messages.providerNotConfigured") : t("crm.messages.feedbackSendFailed", {message: delivery.error ?? t("common.unknownError")}), "error");
     }
-    await admin.from("crm_feedback_requests").update({status: "sent", sent_at: new Date().toISOString(), delivery_provider: delivery.provider, provider_message_id: delivery.providerMessageId ?? null, delivery_error: null}).eq("id", request.id);
+    const settings = await getSettings(membership.organization_id, user.id, admin);
+    await admin.from("crm_feedback_requests").update({
+      status: "sent",
+      sent_at: new Date().toISOString(),
+      delivery_provider: delivery.provider,
+      provider_message_id: delivery.providerMessageId ?? null,
+      delivery_error: null,
+      delivery_attempts: 1,
+      last_delivery_at: new Date().toISOString(),
+      last_provider_status: delivery.providerStatus ?? "sent",
+      next_reminder_at: getNextReminderAt(settings),
+      scheduled_send_at: null,
+      provider_metadata: delivery.providerMetadata ?? {},
+    }).eq("id", request.id);
+    await recordOutboundFeedbackDelivery({
+      organizationId: membership.organization_id,
+      requestId: request.id,
+      provider: delivery.provider,
+      providerMessageId: delivery.providerMessageId,
+      deliveryKind: "initial",
+      status: delivery.providerStatus,
+      metadata: delivery.providerMetadata,
+    });
   } else {
-    await admin.from("crm_feedback_requests").update({status: "sent", sent_at: new Date().toISOString(), delivery_provider: "manual", delivery_error: null}).eq("id", request.id);
+    await admin.from("crm_feedback_requests").update({status: "sent", sent_at: new Date().toISOString(), delivery_provider: "manual", delivery_error: null, last_delivery_at: new Date().toISOString(), last_provider_status: "manual"}).eq("id", request.id);
   }
 
   await audit({organizationId: membership.organization_id, actorId: user.id, entityType: "feedback_request", entityId: request.id, action: "feedback_request_sent", details: {channel: request.channel}, admin});

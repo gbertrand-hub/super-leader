@@ -1,0 +1,20 @@
+SUPER LEADER - RAPPORTS & ANALYSES V1
+
+Ajouts:
+- /dashboard/reports
+- /api/reports/export
+- filtres période, équipe et collaborateur
+- indicateurs feedback, reconnaissance et plans d'action
+- tendances mensuelles
+- résultats par équipe
+- export CSV
+- impression / PDF
+- traductions FR / EN
+
+Modifications:
+- activation de Rapports dans le menu
+- ajout de Rapports au tableau de bord des rôles autorisés
+- amélioration de l'impression en masquant la navigation
+
+SQL: aucun
+Dépendances: aucune

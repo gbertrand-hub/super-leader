@@ -159,6 +159,12 @@ export default async function DashboardPage() {
               <p className="mt-2 text-sm text-violet-800">{t("dashboard.crmDescription")}</p>
             </Link>
             {isReportLeader ? (
+              <Link href="/dashboard/feedback-automation" className="rounded-2xl border border-fuchsia-200 bg-fuchsia-50 p-6 shadow-sm hover:border-fuchsia-400">
+                <p className="text-lg font-black text-fuchsia-950">{t("dashboard.feedbackAutomationTitle")}</p>
+                <p className="mt-2 text-sm text-fuchsia-800">{t("dashboard.feedbackAutomationDescription")}</p>
+              </Link>
+            ) : null}
+            {isReportLeader ? (
               <Link href="/dashboard/reports" className="rounded-2xl border border-emerald-200 bg-emerald-50 p-6 shadow-sm hover:border-emerald-400">
                 <p className="text-lg font-black text-emerald-950">{t("dashboard.reportsTitle")}</p>
                 <p className="mt-2 text-sm text-emerald-800">{t("dashboard.reportsDescription")}</p>
