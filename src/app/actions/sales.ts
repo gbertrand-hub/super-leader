@@ -3,6 +3,11 @@
 import {revalidatePath} from "next/cache";
 import {redirect} from "next/navigation";
 import {getI18n} from "@/i18n/server";
+import {
+  finalizeTemporaryAttachment,
+  readPendingAttachment,
+  removePrivateAttachment,
+} from "@/lib/storage/private-attachments";
 import {createAdminClient} from "@/lib/supabase/admin";
 import {createClient} from "@/lib/supabase/server";
 
@@ -285,6 +290,7 @@ export async function createSaleAction(formData: FormData) {
   const paymentMethod = String(formData.get("paymentMethod") ?? "bank_transfer");
   const initialPaymentReference = cleanOptional(formData.get("initialPaymentReference"), 160);
   const proofUrl = cleanOptional(formData.get("proofUrl"), 1000);
+  const pendingProof = readPendingAttachment(formData, "proof");
   const nextPaymentDueDate = normalizeDate(formData.get("nextPaymentDueDate"));
   const nextPaymentAmountRaw = String(formData.get("nextPaymentAmount") ?? "").trim();
   const nextPaymentAmount = nextPaymentAmountRaw ? parseMoney(formData.get("nextPaymentAmount")) : null;
@@ -341,7 +347,7 @@ export async function createSaleAction(formData: FormData) {
   if (productName.length < 2 || productName.length > 200) {
     go(t("sales.messages.productRequired"), "error");
   }
-  if (product?.proof_required && initialPaymentAmount > 0 && !proofUrl) {
+  if (product?.proof_required && initialPaymentAmount > 0 && !proofUrl && !pendingProof) {
     go(t("sales.messages.proofRequired"), "error");
   }
 
@@ -413,6 +419,34 @@ export async function createSaleAction(formData: FormData) {
     go(message, "error");
   }
 
+  let finalizedProof = null;
+  if (pendingProof) {
+    try {
+      finalizedProof = await finalizeTemporaryAttachment({
+        admin,
+        organizationId: membership.organization_id,
+        userId: user.id,
+        purpose: "sale",
+        recordId: sale.id,
+        pending: pendingProof,
+      });
+      const {error: proofUpdateError} = await admin.from("sales_records").update({
+        proof_storage_path: finalizedProof.storagePath,
+        proof_file_name: finalizedProof.fileName,
+        proof_mime_type: finalizedProof.mimeType,
+        proof_size_bytes: finalizedProof.sizeBytes,
+        proof_uploaded_at: new Date().toISOString(),
+      }).eq("id", sale.id).eq("organization_id", membership.organization_id);
+      if (proofUpdateError) throw proofUpdateError;
+    } catch (proofError) {
+      await removePrivateAttachment(admin, finalizedProof?.storagePath ?? pendingProof.storagePath);
+      await admin.from("sales_records").delete().eq("id", sale.id).eq("organization_id", membership.organization_id);
+      go(t("attachments.messages.finalizeFailed", {
+        message: proofError instanceof Error ? proofError.message : t("common.unknownError"),
+      }), "error");
+    }
+  }
+
   if (initialPaymentAmount > 0) {
     const {error: paymentError} = await admin.from("sales_payments").insert({
       organization_id: membership.organization_id,
@@ -423,11 +457,17 @@ export async function createSaleAction(formData: FormData) {
       payment_method: paymentMethod,
       transaction_reference: initialPaymentReference,
       proof_url: proofUrl,
+      proof_storage_path: finalizedProof?.storagePath ?? null,
+      proof_file_name: finalizedProof?.fileName ?? null,
+      proof_mime_type: finalizedProof?.mimeType ?? null,
+      proof_size_bytes: finalizedProof?.sizeBytes ?? null,
+      proof_uploaded_at: finalizedProof ? new Date().toISOString() : null,
       status: "pending",
       recorded_by: user.id,
       notes: t("sales.initialPaymentPendingNote"),
     });
     if (paymentError) {
+      await removePrivateAttachment(admin, finalizedProof?.storagePath);
       await admin.from("sales_records").delete().eq("id", sale.id);
       const message = paymentError.code === "23505"
         ? t("sales.messages.duplicateTransaction")
@@ -445,6 +485,16 @@ export async function createSaleAction(formData: FormData) {
     note: notes,
     admin,
   });
+  if (finalizedProof) {
+    await auditSale({
+      organizationId: membership.organization_id,
+      saleId: sale.id,
+      actorId: user.id,
+      action: "proof_uploaded",
+      note: finalizedProof.fileName,
+      admin,
+    });
+  }
 
   revalidatePath("/dashboard/sales");
   revalidatePath("/dashboard/collections");

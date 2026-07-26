@@ -22,6 +22,7 @@ import {
   upsertMemberScheduleAction,
   upsertMonthlyKpiScoreAction,
 } from "@/app/actions/performance";
+import {SecureAttachmentUpload} from "@/components/forms/secure-attachment-upload";
 import {getI18n} from "@/i18n/server";
 import {createAdminClient} from "@/lib/supabase/admin";
 import {createClient} from "@/lib/supabase/server";
@@ -88,6 +89,9 @@ type LeaveRow = {
   start_date: string;
   end_date: string;
   reason: string;
+  document_url: string | null;
+  document_storage_path: string | null;
+  document_file_name: string | null;
   status: string;
   review_note: string | null;
   created_at: string;
@@ -377,7 +381,7 @@ export default async function PerformancePage({searchParams}: PageProps) {
   const [schedulesResult, attendanceResult, leavesResult, reportsResult, reopeningsResult, meetingsResult, meetingAttendanceResult, kpiResult, scoresResult, awardsResult, appealsResult] = await Promise.all([
     admin.from("member_work_schedules").select("id, user_id, timezone, work_days, start_time, end_time, grace_minutes, report_deadline_time, supervisor_id").eq("organization_id", membership.organization_id).eq("is_active", true),
     admin.from("attendance_records").select("id, user_id, work_date, clock_in_at, clock_out_at, status, late_minutes, justification, source").eq("organization_id", membership.organization_id).gte("work_date", monthStart).lte("work_date", monthEnd).order("work_date", {ascending: false}).limit(500),
-    admin.from("leave_requests").select("id, user_id, leave_type, start_date, end_date, reason, status, review_note, created_at").eq("organization_id", membership.organization_id).order("created_at", {ascending: false}).limit(300),
+    admin.from("leave_requests").select("id, user_id, leave_type, start_date, end_date, reason, document_url, document_storage_path, document_file_name, status, review_note, created_at").eq("organization_id", membership.organization_id).order("created_at", {ascending: false}).limit(300),
     admin.from("daily_reports").select("id, user_id, report_date, accomplishments, results, blockers, next_priorities, status, review_note, submitted_at, submitted_by, submission_mode, submission_score_factor, supervisor_reason, reopening_id").eq("organization_id", membership.organization_id).gte("report_date", monthStart).lte("report_date", monthEnd).order("report_date", {ascending: false}).limit(500),
     admin.from("daily_report_reopenings").select("id, user_id, report_date, reason, justified, score_factor, status, opened_by, opened_at, expires_at, used_at").eq("organization_id", membership.organization_id).gte("report_date", monthStart).lte("report_date", monthEnd).order("opened_at", {ascending: false}).limit(500),
     admin.from("performance_meetings").select("id, title, meeting_type, mandatory, starts_at, ends_at, notes").eq("organization_id", membership.organization_id).gte("starts_at", `${monthStart}T00:00:00Z`).lte("starts_at", `${monthEnd}T23:59:59Z`).order("starts_at", {ascending: false}).limit(200),
@@ -582,14 +586,25 @@ export default async function PerformancePage({searchParams}: PageProps) {
                 <label className="block text-sm font-black">{t("performance.leaveType")}<select name="leaveType" className={fieldClass()}>{["annual", "sick", "family", "training", "unpaid", "other"].map((type) => <option key={type} value={type}>{t(`performance.leaveTypes.${type}`)}</option>)}</select></label>
                 <div className="grid gap-4 sm:grid-cols-2"><label className="block text-sm font-black">{t("performance.startDate")}<input name="startDate" type="date" required className={fieldClass()} /></label><label className="block text-sm font-black">{t("performance.endDate")}<input name="endDate" type="date" required className={fieldClass()} /></label></div>
                 <label className="block text-sm font-black">{t("performance.reason")}<textarea name="reason" rows={4} required className={fieldClass()} /></label>
-                <label className="block text-sm font-black">{t("performance.documentUrl")}<input name="documentUrl" type="url" placeholder="https://..." className={fieldClass()} /></label>
+                <SecureAttachmentUpload
+                  purpose="leave"
+                  prefix="document"
+                  label={t("performance.documentUpload")}
+                  help={t("attachments.help")}
+                  chooseLabel={t("attachments.chooseFile")}
+                  uploadingLabel={t("attachments.uploading")}
+                  uploadedLabel={t("attachments.uploaded")}
+                  removeLabel={t("attachments.remove")}
+                  errorLabel={t("attachments.invalidFile")}
+                />
+                <label className="block text-sm font-black">{t("attachments.externalLinkOptional")}<input name="documentUrl" type="url" placeholder="https://..." className={fieldClass()} /></label>
                 <button className="w-full rounded-xl bg-indigo-700 px-5 py-3 font-black text-white">{t("performance.submitRequest")}</button>
               </form>
             </article>
 
             <article className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
               <h2 className="text-2xl font-black">{t("performance.leaveRequests")}</h2>
-              <div className="mt-5 space-y-4">{visibleLeaves.map((leave) => <div key={leave.id} className="rounded-2xl border border-slate-200 p-5"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="font-black">{isLeader ? `${memberName(leave.user_id)} · ` : ""}{t(`performance.leaveTypes.${leave.leave_type}`)}</p><p className="mt-1 text-sm text-slate-500">{formatDate(leave.start_date)} → {formatDate(leave.end_date)}</p></div><Badge tone={statusTone(leave.status)}>{t(`performance.leaveStatuses.${leave.status}`)}</Badge></div><p className="mt-3 text-sm leading-6 text-slate-700">{leave.reason}</p>{leave.review_note ? <p className="mt-2 rounded-xl bg-slate-50 p-3 text-sm text-slate-600">{leave.review_note}</p> : null}{isLeader && leave.status === "pending" ? <div className="mt-4 grid gap-3 sm:grid-cols-2"><form action={reviewLeaveRequestAction} className="space-y-2"><input type="hidden" name="requestId" value={leave.id} /><input type="hidden" name="status" value="approved" /><input name="reviewNote" placeholder={t("performance.reviewNote")} className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" /><button className="w-full rounded-xl bg-emerald-600 px-4 py-2.5 font-black text-white">{t("performance.approve")}</button></form><form action={reviewLeaveRequestAction} className="space-y-2"><input type="hidden" name="requestId" value={leave.id} /><input type="hidden" name="status" value="rejected" /><input name="reviewNote" required placeholder={t("performance.reviewNote")} className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" /><button className="w-full rounded-xl bg-red-600 px-4 py-2.5 font-black text-white">{t("performance.reject")}</button></form></div> : null}</div>)}</div>
+              <div className="mt-5 space-y-4">{visibleLeaves.map((leave) => <div key={leave.id} className="rounded-2xl border border-slate-200 p-5"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="font-black">{isLeader ? `${memberName(leave.user_id)} · ` : ""}{t(`performance.leaveTypes.${leave.leave_type}`)}</p><p className="mt-1 text-sm text-slate-500">{formatDate(leave.start_date)} → {formatDate(leave.end_date)}</p></div><Badge tone={statusTone(leave.status)}>{t(`performance.leaveStatuses.${leave.status}`)}</Badge></div><p className="mt-3 text-sm leading-6 text-slate-700">{leave.reason}</p>{leave.document_storage_path ? <a href={`/api/attachments/leave/${leave.id}`} className="mt-3 inline-block text-sm font-black text-indigo-700 underline">{t("performance.openDocument")}{leave.document_file_name ? ` · ${leave.document_file_name}` : ""}</a> : leave.document_url ? <a href={leave.document_url} target="_blank" rel="noreferrer" className="mt-3 inline-block text-sm font-black text-indigo-700 underline">{t("performance.openDocument")}</a> : null}{leave.review_note ? <p className="mt-2 rounded-xl bg-slate-50 p-3 text-sm text-slate-600">{leave.review_note}</p> : null}{isLeader && leave.status === "pending" ? <div className="mt-4 grid gap-3 sm:grid-cols-2"><form action={reviewLeaveRequestAction} className="space-y-2"><input type="hidden" name="requestId" value={leave.id} /><input type="hidden" name="status" value="approved" /><input name="reviewNote" placeholder={t("performance.reviewNote")} className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" /><button className="w-full rounded-xl bg-emerald-600 px-4 py-2.5 font-black text-white">{t("performance.approve")}</button></form><form action={reviewLeaveRequestAction} className="space-y-2"><input type="hidden" name="requestId" value={leave.id} /><input type="hidden" name="status" value="rejected" /><input name="reviewNote" required placeholder={t("performance.reviewNote")} className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" /><button className="w-full rounded-xl bg-red-600 px-4 py-2.5 font-black text-white">{t("performance.reject")}</button></form></div> : null}</div>)}</div>
               {!visibleLeaves.length ? <p className="py-12 text-center text-slate-500">{t("performance.noLeaveRequests")}</p> : null}
             </article>
           </section>

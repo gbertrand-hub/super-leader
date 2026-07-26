@@ -6,6 +6,7 @@ import {
   createCollectionPaymentAction,
   reviewCollectionPaymentAction,
 } from "@/app/actions/collections";
+import {SecureAttachmentUpload} from "@/components/forms/secure-attachment-upload";
 import {getI18n} from "@/i18n/server";
 import {createAdminClient} from "@/lib/supabase/admin";
 import {createClient} from "@/lib/supabase/server";
@@ -57,6 +58,8 @@ type PaymentRow = {
   payment_method: string;
   transaction_reference: string | null;
   proof_url: string | null;
+  proof_storage_path: string | null;
+  proof_file_name: string | null;
   status: string;
   is_initial_payment: boolean;
   recorded_by: string;
@@ -237,7 +240,7 @@ export default async function CollectionsPage({searchParams}: PageProps) {
     ? await Promise.all([
         admin
           .from("sales_payments")
-          .select("id, sale_id, schedule_item_id, payment_date, amount, currency, payment_method, transaction_reference, proof_url, status, is_initial_payment, recorded_by, notes, created_at")
+          .select("id, sale_id, schedule_item_id, payment_date, amount, currency, payment_method, transaction_reference, proof_url, proof_storage_path, proof_file_name, status, is_initial_payment, recorded_by, notes, created_at")
           .in("sale_id", saleIds)
           .order("payment_date", {ascending: false})
           .order("created_at", {ascending: false}),
@@ -414,7 +417,20 @@ export default async function CollectionsPage({searchParams}: PageProps) {
                           <label><span className="text-sm font-bold">{t("sales.paymentMethod")}</span><select name="paymentMethod" defaultValue="bank_transfer" className="mt-2 w-full rounded-xl border border-emerald-200 bg-white px-3 py-2.5">{(["bank_transfer", "card", "cash", "mobile_money", "cheque", "other"] as const).map((value) => <option key={value} value={value}>{t(`sales.paymentMethods.${value}`)}</option>)}</select></label>
                           <label><span className="text-sm font-bold">{t("collections.transactionReference")}</span><input name="transactionReference" maxLength={160} className="mt-2 w-full rounded-xl border border-emerald-200 bg-white px-3 py-2.5" /></label>
                           <label className="sm:col-span-2"><span className="text-sm font-bold">{t("collections.scheduleItem")}</span><select name="scheduleItemId" defaultValue="" className="mt-2 w-full rounded-xl border border-emerald-200 bg-white px-3 py-2.5"><option value="">{t("collections.noScheduleItem")}</option>{saleSchedules.filter((item) => !["paid", "cancelled"].includes(item.status)).map((item) => <option key={item.id} value={item.id}>#{item.sequence_number} · {dateFormatter.format(new Date(`${item.due_date}T00:00:00Z`))} · {moneyFormatter(dateLocale, sale.currency).format(Number(item.expected_amount))}</option>)}</select></label>
-                          <label className="sm:col-span-2"><span className="text-sm font-bold">{t("sales.proofUrl")}</span><input type="url" name="proofUrl" maxLength={1000} placeholder="https://..." className="mt-2 w-full rounded-xl border border-emerald-200 bg-white px-3 py-2.5" /></label>
+                          <div className="sm:col-span-2">
+                            <SecureAttachmentUpload
+                              purpose="payment"
+                              prefix="proof"
+                              label={t("sales.proofUpload")}
+                              help={t("attachments.help")}
+                              chooseLabel={t("attachments.chooseFile")}
+                              uploadingLabel={t("attachments.uploading")}
+                              uploadedLabel={t("attachments.uploaded")}
+                              removeLabel={t("attachments.remove")}
+                              errorLabel={t("attachments.invalidFile")}
+                            />
+                          </div>
+                          <label className="sm:col-span-2"><span className="text-sm font-bold">{t("attachments.externalLinkOptional")}</span><input type="url" name="proofUrl" maxLength={1000} placeholder="https://..." className="mt-2 w-full rounded-xl border border-emerald-200 bg-white px-3 py-2.5" /></label>
                           <label className="sm:col-span-2"><span className="text-sm font-bold">{t("sales.notes")}</span><textarea name="notes" rows={2} maxLength={1500} className="mt-2 w-full rounded-xl border border-emerald-200 bg-white px-3 py-2.5" /></label>
                         </div>
                         <button className="mt-4 w-full rounded-xl bg-emerald-700 px-4 py-3 font-black text-white">{t("collections.submitPayment")}</button>
@@ -449,7 +465,7 @@ export default async function CollectionsPage({searchParams}: PageProps) {
                                 </div>
                                 <p className="mt-2 font-black">{moneyFormatter(dateLocale, payment.currency).format(Number(payment.amount))}</p>
                                 <p className="mt-1 text-xs font-semibold text-slate-500">{dateFormatter.format(new Date(`${payment.payment_date}T00:00:00Z`))} · {t(`sales.paymentMethods.${payment.payment_method}`)}{payment.transaction_reference ? ` · ${payment.transaction_reference}` : ""}</p>
-                                {payment.proof_url ? <a href={payment.proof_url} target="_blank" rel="noreferrer" className="mt-2 inline-block text-sm font-bold text-indigo-700 underline">{t("sales.openProof")}</a> : null}
+                                {payment.proof_storage_path ? <a href={`/api/attachments/payment/${payment.id}`} className="mt-2 inline-block text-sm font-bold text-indigo-700 underline">{t("sales.openProof")}{payment.proof_file_name ? ` · ${payment.proof_file_name}` : ""}</a> : payment.proof_url ? <a href={payment.proof_url} target="_blank" rel="noreferrer" className="mt-2 inline-block text-sm font-bold text-indigo-700 underline">{t("sales.openProof")}</a> : null}
                               </div>
                               {isLeader && payment.status === "pending" ? (
                                 <div className="flex flex-wrap gap-2">

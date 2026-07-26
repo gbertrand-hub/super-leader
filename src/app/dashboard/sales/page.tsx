@@ -9,6 +9,7 @@ import {
   toggleSalesProductAction,
   upsertSalesTargetAction,
 } from "@/app/actions/sales";
+import {SecureAttachmentUpload} from "@/components/forms/secure-attachment-upload";
 import {getI18n} from "@/i18n/server";
 import {createAdminClient} from "@/lib/supabase/admin";
 import {createClient} from "@/lib/supabase/server";
@@ -61,6 +62,8 @@ type SaleRow = {
   workflow_status: string;
   transaction_reference: string | null;
   proof_url: string | null;
+  proof_storage_path: string | null;
+  proof_file_name: string | null;
   notes: string | null;
   commission_amount: number | string;
   commission_status: string;
@@ -223,7 +226,7 @@ export default async function SalesPage({searchParams}: PageProps) {
 
   let salesQuery = admin
     .from("sales_records")
-    .select("id, seller_id, product_name, customer_name, customer_email, sale_date, quantity, unit_price, total_amount, currency, payment_method, payment_status, workflow_status, transaction_reference, proof_url, notes, commission_amount, commission_status, commission_basis_amount, first_payment_amount, paid_amount, balance_amount, payment_plan_type, collection_owner_id, collection_status, next_payment_due_date, next_payment_amount, created_at")
+    .select("id, seller_id, product_name, customer_name, customer_email, sale_date, quantity, unit_price, total_amount, currency, payment_method, payment_status, workflow_status, transaction_reference, proof_url, proof_storage_path, proof_file_name, notes, commission_amount, commission_status, commission_basis_amount, first_payment_amount, paid_amount, balance_amount, payment_plan_type, collection_owner_id, collection_status, next_payment_due_date, next_payment_amount, created_at")
     .eq("organization_id", membership.organization_id)
     .order("sale_date", {ascending: false})
     .order("created_at", {ascending: false})
@@ -415,8 +418,21 @@ export default async function SalesPage({searchParams}: PageProps) {
                     <input name="initialPaymentReference" maxLength={160} className="mt-2 w-full rounded-xl border border-amber-200 bg-white px-4 py-3" />
                   </label>
                 </div>
+                <div className="mt-4">
+                  <SecureAttachmentUpload
+                    purpose="sale"
+                    prefix="proof"
+                    label={t("sales.proofUpload")}
+                    help={t("attachments.help")}
+                    chooseLabel={t("attachments.chooseFile")}
+                    uploadingLabel={t("attachments.uploading")}
+                    uploadedLabel={t("attachments.uploaded")}
+                    removeLabel={t("attachments.remove")}
+                    errorLabel={t("attachments.invalidFile")}
+                  />
+                </div>
                 <label className="mt-4 block">
-                  <span className="text-sm font-bold">{t("sales.proofUrl")}</span>
+                  <span className="text-sm font-bold">{t("attachments.externalLinkOptional")}</span>
                   <input type="url" name="proofUrl" maxLength={1000} placeholder="https://..." className="mt-2 w-full rounded-xl border border-amber-200 bg-white px-4 py-3" />
                 </label>
               </div>
@@ -504,7 +520,7 @@ export default async function SalesPage({searchParams}: PageProps) {
                           <h3 className="mt-3 text-xl font-black">{sale.product_name}</h3>
                           <p className="mt-1 text-sm text-slate-600">{sale.customer_name} · {seller?.full_name || seller?.email || t("common.member")}</p>
                           <p className="mt-2 text-xs font-semibold text-slate-500">{dateFormatter.format(new Date(`${sale.sale_date}T00:00:00Z`))} · {t(`sales.paymentMethods.${sale.payment_method}`)}{sale.transaction_reference ? ` · ${sale.transaction_reference}` : ""}</p>
-                          {sale.proof_url ? <a href={sale.proof_url} target="_blank" rel="noreferrer" className="mt-2 inline-block text-sm font-bold text-indigo-700 underline">{t("sales.openProof")}</a> : null}
+                          {sale.proof_storage_path ? <a href={`/api/attachments/sale/${sale.id}`} className="mt-2 inline-block text-sm font-bold text-indigo-700 underline">{t("sales.openProof")}{sale.proof_file_name ? ` · ${sale.proof_file_name}` : ""}</a> : sale.proof_url ? <a href={sale.proof_url} target="_blank" rel="noreferrer" className="mt-2 inline-block text-sm font-bold text-indigo-700 underline">{t("sales.openProof")}</a> : null}
                         </div>
                         <div className="text-left lg:text-right">
                           <p className="text-2xl font-black">{moneyFormatter(dateLocale, sale.currency).format(Number(sale.total_amount))}</p>

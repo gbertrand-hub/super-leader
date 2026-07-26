@@ -3,6 +3,11 @@
 import {revalidatePath} from "next/cache";
 import {redirect} from "next/navigation";
 import {getI18n} from "@/i18n/server";
+import {
+  finalizeTemporaryAttachment,
+  readPendingAttachment,
+  removePrivateAttachment,
+} from "@/lib/storage/private-attachments";
 import {createAdminClient} from "@/lib/supabase/admin";
 import {createClient} from "@/lib/supabase/server";
 
@@ -282,6 +287,7 @@ export async function createCollectionPaymentAction(formData: FormData) {
   const currency = String(formData.get("currency") ?? "USD").trim().toUpperCase();
   const transactionReference = cleanOptional(formData.get("transactionReference"), 160);
   const proofUrl = cleanOptional(formData.get("proofUrl"), 1000);
+  const pendingProof = readPendingAttachment(formData, "proof");
   const notes = cleanOptional(formData.get("notes"), 1500);
   const scheduleItemId = String(formData.get("scheduleItemId") ?? "").trim() || null;
 
@@ -338,6 +344,34 @@ export async function createCollectionPaymentAction(formData: FormData) {
     go(message, "error");
   }
 
+  let finalizedProof = null;
+  if (pendingProof) {
+    try {
+      finalizedProof = await finalizeTemporaryAttachment({
+        admin,
+        organizationId: membership.organization_id,
+        userId: user.id,
+        purpose: "payment",
+        recordId: payment.id,
+        pending: pendingProof,
+      });
+      const {error: proofUpdateError} = await admin.from("sales_payments").update({
+        proof_storage_path: finalizedProof.storagePath,
+        proof_file_name: finalizedProof.fileName,
+        proof_mime_type: finalizedProof.mimeType,
+        proof_size_bytes: finalizedProof.sizeBytes,
+        proof_uploaded_at: new Date().toISOString(),
+      }).eq("id", payment.id).eq("organization_id", membership.organization_id);
+      if (proofUpdateError) throw proofUpdateError;
+    } catch (proofError) {
+      await removePrivateAttachment(admin, finalizedProof?.storagePath ?? pendingProof.storagePath);
+      await admin.from("sales_payments").delete().eq("id", payment.id).eq("organization_id", membership.organization_id);
+      go(t("attachments.messages.finalizeFailed", {
+        message: proofError instanceof Error ? proofError.message : t("common.unknownError"),
+      }), "error");
+    }
+  }
+
   await auditSale({
     organizationId: membership.organization_id,
     saleId,
@@ -346,6 +380,16 @@ export async function createCollectionPaymentAction(formData: FormData) {
     note: `${amount} ${currency}${transactionReference ? ` · ${transactionReference}` : ""}`,
     admin,
   });
+  if (finalizedProof) {
+    await auditSale({
+      organizationId: membership.organization_id,
+      saleId,
+      actorId: user.id,
+      action: "payment_proof_uploaded",
+      note: finalizedProof.fileName,
+      admin,
+    });
+  }
 
   revalidatePath("/dashboard/collections");
   go(t("collections.messages.paymentRecorded"));

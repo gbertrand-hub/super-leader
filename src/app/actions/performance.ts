@@ -15,6 +15,11 @@ import {
   type MemberSchedule,
   type PerformanceSettings,
 } from "@/lib/performance/scoring";
+import {
+  finalizeTemporaryAttachment,
+  readPendingAttachment,
+  removePrivateAttachment,
+} from "@/lib/storage/private-attachments";
 import {createAdminClient} from "@/lib/supabase/admin";
 import {createClient} from "@/lib/supabase/server";
 
@@ -407,6 +412,7 @@ export async function submitLeaveRequestAction(formData: FormData) {
   const endDate = normalizeDate(formData.get("endDate"));
   const reason = cleanText(formData.get("reason"), 2000);
   const documentUrl = cleanText(formData.get("documentUrl"), 1000) || null;
+  const pendingDocument = readPendingAttachment(formData, "document");
   if (!leaveTypes.has(leaveType) || !startDate || !endDate || endDate < startDate || reason.length < 3) {
     go(t("performance.messages.invalidLeave"), "error", "absences");
   }
@@ -420,6 +426,35 @@ export async function submitLeaveRequestAction(formData: FormData) {
     document_url: documentUrl,
   }).select("id").single<{id: string}>();
   if (error) go(t("performance.messages.leaveCreateFailed", {message: error.message}), "error", "absences");
+
+  let finalizedDocument = null;
+  if (pendingDocument) {
+    try {
+      finalizedDocument = await finalizeTemporaryAttachment({
+        admin,
+        organizationId: membership.organization_id,
+        userId: user.id,
+        purpose: "leave",
+        recordId: data.id,
+        pending: pendingDocument,
+      });
+      const {error: attachmentError} = await admin.from("leave_requests").update({
+        document_storage_path: finalizedDocument.storagePath,
+        document_file_name: finalizedDocument.fileName,
+        document_mime_type: finalizedDocument.mimeType,
+        document_size_bytes: finalizedDocument.sizeBytes,
+        document_uploaded_at: new Date().toISOString(),
+      }).eq("id", data.id).eq("organization_id", membership.organization_id);
+      if (attachmentError) throw attachmentError;
+    } catch (attachmentError) {
+      await removePrivateAttachment(admin, finalizedDocument?.storagePath ?? pendingDocument.storagePath);
+      await admin.from("leave_requests").delete().eq("id", data.id).eq("organization_id", membership.organization_id);
+      go(t("attachments.messages.finalizeFailed", {
+        message: attachmentError instanceof Error ? attachmentError.message : t("common.unknownError"),
+      }), "error", "absences");
+    }
+  }
+
   await audit(admin, {
     organizationId: membership.organization_id,
     actorId: user.id,
@@ -427,7 +462,12 @@ export async function submitLeaveRequestAction(formData: FormData) {
     entityType: "leave_request",
     entityId: data.id,
     action: "submitted",
-    details: {leave_type: leaveType, start_date: startDate, end_date: endDate},
+    details: {
+      leave_type: leaveType,
+      start_date: startDate,
+      end_date: endDate,
+      document_file_name: finalizedDocument?.fileName ?? null,
+    },
   });
   revalidatePath("/dashboard/performance");
   go(t("performance.messages.leaveSubmitted"), "success", "absences");
