@@ -40,6 +40,10 @@ type ProductRow = {
   commission_value: number | string;
   proof_required: boolean;
   is_active: boolean;
+  payment_plan_type: string;
+  initial_payment_type: string;
+  initial_payment_value: number | string;
+  max_installments: number | null;
 };
 type SaleRow = {
   id: string;
@@ -60,6 +64,15 @@ type SaleRow = {
   notes: string | null;
   commission_amount: number | string;
   commission_status: string;
+  commission_basis_amount: number | string;
+  first_payment_amount: number | string;
+  paid_amount: number | string;
+  balance_amount: number | string;
+  payment_plan_type: string;
+  collection_owner_id: string | null;
+  collection_status: string;
+  next_payment_due_date: string | null;
+  next_payment_amount: number | string | null;
   created_at: string;
 };
 type TargetRow = {
@@ -153,7 +166,7 @@ export default async function SalesPage({searchParams}: PageProps) {
       .order("created_at"),
     admin
       .from("sales_products")
-      .select("id, name, code, default_price, currency, commission_type, commission_value, proof_required, is_active")
+      .select("id, name, code, default_price, currency, commission_type, commission_value, proof_required, is_active, payment_plan_type, initial_payment_type, initial_payment_value, max_installments")
       .eq("organization_id", membership.organization_id)
       .order("is_active", {ascending: false})
       .order("name"),
@@ -179,7 +192,7 @@ export default async function SalesPage({searchParams}: PageProps) {
             </p>
             {missingTable ? (
               <code className="mt-5 block rounded-xl bg-slate-950 px-4 py-3 font-bold text-white">
-                supabase/008_sales_commissions.sql
+                supabase/009_sales_payments_collections.sql
               </code>
             ) : null}
           </section>
@@ -210,7 +223,7 @@ export default async function SalesPage({searchParams}: PageProps) {
 
   let salesQuery = admin
     .from("sales_records")
-    .select("id, seller_id, product_name, customer_name, customer_email, sale_date, quantity, unit_price, total_amount, currency, payment_method, payment_status, workflow_status, transaction_reference, proof_url, notes, commission_amount, commission_status, created_at")
+    .select("id, seller_id, product_name, customer_name, customer_email, sale_date, quantity, unit_price, total_amount, currency, payment_method, payment_status, workflow_status, transaction_reference, proof_url, notes, commission_amount, commission_status, commission_basis_amount, first_payment_amount, paid_amount, balance_amount, payment_plan_type, collection_owner_id, collection_status, next_payment_due_date, next_payment_amount, created_at")
     .eq("organization_id", membership.organization_id)
     .order("sale_date", {ascending: false})
     .order("created_at", {ascending: false})
@@ -271,9 +284,14 @@ export default async function SalesPage({searchParams}: PageProps) {
               <h1 className="mt-2 text-3xl font-black">{t("sales.title")}</h1>
               <p className="mt-2 max-w-3xl text-slate-300">{t("sales.subtitle")}</p>
             </div>
-            <Link href={csvHref} className="rounded-xl bg-white px-5 py-3 text-center font-black text-slate-950 hover:bg-slate-100">
-              {t("sales.exportCsv")}
-            </Link>
+            <div className="flex flex-wrap gap-3">
+              <Link href="/dashboard/collections" className="rounded-xl bg-amber-400 px-5 py-3 text-center font-black text-slate-950 hover:bg-amber-300">
+                {t("sales.openCollections")}
+              </Link>
+              <Link href={csvHref} className="rounded-xl bg-white px-5 py-3 text-center font-black text-slate-950 hover:bg-slate-100">
+                {t("sales.exportCsv")}
+              </Link>
+            </div>
           </div>
         </header>
 
@@ -369,29 +387,59 @@ export default async function SalesPage({searchParams}: PageProps) {
                 </label>
               </div>
 
-              <div className="grid gap-4 sm:grid-cols-2">
-                <label className="block">
-                  <span className="text-sm font-bold">{t("sales.paymentMethod")}</span>
-                  <select name="paymentMethod" defaultValue="bank_transfer" className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-4 py-3">
-                    {(["bank_transfer", "card", "cash", "mobile_money", "cheque", "other"] as const).map((value) => <option key={value} value={value}>{t(`sales.paymentMethods.${value}`)}</option>)}
-                  </select>
-                </label>
-                <label className="block">
-                  <span className="text-sm font-bold">{t("sales.paymentStatus")}</span>
-                  <select name="paymentStatus" defaultValue="unpaid" className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-4 py-3">
-                    {(["unpaid", "partial", "paid"] as const).map((value) => <option key={value} value={value}>{t(`sales.paymentStatuses.${value}`)}</option>)}
-                  </select>
+              <label className="block">
+                <span className="text-sm font-bold">{t("sales.contractReference")}</span>
+                <input name="contractReference" maxLength={160} placeholder={t("sales.contractReferencePlaceholder")} className="mt-2 w-full rounded-xl border border-slate-300 px-4 py-3" />
+              </label>
+
+              <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+                <p className="font-black text-amber-950">{t("sales.initialPaymentSection")}</p>
+                <p className="mt-1 text-xs font-semibold leading-5 text-amber-800">{t("sales.initialPaymentHelp")}</p>
+                <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                  <label className="block">
+                    <span className="text-sm font-bold">{t("sales.initialPaymentAmount")}</span>
+                    <input type="number" name="initialPaymentAmount" min={0} step="0.01" defaultValue={0} className="mt-2 w-full rounded-xl border border-amber-200 bg-white px-4 py-3" />
+                  </label>
+                  <label className="block">
+                    <span className="text-sm font-bold">{t("sales.initialPaymentDate")}</span>
+                    <input type="date" name="initialPaymentDate" defaultValue={new Date().toISOString().slice(0, 10)} className="mt-2 w-full rounded-xl border border-amber-200 bg-white px-4 py-3" />
+                  </label>
+                  <label className="block">
+                    <span className="text-sm font-bold">{t("sales.paymentMethod")}</span>
+                    <select name="paymentMethod" defaultValue="bank_transfer" className="mt-2 w-full rounded-xl border border-amber-200 bg-white px-4 py-3">
+                      {(["bank_transfer", "card", "cash", "mobile_money", "cheque", "other"] as const).map((value) => <option key={value} value={value}>{t(`sales.paymentMethods.${value}`)}</option>)}
+                    </select>
+                  </label>
+                  <label className="block">
+                    <span className="text-sm font-bold">{t("sales.initialPaymentReference")}</span>
+                    <input name="initialPaymentReference" maxLength={160} className="mt-2 w-full rounded-xl border border-amber-200 bg-white px-4 py-3" />
+                  </label>
+                </div>
+                <label className="mt-4 block">
+                  <span className="text-sm font-bold">{t("sales.proofUrl")}</span>
+                  <input type="url" name="proofUrl" maxLength={1000} placeholder="https://..." className="mt-2 w-full rounded-xl border border-amber-200 bg-white px-4 py-3" />
                 </label>
               </div>
 
-              <label className="block">
-                <span className="text-sm font-bold">{t("sales.transactionReference")}</span>
-                <input name="transactionReference" maxLength={160} placeholder={t("sales.transactionReferencePlaceholder")} className="mt-2 w-full rounded-xl border border-slate-300 px-4 py-3" />
-              </label>
-              <label className="block">
-                <span className="text-sm font-bold">{t("sales.proofUrl")}</span>
-                <input type="url" name="proofUrl" maxLength={1000} placeholder="https://..." className="mt-2 w-full rounded-xl border border-slate-300 px-4 py-3" />
-              </label>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="block">
+                  <span className="text-sm font-bold">{t("sales.nextPaymentDueDate")}</span>
+                  <input type="date" name="nextPaymentDueDate" className="mt-2 w-full rounded-xl border border-slate-300 px-4 py-3" />
+                </label>
+                <label className="block">
+                  <span className="text-sm font-bold">{t("sales.nextPaymentAmount")}</span>
+                  <input type="number" name="nextPaymentAmount" min={0} step="0.01" className="mt-2 w-full rounded-xl border border-slate-300 px-4 py-3" />
+                </label>
+              </div>
+              {isLeader ? (
+                <label className="block">
+                  <span className="text-sm font-bold">{t("sales.collectionOwner")}</span>
+                  <select name="collectionOwnerId" defaultValue="" className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-4 py-3">
+                    <option value="">{t("sales.assignLater")}</option>
+                    {memberOptions.map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}
+                  </select>
+                </label>
+              ) : null}
               <label className="block">
                 <span className="text-sm font-bold">{t("sales.notes")}</span>
                 <textarea name="notes" rows={3} maxLength={3000} className="mt-2 w-full rounded-xl border border-slate-300 px-4 py-3" />
@@ -460,7 +508,10 @@ export default async function SalesPage({searchParams}: PageProps) {
                         </div>
                         <div className="text-left lg:text-right">
                           <p className="text-2xl font-black">{moneyFormatter(dateLocale, sale.currency).format(Number(sale.total_amount))}</p>
-                          <p className="mt-1 text-sm font-bold text-emerald-700">{t("sales.commissionAmount", {amount: moneyFormatter(dateLocale, sale.currency).format(Number(sale.commission_amount))})}</p>
+                          <p className="mt-1 text-sm font-bold text-indigo-700">{t("sales.firstPaymentSummary", {amount: moneyFormatter(dateLocale, sale.currency).format(Number(sale.first_payment_amount))})}</p>
+                          <p className="mt-1 text-sm font-bold text-slate-600">{t("sales.paidAndBalance", {paid: moneyFormatter(dateLocale, sale.currency).format(Number(sale.paid_amount)), balance: moneyFormatter(dateLocale, sale.currency).format(Number(sale.balance_amount))})}</p>
+                          <p className="mt-1 text-sm font-bold text-emerald-700">{t("sales.commissionOnFirstPayment", {amount: moneyFormatter(dateLocale, sale.currency).format(Number(sale.commission_amount))})}</p>
+                          <Link href={`/dashboard/collections?sale=${sale.id}`} className="mt-2 inline-block text-sm font-black text-indigo-700 underline">{t("sales.followCollection")}</Link>
                           {sale.seller_id === authData.user.id && ["draft", "submitted"].includes(sale.workflow_status) ? (
                             <form action={cancelOwnSaleAction} className="mt-3">
                               <input type="hidden" name="saleId" value={sale.id} />
@@ -491,7 +542,7 @@ export default async function SalesPage({searchParams}: PageProps) {
               {reviewQueue.length ? reviewQueue.map((sale) => (
                 <form action={reviewSaleAction} key={sale.id} className="rounded-2xl border border-amber-200 bg-white p-5">
                   <input type="hidden" name="saleId" value={sale.id} />
-                  <div className="grid gap-4 xl:grid-cols-[1fr_auto_auto_1fr_auto] xl:items-end">
+                  <div className="grid gap-4 xl:grid-cols-[1fr_auto_1fr_auto] xl:items-end">
                     <div>
                       <p className="font-black">{sale.product_name} · {sale.customer_name}</p>
                       <p className="mt-1 text-sm text-slate-600">{profileById.get(sale.seller_id)?.full_name || profileById.get(sale.seller_id)?.email} · {moneyFormatter(dateLocale, sale.currency).format(Number(sale.total_amount))}</p>
@@ -500,12 +551,6 @@ export default async function SalesPage({searchParams}: PageProps) {
                       <span className="text-xs font-black text-slate-500">{t("sales.reviewStatus")}</span>
                       <select name="workflowStatus" defaultValue={sale.workflow_status === "verified" ? "approved" : "verified"} className="mt-1 block rounded-xl border border-slate-300 bg-white px-3 py-2">
                         {(["verified", "approved", "rejected", "cancelled", "refunded"] as const).map((value) => <option key={value} value={value}>{t(`sales.workflowStatuses.${value}`)}</option>)}
-                      </select>
-                    </label>
-                    <label>
-                      <span className="text-xs font-black text-slate-500">{t("sales.paymentStatus")}</span>
-                      <select name="paymentStatus" defaultValue={sale.payment_status} className="mt-1 block rounded-xl border border-slate-300 bg-white px-3 py-2">
-                        {(["unpaid", "partial", "paid", "refunded"] as const).map((value) => <option key={value} value={value}>{t(`sales.paymentStatuses.${value}`)}</option>)}
                       </select>
                     </label>
                     <label>
@@ -536,6 +581,15 @@ export default async function SalesPage({searchParams}: PageProps) {
                   <label><span className="text-sm font-bold">{t("sales.commissionType")}</span><select name="commissionType" defaultValue="percentage" className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-4 py-3"><option value="percentage">{t("sales.commissionTypes.percentage")}</option><option value="fixed">{t("sales.commissionTypes.fixed")}</option></select></label>
                   <label><span className="text-sm font-bold">{t("sales.commissionValue")}</span><input type="number" name="commissionValue" min={0} step="0.01" defaultValue={0} required className="mt-2 w-full rounded-xl border border-slate-300 px-4 py-3" /></label>
                 </div>
+                <div className="rounded-2xl bg-indigo-50 p-4">
+                  <p className="font-black text-indigo-950">{t("sales.paymentConfiguration")}</p>
+                  <div className="mt-3 grid gap-4 sm:grid-cols-2">
+                    <label><span className="text-sm font-bold">{t("sales.paymentPlanType")}</span><select name="paymentPlanType" defaultValue="full" className="mt-2 w-full rounded-xl border border-indigo-200 bg-white px-4 py-3">{(["full", "deposit_balance", "installments", "custom"] as const).map((value) => <option key={value} value={value}>{t(`sales.paymentPlanTypes.${value}`)}</option>)}</select></label>
+                    <label><span className="text-sm font-bold">{t("sales.maxInstallments")}</span><input type="number" name="maxInstallments" min={1} max={120} step={1} className="mt-2 w-full rounded-xl border border-indigo-200 bg-white px-4 py-3" /></label>
+                    <label><span className="text-sm font-bold">{t("sales.initialPaymentType")}</span><select name="initialPaymentType" defaultValue="percentage" className="mt-2 w-full rounded-xl border border-indigo-200 bg-white px-4 py-3"><option value="percentage">{t("sales.initialPaymentTypes.percentage")}</option><option value="fixed">{t("sales.initialPaymentTypes.fixed")}</option></select></label>
+                    <label><span className="text-sm font-bold">{t("sales.initialPaymentValue")}</span><input type="number" name="initialPaymentValue" min={0} step="0.01" defaultValue={100} required className="mt-2 w-full rounded-xl border border-indigo-200 bg-white px-4 py-3" /></label>
+                  </div>
+                </div>
                 <label className="flex items-center gap-3 rounded-xl bg-slate-50 p-3 text-sm font-bold"><input type="checkbox" name="proofRequired" />{t("sales.proofRequiredOption")}</label>
                 <label className="block"><span className="text-sm font-bold">{t("sales.description")}</span><textarea name="description" maxLength={1500} rows={3} className="mt-2 w-full rounded-xl border border-slate-300 px-4 py-3" /></label>
                 <button className="w-full rounded-xl bg-slate-950 px-5 py-3 font-black text-white">{t("sales.addProduct")}</button>
@@ -549,6 +603,7 @@ export default async function SalesPage({searchParams}: PageProps) {
                     <div>
                       <p className="font-black">{product.code ? `${product.code} · ` : ""}{product.name}</p>
                       <p className="mt-1 text-sm text-slate-600">{moneyFormatter(dateLocale, product.currency).format(Number(product.default_price))} · {product.commission_type === "percentage" ? `${product.commission_value}%` : moneyFormatter(dateLocale, product.currency).format(Number(product.commission_value))} {t("sales.commission")}</p>
+                      <p className="mt-1 text-xs font-bold text-indigo-700">{t(`sales.paymentPlanTypes.${product.payment_plan_type}`)} · {t("sales.initialPaymentConfigured", {value: product.initial_payment_type === "percentage" ? `${product.initial_payment_value}%` : moneyFormatter(dateLocale, product.currency).format(Number(product.initial_payment_value))})}</p>
                     </div>
                     <form action={toggleSalesProductAction}>
                       <input type="hidden" name="productId" value={product.id} /><input type="hidden" name="activate" value={String(!product.is_active)} />

@@ -18,7 +18,6 @@ const paymentMethods = new Set([
   "cheque",
   "other",
 ]);
-const paymentStatuses = new Set(["unpaid", "partial", "paid", "refunded"]);
 const reviewStatuses = new Set([
   "verified",
   "approved",
@@ -27,6 +26,8 @@ const reviewStatuses = new Set([
   "refunded",
 ]);
 const commissionTypes = new Set(["percentage", "fixed"]);
+const paymentPlanTypes = new Set(["full", "deposit_balance", "installments", "custom"]);
+const initialPaymentTypes = new Set(["percentage", "fixed"]);
 
 type Membership = {
   organization_id: string;
@@ -43,6 +44,10 @@ type ProductRow = {
   currency: string;
   proof_required: boolean;
   is_active: boolean;
+  payment_plan_type: string;
+  initial_payment_type: string;
+  initial_payment_value: number | string;
+  max_installments: number | null;
 };
 
 type SaleRow = {
@@ -169,6 +174,11 @@ export async function createSalesProductAction(formData: FormData) {
   const commissionType = String(formData.get("commissionType") ?? "percentage");
   const commissionValue = parseMoney(formData.get("commissionValue"));
   const proofRequired = formData.get("proofRequired") === "on";
+  const paymentPlanType = String(formData.get("paymentPlanType") ?? "full");
+  const initialPaymentType = String(formData.get("initialPaymentType") ?? "percentage");
+  const initialPaymentValue = parseMoney(formData.get("initialPaymentValue"));
+  const rawMaxInstallments = String(formData.get("maxInstallments") ?? "").trim();
+  const maxInstallments = rawMaxInstallments ? parseInteger(formData.get("maxInstallments")) : null;
 
   if (name.length < 2 || name.length > 160) {
     go(t("sales.messages.invalidProductName"), "error");
@@ -186,6 +196,21 @@ export async function createSalesProductAction(formData: FormData) {
   if (commissionType === "percentage" && commissionValue > 100) {
     go(t("sales.messages.invalidCommissionPercentage"), "error");
   }
+  if (!paymentPlanTypes.has(paymentPlanType)) {
+    go(t("sales.messages.invalidPaymentPlan"), "error");
+  }
+  if (!initialPaymentTypes.has(initialPaymentType)) {
+    go(t("sales.messages.invalidInitialPaymentType"), "error");
+  }
+  if (!Number.isFinite(initialPaymentValue) || initialPaymentValue < 0) {
+    go(t("sales.messages.invalidInitialPayment"), "error");
+  }
+  if (initialPaymentType === "percentage" && initialPaymentValue > 100) {
+    go(t("sales.messages.invalidInitialPaymentPercentage"), "error");
+  }
+  if (maxInstallments !== null && (!Number.isInteger(maxInstallments) || maxInstallments < 1 || maxInstallments > 120)) {
+    go(t("sales.messages.invalidMaxInstallments"), "error");
+  }
 
   const {error} = await admin.from("sales_products").insert({
     organization_id: membership.organization_id,
@@ -197,6 +222,10 @@ export async function createSalesProductAction(formData: FormData) {
     commission_type: commissionType,
     commission_value: commissionValue,
     proof_required: proofRequired,
+    payment_plan_type: paymentPlanType,
+    initial_payment_type: initialPaymentType,
+    initial_payment_value: initialPaymentValue,
+    max_installments: maxInstallments,
     created_by: user.id,
   });
 
@@ -249,14 +278,25 @@ export async function createSaleAction(formData: FormData) {
   const quantity = parseInteger(formData.get("quantity"));
   const unitPrice = parseMoney(formData.get("unitPrice"));
   const currency = normalizeCurrency(formData.get("currency"));
+  const contractReference = cleanOptional(formData.get("contractReference"), 160);
+  const initialPaymentAmountRaw = String(formData.get("initialPaymentAmount") ?? "").trim();
+  const initialPaymentAmount = initialPaymentAmountRaw ? parseMoney(formData.get("initialPaymentAmount")) : 0;
+  const initialPaymentDate = initialPaymentAmount > 0 ? normalizeDate(formData.get("initialPaymentDate")) : null;
   const paymentMethod = String(formData.get("paymentMethod") ?? "bank_transfer");
-  const paymentStatus = String(formData.get("paymentStatus") ?? "unpaid");
-  const transactionReference = cleanOptional(formData.get("transactionReference"), 160);
+  const initialPaymentReference = cleanOptional(formData.get("initialPaymentReference"), 160);
   const proofUrl = cleanOptional(formData.get("proofUrl"), 1000);
+  const nextPaymentDueDate = normalizeDate(formData.get("nextPaymentDueDate"));
+  const nextPaymentAmountRaw = String(formData.get("nextPaymentAmount") ?? "").trim();
+  const nextPaymentAmount = nextPaymentAmountRaw ? parseMoney(formData.get("nextPaymentAmount")) : null;
+  const requestedCollectionOwnerId = String(formData.get("collectionOwnerId") ?? "").trim() || null;
+  const collectionOwnerId = leaderRoles.has(membership.role) ? requestedCollectionOwnerId : null;
   const notes = cleanOptional(formData.get("notes"), 3000);
 
   if (!(await ensureActiveMember(membership.organization_id, sellerId, admin))) {
     go(t("sales.messages.sellerNotActive"), "error");
+  }
+  if (collectionOwnerId && !(await ensureActiveMember(membership.organization_id, collectionOwnerId, admin))) {
+    go(t("sales.messages.collectorNotActive"), "error");
   }
   if (customerName.length < 2 || customerName.length > 200) {
     go(t("sales.messages.invalidCustomerName"), "error");
@@ -269,18 +309,25 @@ export async function createSaleAction(formData: FormData) {
     go(t("sales.messages.invalidPrice"), "error");
   }
   if (!currency) go(t("sales.messages.invalidCurrency"), "error");
-  if (!paymentMethods.has(paymentMethod)) {
+  if (initialPaymentAmount < 0 || !Number.isFinite(initialPaymentAmount)) {
+    go(t("sales.messages.invalidInitialPayment"), "error");
+  }
+  if (initialPaymentAmount > 0 && !initialPaymentDate) {
+    go(t("sales.messages.invalidInitialPaymentDate"), "error");
+  }
+  if (initialPaymentAmount > 0 && !paymentMethods.has(paymentMethod)) {
     go(t("sales.messages.invalidPaymentMethod"), "error");
   }
-  if (!paymentStatuses.has(paymentStatus)) {
-    go(t("sales.messages.invalidPaymentStatus"), "error");
+  if (nextPaymentDueDate === "") go(t("sales.messages.invalidNextPaymentDate"), "error");
+  if (nextPaymentAmount !== null && (!Number.isFinite(nextPaymentAmount) || nextPaymentAmount < 0)) {
+    go(t("sales.messages.invalidNextPaymentAmount"), "error");
   }
 
   let product: ProductRow | null = null;
   if (productId) {
     const {data, error} = await admin
       .from("sales_products")
-      .select("id, organization_id, name, commission_type, commission_value, currency, proof_required, is_active")
+      .select("id, organization_id, name, commission_type, commission_value, currency, proof_required, is_active, payment_plan_type, initial_payment_type, initial_payment_value, max_installments")
       .eq("id", productId)
       .eq("organization_id", membership.organization_id)
       .maybeSingle<ProductRow>();
@@ -294,17 +341,29 @@ export async function createSaleAction(formData: FormData) {
   if (productName.length < 2 || productName.length > 200) {
     go(t("sales.messages.productRequired"), "error");
   }
-  if (product?.proof_required && !proofUrl) {
+  if (product?.proof_required && initialPaymentAmount > 0 && !proofUrl) {
     go(t("sales.messages.proofRequired"), "error");
   }
 
   const saleCurrency = product?.currency ?? currency;
   const totalAmount = Math.round(quantity * unitPrice * 100) / 100;
+  if (initialPaymentAmount > totalAmount) {
+    go(t("sales.messages.initialPaymentExceedsTotal"), "error");
+  }
+
   const commissionType = product?.commission_type ?? "percentage";
   const commissionValue = Number(product?.commission_value ?? 0);
-  const commissionAmount = commissionType === "percentage"
-    ? Math.round(totalAmount * (commissionValue / 100) * 100) / 100
-    : Math.round(commissionValue * quantity * 100) / 100;
+  const paymentPlanType = product?.payment_plan_type ?? (initialPaymentAmount >= totalAmount && totalAmount > 0 ? "full" : "custom");
+  const initialPaymentType = product?.initial_payment_type ?? "fixed";
+  const initialPaymentValue = Number(product?.initial_payment_value ?? initialPaymentAmount);
+  const minimumInitialPayment = initialPaymentType === "percentage"
+    ? Math.round(totalAmount * (initialPaymentValue / 100) * 100) / 100
+    : initialPaymentValue;
+  if (initialPaymentAmount > 0 && initialPaymentAmount < minimumInitialPayment) {
+    go(t("sales.messages.initialPaymentBelowMinimum", {
+      amount: `${minimumInitialPayment.toFixed(2)} ${saleCurrency}`,
+    }), "error");
+  }
 
   const {data: sale, error} = await admin
     .from("sales_records")
@@ -322,15 +381,26 @@ export async function createSaleAction(formData: FormData) {
       total_amount: totalAmount,
       currency: saleCurrency,
       payment_method: paymentMethod,
-      payment_status: paymentStatus,
+      payment_status: "unpaid",
       workflow_status: "submitted",
-      transaction_reference: transactionReference,
+      transaction_reference: contractReference,
       proof_url: proofUrl,
       notes,
       commission_type: commissionType,
       commission_value: commissionValue,
-      commission_amount: commissionAmount,
+      commission_amount: 0,
       commission_status: "pending",
+      commission_rule: "first_payment_only",
+      payment_plan_type: paymentPlanType,
+      initial_payment_type: initialPaymentType,
+      initial_payment_value: initialPaymentValue,
+      paid_amount: 0,
+      balance_amount: totalAmount,
+      collection_owner_id: collectionOwnerId,
+      collection_status: collectionOwnerId ? "assigned" : "not_started",
+      transferred_to_collection_at: collectionOwnerId ? new Date().toISOString() : null,
+      next_payment_due_date: nextPaymentDueDate,
+      next_payment_amount: nextPaymentAmount,
       created_by: user.id,
     })
     .select("id")
@@ -341,6 +411,29 @@ export async function createSaleAction(formData: FormData) {
       ? t("sales.messages.duplicateTransaction")
       : t("sales.messages.saleCreateFailed", {message: error?.message ?? t("common.unknownError")});
     go(message, "error");
+  }
+
+  if (initialPaymentAmount > 0) {
+    const {error: paymentError} = await admin.from("sales_payments").insert({
+      organization_id: membership.organization_id,
+      sale_id: sale.id,
+      payment_date: initialPaymentDate,
+      amount: initialPaymentAmount,
+      currency: saleCurrency,
+      payment_method: paymentMethod,
+      transaction_reference: initialPaymentReference,
+      proof_url: proofUrl,
+      status: "pending",
+      recorded_by: user.id,
+      notes: t("sales.initialPaymentPendingNote"),
+    });
+    if (paymentError) {
+      await admin.from("sales_records").delete().eq("id", sale.id);
+      const message = paymentError.code === "23505"
+        ? t("sales.messages.duplicateTransaction")
+        : t("sales.messages.initialPaymentCreateFailed", {message: paymentError.message});
+      go(message, "error");
+    }
   }
 
   await auditSale({
@@ -354,8 +447,9 @@ export async function createSaleAction(formData: FormData) {
   });
 
   revalidatePath("/dashboard/sales");
+  revalidatePath("/dashboard/collections");
   revalidatePath("/dashboard");
-  go(t("sales.messages.saleSubmitted"));
+  go(initialPaymentAmount > 0 ? t("sales.messages.saleAndPaymentSubmitted") : t("sales.messages.saleSubmitted"));
 }
 
 export async function reviewSaleAction(formData: FormData) {
@@ -366,16 +460,11 @@ export async function reviewSaleAction(formData: FormData) {
 
   const saleId = String(formData.get("saleId") ?? "").trim();
   const workflowStatus = String(formData.get("workflowStatus") ?? "").trim();
-  const paymentStatus = String(formData.get("paymentStatus") ?? "").trim();
   const note = cleanOptional(formData.get("reviewNote"), 1500);
 
   if (!saleId || !reviewStatuses.has(workflowStatus)) {
     go(t("sales.messages.invalidReviewStatus"), "error");
   }
-  if (!paymentStatuses.has(paymentStatus)) {
-    go(t("sales.messages.invalidPaymentStatus"), "error");
-  }
-
   const {data: sale, error: saleError} = await admin
     .from("sales_records")
     .select("id, organization_id, seller_id, workflow_status, commission_amount")
@@ -387,13 +476,12 @@ export async function reviewSaleAction(formData: FormData) {
 
   const updates: Record<string, string | null> = {
     workflow_status: workflowStatus,
-    payment_status: workflowStatus === "refunded" ? "refunded" : paymentStatus,
   };
 
   if (workflowStatus === "approved") {
     updates.approved_by = user.id;
     updates.approved_at = new Date().toISOString();
-    updates.commission_status = Number(sale.commission_amount) > 0 ? "payable" : "cancelled";
+    updates.commission_status = Number(sale.commission_amount) > 0 ? "payable" : "pending";
   } else if (["rejected", "cancelled", "refunded"].includes(workflowStatus)) {
     updates.commission_status = "cancelled";
   } else if (workflowStatus === "verified") {
@@ -410,6 +498,11 @@ export async function reviewSaleAction(formData: FormData) {
     go(t("sales.messages.reviewFailed", {message: error.message}), "error");
   }
 
+  const {error: refreshError} = await admin.rpc("refresh_sales_payment_summary", {p_sale_id: saleId});
+  if (refreshError) {
+    go(t("sales.messages.paymentSummaryFailed", {message: refreshError.message}), "error");
+  }
+
   await auditSale({
     organizationId: membership.organization_id,
     saleId,
@@ -422,6 +515,7 @@ export async function reviewSaleAction(formData: FormData) {
   });
 
   revalidatePath("/dashboard/sales");
+  revalidatePath("/dashboard/collections");
   revalidatePath("/dashboard");
   go(t("sales.messages.saleUpdated"));
 }
@@ -464,6 +558,7 @@ export async function cancelOwnSaleAction(formData: FormData) {
   });
 
   revalidatePath("/dashboard/sales");
+  revalidatePath("/dashboard/collections");
   revalidatePath("/dashboard");
   go(t("sales.messages.saleCancelled"));
 }

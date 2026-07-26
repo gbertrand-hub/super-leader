@@ -20,8 +20,12 @@ type SaleRow = {
   payment_status: string;
   workflow_status: string;
   transaction_reference: string | null;
+  first_payment_amount: number | string;
+  paid_amount: number | string;
+  balance_amount: number | string;
   commission_amount: number | string;
   commission_status: string;
+  collection_status: string;
 };
 type ProfileRow = {id: string; full_name: string | null; email: string | null};
 
@@ -55,7 +59,7 @@ export async function GET(request: Request) {
 
   let query = admin
     .from("sales_records")
-    .select("seller_id, product_name, customer_name, customer_email, sale_date, quantity, unit_price, total_amount, currency, payment_method, payment_status, workflow_status, transaction_reference, commission_amount, commission_status")
+    .select("seller_id, product_name, customer_name, customer_email, sale_date, quantity, unit_price, total_amount, currency, payment_method, payment_status, workflow_status, transaction_reference, first_payment_amount, paid_amount, balance_amount, commission_amount, commission_status, collection_status")
     .eq("organization_id", membership.organization_id)
     .order("sale_date", {ascending: false})
     .limit(5000);
@@ -90,8 +94,12 @@ export async function GET(request: Request) {
       t("sales.csv.paymentStatus"),
       t("sales.csv.workflowStatus"),
       t("sales.csv.transactionReference"),
+      t("sales.csv.firstPayment"),
+      t("sales.csv.paidAmount"),
+      t("sales.csv.balanceAmount"),
       t("sales.csv.commission"),
       t("sales.csv.commissionStatus"),
+      t("sales.csv.collectionStatus"),
     ]),
   ];
 
@@ -111,8 +119,12 @@ export async function GET(request: Request) {
       t(`sales.paymentStatuses.${sale.payment_status}`),
       t(`sales.workflowStatuses.${sale.workflow_status}`),
       sale.transaction_reference ?? "",
+      Number(sale.first_payment_amount).toFixed(2),
+      Number(sale.paid_amount).toFixed(2),
+      Number(sale.balance_amount).toFixed(2),
       Number(sale.commission_amount).toFixed(2),
       t(`sales.commissionStatuses.${sale.commission_status}`),
+      t(`collections.statuses.${sale.collection_status}`),
     ]));
   });
 
