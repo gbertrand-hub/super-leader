@@ -108,7 +108,7 @@ export default async function DashboardPage() {
             </Link>
           </section>
         ) : (
-          <nav className="mt-6 grid gap-4 md:grid-cols-2 lg:grid-cols-5">
+          <nav className="mt-6 grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
             <Link
               href="/dashboard/company"
               className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm hover:border-indigo-300"
@@ -158,6 +158,19 @@ export default async function DashboardPage() {
                 {t("dashboard.recognitionDescription")}
               </p>
             </Link>
+            {["owner", "admin", "hr", "manager"].includes(membership?.role ?? "") ? (
+              <Link
+                href="/dashboard/reports"
+                className="rounded-2xl border border-emerald-200 bg-emerald-50 p-6 shadow-sm hover:border-emerald-400"
+              >
+                <p className="text-lg font-black text-emerald-950">
+                  {t("dashboard.reportsTitle")}
+                </p>
+                <p className="mt-2 text-sm text-emerald-800">
+                  {t("dashboard.reportsDescription")}
+                </p>
+              </Link>
+            ) : null}
           </nav>
         )}
 

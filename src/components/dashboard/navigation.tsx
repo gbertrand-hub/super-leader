@@ -77,10 +77,15 @@ const navigationItems: NavigationItem[] = [
     href: "/dashboard/actions",
     icon: "actions",
   },
+  {
+    labelKey: "navigation.reports",
+    href: "/dashboard/reports",
+    icon: "reports",
+    roles: ["owner", "admin", "hr", "manager"],
+  },
 ];
 
 const comingSoonItems = [
-  { labelKey: "navigation.reports", icon: "reports" as IconName },
   { labelKey: "navigation.settings", icon: "settings" as IconName },
 ];
 
@@ -320,11 +325,11 @@ export function DashboardNavigation({
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <aside className="fixed inset-y-0 left-0 z-40 hidden w-72 lg:block">
+      <aside className="fixed inset-y-0 left-0 z-40 hidden w-72 print:hidden lg:block">
         {sidebar}
       </aside>
 
-      <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-slate-200 bg-white/95 px-4 shadow-sm backdrop-blur lg:hidden">
+      <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-slate-200 bg-white/95 px-4 shadow-sm backdrop-blur print:hidden lg:hidden">
         <Link href="/dashboard" className="flex items-center gap-2 font-black text-slate-950">
           <span className="text-amber-500">★</span>
           SUPER LEADER
@@ -340,7 +345,7 @@ export function DashboardNavigation({
       </header>
 
       {mobileOpen && (
-        <div className="fixed inset-0 z-50 lg:hidden">
+        <div className="fixed inset-0 z-50 print:hidden lg:hidden">
           <button
             type="button"
             aria-label={t("navigation.closeMenu")}
@@ -361,7 +366,7 @@ export function DashboardNavigation({
         </div>
       )}
 
-      <div className="min-w-0 lg:pl-72">{children}</div>
+      <div className="min-w-0 print:pl-0 lg:pl-72">{children}</div>
     </div>
   );
 }
