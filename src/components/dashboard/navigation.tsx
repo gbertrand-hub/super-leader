@@ -35,6 +35,7 @@ type IconName =
   | "collections"
   | "crm"
   | "automation"
+  | "performance"
   | "reports"
   | "settings"
   | "menu"
@@ -101,6 +102,11 @@ const navigationItems: NavigationItem[] = [
     href: "/dashboard/feedback-automation",
     icon: "automation",
     roles: ["owner", "admin", "hr", "manager"],
+  },
+  {
+    labelKey: "navigation.performance",
+    href: "/dashboard/performance",
+    icon: "performance",
   },
   {
     labelKey: "navigation.reports",
@@ -202,6 +208,12 @@ function Icon({ name, className = "h-5 w-5" }: { name: IconName; className?: str
         <path d="M4 6h16v10H8l-4 4V6Z" />
         <path d="M8 10h5M8 13h8" />
         <path d="M17 3v4M15 5h4" />
+      </>
+    ),
+    performance: (
+      <>
+        <path d="M4 20V10M10 20V4M16 20v-7M22 20H2" />
+        <path d="m5 7 3-3 3 2 4-4 4 3" />
       </>
     ),
     reports: (
