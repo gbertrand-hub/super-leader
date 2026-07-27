@@ -161,56 +161,26 @@ async function getAttendanceSnapshot(input: {
 }) {
   const sessionsResult = await input.admin
     .from("academy_sessions")
-    .select("id, status, starts_at, ends_at")
+    .select("id")
     .eq("organization_id", input.organizationId)
     .eq("course_id", input.courseId)
     .neq("status", "cancelled");
   if (sessionsResult.error) throw new Error(sessionsResult.error.message);
-
-  const nowMs = Date.now();
-  const sessions = sessionsResult.data ?? [];
-  const finishedSessions = sessions.filter((session) =>
-    String(session.status) === "completed" || new Date(String(session.ends_at)).getTime() <= nowMs,
-  );
-  const pendingSessions = sessions.filter((session) =>
-    String(session.status) !== "completed" && new Date(String(session.ends_at)).getTime() > nowMs,
-  );
-  const finishedSessionIds = finishedSessions.map((session) => String(session.id));
-  const nextSessionEndsAt = pendingSessions
-    .map((session) => String(session.ends_at))
-    .sort((left, right) => new Date(left).getTime() - new Date(right).getTime())[0] ?? null;
-
-  if (!sessions.length) {
-    return {totalSessions: 0, finishedSessions: 0, allSessionsFinished: false, expected: 0, attended: 0, percent: 0, nextSessionEndsAt};
-  }
-
-  const attendanceResult = finishedSessionIds.length
-    ? await input.admin
-        .from("academy_session_attendance")
-        .select("status, session_id")
-        .eq("organization_id", input.organizationId)
-        .eq("enrollment_id", input.enrollmentId)
-        .in("session_id", finishedSessionIds)
-    : {data: [], error: null};
+  const sessionIds = (sessionsResult.data ?? []).map((row) => String(row.id));
+  if (!sessionIds.length) return {expected: 0, attended: 0, percent: 0};
+  const attendanceResult = await input.admin
+    .from("academy_session_attendance")
+    .select("status, session_id")
+    .eq("organization_id", input.organizationId)
+    .eq("enrollment_id", input.enrollmentId)
+    .in("session_id", sessionIds);
   if (attendanceResult.error) throw new Error(attendanceResult.error.message);
-
   const rows = attendanceResult.data ?? [];
   const excused = rows.filter((row) => String(row.status) === "excused").length;
-  const expected = Math.max(0, finishedSessionIds.length - excused);
+  const expected = Math.max(0, sessionIds.length - excused);
   const attended = rows.filter((row) => ["present", "late"].includes(String(row.status))).length;
-  const percent = expected
-    ? Math.round((attended / expected) * 10000) / 100
-    : finishedSessionIds.length ? 100 : 0;
-
-  return {
-    totalSessions: sessions.length,
-    finishedSessions: finishedSessionIds.length,
-    allSessionsFinished: sessions.length > 0 && pendingSessions.length === 0,
-    expected,
-    attended,
-    percent,
-    nextSessionEndsAt,
-  };
+  const percent = expected ? Math.round((attended / expected) * 10000) / 100 : 100;
+  return {expected, attended, percent};
 }
 
 async function context() {
@@ -932,21 +902,6 @@ async function createCertificate({
   score: number | null;
 }) {
   const admin = createAdminClient();
-  if (score == null || Number(score) < Number(course.passing_score)) {
-    throw new Error("Quiz pass mark has not been reached.");
-  }
-  const attendanceRequired = Number(course.attendance_required_percent);
-  if (attendanceRequired > 0) {
-    const attendance = await getAttendanceSnapshot({
-      admin,
-      organizationId: enrollment.organization_id,
-      courseId: course.id,
-      enrollmentId: enrollment.id,
-    });
-    if (!attendance.totalSessions || !attendance.allSessionsFinished || attendance.percent < attendanceRequired) {
-      throw new Error("Attendance and session completion requirements have not been met.");
-    }
-  }
   const {data: existing} = await admin.from("academy_certificates").select("id").eq("enrollment_id", enrollment.id).maybeSingle<{id: string}>();
   if (existing) return existing.id;
 
@@ -985,17 +940,14 @@ export async function submitAcademyQuizAction(formData: FormData) {
   if (!questions.length) go(t("academy.messages.quizMissing"), "error", courseId);
   if (enrollment.attempts_count >= course.max_attempts) go(t("academy.messages.noAttemptsLeft"), "error", courseId);
 
-  let attendance = {totalSessions: 0, finishedSessions: 0, allSessionsFinished: false, expected: 0, attended: 0, percent: 0, nextSessionEndsAt: null as string | null};
+  let attendance = {expected: 0, attended: 0, percent: 0};
   try {
     attendance = await getAttendanceSnapshot({admin, organizationId: membership.organization_id, courseId, enrollmentId});
   } catch (snapshotError) {
     go(t("academy.messages.quizSaveFailed", {message: snapshotError instanceof Error ? snapshotError.message : ""}), "error", courseId);
   }
   const attendanceRequired = Number(course.attendance_required_percent);
-  if (attendanceRequired > 0 && attendance.totalSessions === 0) go(t("academy.messages.quizLockedNoSessions"), "error", courseId);
-  if (attendanceRequired > 0 && !attendance.allSessionsFinished) {
-    go(t("academy.messages.quizLockedSessionsPending", {date: attendance.nextSessionEndsAt ? new Intl.DateTimeFormat("fr-FR", {dateStyle: "medium"}).format(new Date(attendance.nextSessionEndsAt)) : "—"}), "error", courseId);
-  }
+  if (attendanceRequired > 0 && attendance.expected === 0) go(t("academy.messages.quizLockedNoSessions"), "error", courseId);
   if (attendanceRequired > 0 && attendance.percent < attendanceRequired) {
     go(t("academy.messages.quizLockedAttendance", {attendance: attendance.percent, required: attendanceRequired}), "error", courseId);
   }
@@ -1030,7 +982,7 @@ export async function submitAcademyQuizAction(formData: FormData) {
   });
   if (attemptError) go(t("academy.messages.quizSaveFailed", {message: attemptError.message}), "error", courseId);
 
-  const attendanceEligible = Number(course.attendance_required_percent) <= 0 || (attendance.allSessionsFinished && attendance.percent >= Number(course.attendance_required_percent));
+  const attendanceEligible = attendance.percent >= Number(course.attendance_required_percent);
   const completed = passed && attendanceEligible;
   const nextStatus = completed ? "completed" : passed ? "in_progress" : attemptsCount >= course.max_attempts ? "failed" : "in_progress";
   const progressPercent = completed ? 100 : Math.min(99, Math.round((passed ? 40 : 0) + attendance.percent * 0.6));
@@ -1414,8 +1366,7 @@ export async function markAcademySessionAttendanceAction(formData: FormData) {
   if (!course) go(t("academy.messages.courseNotFound"), "error", courseId);
   const attendance = await getAttendanceSnapshot({admin, organizationId: membership.organization_id, courseId, enrollmentId});
   const quizPassed = Number(enrollment.best_score ?? 0) >= Number(course.passing_score);
-  const attendanceEligible = Number(course.attendance_required_percent) <= 0 || (attendance.allSessionsFinished && attendance.percent >= Number(course.attendance_required_percent));
-  const completed = quizPassed && attendanceEligible;
+  const completed = quizPassed && attendance.percent >= Number(course.attendance_required_percent);
   const progressPercent = completed ? 100 : Math.min(99, Math.round((quizPassed ? 40 : 0) + attendance.percent * 0.6));
   const {error: enrollmentError} = await admin.from("academy_enrollments").update({
     status: completed ? "completed" : enrollment.status === "completed" ? "completed" : enrollment.status === "assigned" ? "in_progress" : enrollment.status,

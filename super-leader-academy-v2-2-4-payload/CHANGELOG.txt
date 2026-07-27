@@ -1,0 +1,21 @@
+SUPER LEADER - CHANGELOG
+
+V2.2.4 - Academy complete course creation wizard
+- Replaces the isolated basic course form with a five-step creation assistant.
+- Creates course details, schedules, sessions, quiz questions and assignments together.
+- Supports single, weekly, monthly-intensive and custom-date sessions.
+- Supports organisation-wide, team-based and individual assignments.
+- Adds review, draft and immediate publication modes.
+- Adds a transactional Supabase RPC to prevent partial course creation.
+- Allows courses without certificates to be published without a quiz.
+- Preserves the existing configuration screens for previously created courses.
+
+V2.2.3 - Academy session integrity and quiz governance
+- Repairs missing sessions from active recurring schedules.
+- Backfills session attendance placeholders for existing enrolments.
+- Prevents repeated assignment or self-enrolment from resetting an existing enrolment.
+- Makes Start training idempotent.
+- Aligns employee Academy counters with published visible courses.
+- Locks the final quiz when no session exists or minimum attendance is not met.
+- Keeps certificate issuance dependent on both attendance and quiz success.
+- Adds an administrator repair action and bilingual interface messages.

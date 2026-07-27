@@ -280,30 +280,19 @@ export default async function AcademyPage({searchParams}: Props) {
   const ownEnrollment = selectedCourse ? selectedEnrollments.find((row) => row.user_id === auth.user.id) ?? null : null;
   const visibleSessions = canAssign || ownEnrollment ? selectedSessions : [];
   const activeSelectedSessions = selectedSessions.filter((session) => session.status !== "cancelled");
-  const nowMs = Date.now();
-  const finishedSelectedSessions = activeSelectedSessions.filter((session) =>
-    session.status === "completed" || new Date(session.ends_at).getTime() <= nowMs,
-  );
-  const pendingSelectedSessions = activeSelectedSessions.filter((session) =>
-    session.status !== "completed" && new Date(session.ends_at).getTime() > nowMs,
-  );
-  const nextPendingSession = [...pendingSelectedSessions].sort(
-    (left, right) => new Date(left.starts_at).getTime() - new Date(right.starts_at).getTime(),
-  )[0] ?? null;
   const ownAttendanceRows = ownEnrollment
-    ? finishedSelectedSessions.map((session) => attendanceBySessionAndEnrollment.get(`${session.id}:${ownEnrollment.id}`)).filter(Boolean) as SessionAttendanceRow[]
+    ? activeSelectedSessions.map((session) => attendanceBySessionAndEnrollment.get(`${session.id}:${ownEnrollment.id}`)).filter(Boolean) as SessionAttendanceRow[]
     : [];
   const ownExcusedSessions = ownAttendanceRows.filter((row) => row.status === "excused").length;
-  const ownExpectedSessions = Math.max(0, finishedSelectedSessions.length - ownExcusedSessions);
+  const ownExpectedSessions = Math.max(0, activeSelectedSessions.length - ownExcusedSessions);
   const ownAttendedSessions = ownAttendanceRows.filter((row) => ["present", "late"].includes(row.status)).length;
   const ownAttendancePercent = ownExpectedSessions
     ? Math.round((ownAttendedSessions / ownExpectedSessions) * 10000) / 100
-    : finishedSelectedSessions.length ? 100 : 0;
+    : activeSelectedSessions.length ? 100 : 0;
   const attendanceRequired = Number(selectedCourse?.attendance_required_percent ?? 0);
   const quizHasSessions = attendanceRequired <= 0 || activeSelectedSessions.length > 0;
-  const quizSessionsFinished = attendanceRequired <= 0 || (activeSelectedSessions.length > 0 && pendingSelectedSessions.length === 0);
   const quizAttendanceEligible = attendanceRequired <= 0 || ownAttendancePercent >= attendanceRequired;
-  const quizUnlocked = quizHasSessions && quizSessionsFinished && quizAttendanceEligible;
+  const quizUnlocked = quizHasSessions && quizAttendanceEligible;
   const ownCertificate = ownEnrollment ? certificateByEnrollment.get(ownEnrollment.id) ?? null : null;
   const assignedUserIds = new Set(selectedEnrollments.map((row) => row.user_id));
   const assignableProfiles = profiles.filter((profile) => !assignedUserIds.has(profile.id));
@@ -571,7 +560,7 @@ export default async function AcademyPage({searchParams}: Props) {
                             <button className="w-full rounded-xl bg-amber-500 px-5 py-3 font-black text-slate-950">{t("academy.actions.submitQuiz")}</button>
                           </form>
                         ) : null}
-                        {["in_progress", "failed"].includes(ownEnrollment.status) && Number(ownEnrollment.best_score ?? 0) < Number(selectedCourse.passing_score) && ownEnrollment.attempts_count < selectedCourse.max_attempts && !quizUnlocked ? <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 p-5 text-amber-950"><p className="text-xl font-black">{t("academy.quizLockedTitle")}</p><p className="mt-2">{!quizHasSessions ? t("academy.quizLockedNoSessions") : !quizSessionsFinished ? t("academy.quizLockedSessionsPending", {date: nextPendingSession ? formatDate(nextPendingSession.session_date, locale) : "—"}) : t("academy.quizLockedAttendance", {attendance: ownAttendancePercent, required: attendanceRequired})}</p></div> : null}
+                        {["in_progress", "failed"].includes(ownEnrollment.status) && Number(ownEnrollment.best_score ?? 0) < Number(selectedCourse.passing_score) && ownEnrollment.attempts_count < selectedCourse.max_attempts && !quizUnlocked ? <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 p-5 text-amber-950"><p className="text-xl font-black">{t("academy.quizLockedTitle")}</p><p className="mt-2">{!quizHasSessions ? t("academy.quizLockedNoSessions") : t("academy.quizLockedAttendance", {attendance: ownAttendancePercent, required: attendanceRequired})}</p></div> : null}
                         {Number(ownEnrollment.best_score ?? 0) >= Number(selectedCourse.passing_score) && ownEnrollment.status !== "completed" ? <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-5 text-amber-900"><p className="text-xl font-black">{t("academy.attendancePendingTitle")}</p><p className="mt-1">{t("academy.attendancePendingHelp", {attendance: ownAttendancePercent, required: selectedCourse.attendance_required_percent})}</p></div> : null}
                         {ownEnrollment.status === "completed" ? <div className="mt-5 rounded-2xl border border-emerald-200 bg-emerald-50 p-5 text-emerald-900"><p className="text-xl font-black">✓ {t("academy.completedCongratulations")}</p><p className="mt-1">{t("academy.completedHelp")}</p></div> : null}
                         {ownEnrollment.status === "failed" && ownEnrollment.attempts_count >= selectedCourse.max_attempts ? <div className="mt-5 rounded-2xl border border-red-200 bg-red-50 p-5 text-red-800"><p className="font-black">{t("academy.noAttemptsLeftTitle")}</p><p className="mt-1 text-sm">{t("academy.noAttemptsLeftHelp")}</p></div> : null}

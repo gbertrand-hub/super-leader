@@ -1,0 +1,21 @@
+SUPER LEADER ACADEMY V2.2.4 - VALIDATION REPORT
+
+Implemented:
+- Five-step course creation wizard.
+- Single, weekly, monthly-intensive and custom-date scheduling.
+- Quiz builder inside the creation workflow.
+- Organisation, team and individual assignment scopes.
+- Draft or immediate publication modes.
+- Transactional Supabase creation RPC.
+- Existing course editing remains available.
+- Certificate publication rule aligned with quiz availability.
+
+Static validation:
+- Modified TypeScript and TSX files transpile without syntax errors.
+- Server-side validation covers course, schedule, quiz and assignment inputs.
+- SQL migration reviewed for atomic rollback and role validation.
+
+Required runtime validation:
+- Execute migration 025 in Supabase.
+- Create one course for each schedule type.
+- Confirm sessions, enrolments, notifications and publication status.

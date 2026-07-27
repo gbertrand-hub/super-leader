@@ -161,56 +161,26 @@ async function getAttendanceSnapshot(input: {
 }) {
   const sessionsResult = await input.admin
     .from("academy_sessions")
-    .select("id, status, starts_at, ends_at")
+    .select("id")
     .eq("organization_id", input.organizationId)
     .eq("course_id", input.courseId)
     .neq("status", "cancelled");
   if (sessionsResult.error) throw new Error(sessionsResult.error.message);
-
-  const nowMs = Date.now();
-  const sessions = sessionsResult.data ?? [];
-  const finishedSessions = sessions.filter((session) =>
-    String(session.status) === "completed" || new Date(String(session.ends_at)).getTime() <= nowMs,
-  );
-  const pendingSessions = sessions.filter((session) =>
-    String(session.status) !== "completed" && new Date(String(session.ends_at)).getTime() > nowMs,
-  );
-  const finishedSessionIds = finishedSessions.map((session) => String(session.id));
-  const nextSessionEndsAt = pendingSessions
-    .map((session) => String(session.ends_at))
-    .sort((left, right) => new Date(left).getTime() - new Date(right).getTime())[0] ?? null;
-
-  if (!sessions.length) {
-    return {totalSessions: 0, finishedSessions: 0, allSessionsFinished: false, expected: 0, attended: 0, percent: 0, nextSessionEndsAt};
-  }
-
-  const attendanceResult = finishedSessionIds.length
-    ? await input.admin
-        .from("academy_session_attendance")
-        .select("status, session_id")
-        .eq("organization_id", input.organizationId)
-        .eq("enrollment_id", input.enrollmentId)
-        .in("session_id", finishedSessionIds)
-    : {data: [], error: null};
+  const sessionIds = (sessionsResult.data ?? []).map((row) => String(row.id));
+  if (!sessionIds.length) return {expected: 0, attended: 0, percent: 0};
+  const attendanceResult = await input.admin
+    .from("academy_session_attendance")
+    .select("status, session_id")
+    .eq("organization_id", input.organizationId)
+    .eq("enrollment_id", input.enrollmentId)
+    .in("session_id", sessionIds);
   if (attendanceResult.error) throw new Error(attendanceResult.error.message);
-
   const rows = attendanceResult.data ?? [];
   const excused = rows.filter((row) => String(row.status) === "excused").length;
-  const expected = Math.max(0, finishedSessionIds.length - excused);
+  const expected = Math.max(0, sessionIds.length - excused);
   const attended = rows.filter((row) => ["present", "late"].includes(String(row.status))).length;
-  const percent = expected
-    ? Math.round((attended / expected) * 10000) / 100
-    : finishedSessionIds.length ? 100 : 0;
-
-  return {
-    totalSessions: sessions.length,
-    finishedSessions: finishedSessionIds.length,
-    allSessionsFinished: sessions.length > 0 && pendingSessions.length === 0,
-    expected,
-    attended,
-    percent,
-    nextSessionEndsAt,
-  };
+  const percent = expected ? Math.round((attended / expected) * 10000) / 100 : 100;
+  return {expected, attended, percent};
 }
 
 async function context() {
@@ -287,142 +257,6 @@ async function loadSchedule(scheduleId: string, courseId: string, organizationId
   return data;
 }
 
-
-type AcademyWizardSchedule = {
-  label: string;
-  schedule_type: "weekly" | "monthly_intensive" | "single";
-  starts_on: string;
-  ends_on: string;
-  local_start_time: string;
-  duration_minutes: number;
-  timezone: string;
-  weekdays: number[];
-  monthly_start_day: number | null;
-  consecutive_days: number | null;
-  zoom_join_url: string | null;
-  sessions: Array<{
-    title: string;
-    session_date: string;
-    local_start_time: string;
-    timezone: string;
-    starts_at: string;
-    ends_at: string;
-    delivery_mode: string;
-    zoom_join_url: string | null;
-  }>;
-};
-
-function academyWizardQuestions(formData: FormData) {
-  const texts = formData.getAll("wizardQuestionText");
-  const optionColumns = [1, 2, 3, 4].map((index) => formData.getAll(`wizardOption${index}`));
-  const correctOptions = formData.getAll("wizardCorrectOption");
-  const points = formData.getAll("wizardPoints");
-  const questions: Array<{question_text: string; options: string[]; correct_option: number; points: number; position: number}> = [];
-
-  texts.forEach((value, index) => {
-    const questionText = cleanText(value, 1000);
-    if (!questionText) return;
-    const options = optionColumns.map((column) => cleanText(column[index] ?? null, 500)).filter(Boolean);
-    const correctOption = parseInteger(correctOptions[index] ?? null, 0);
-    const questionPoints = parseNumber(points[index] ?? null, 1);
-    if (questionText.length < 3 || options.length < 2 || correctOption < 0 || correctOption >= options.length || !Number.isFinite(questionPoints) || questionPoints <= 0) {
-      throw new Error("ACADEMY_WIZARD_INVALID_QUESTION");
-    }
-    questions.push({question_text: questionText, options, correct_option: correctOption, points: questionPoints, position: questions.length + 1});
-  });
-
-  return questions;
-}
-
-function academyWizardSchedulePayload(formData: FormData, courseTitle: string) {
-  const requestedType = cleanText(formData.get("wizardScheduleType"), 40);
-  const label = cleanText(formData.get("wizardScheduleLabel"), 180) || courseTitle;
-  const startTime = normalizeTime(formData.get("wizardStartTime"));
-  const durationMinutes = parseInteger(formData.get("wizardSessionDurationMinutes"));
-  const timezone = normalizeTimeZone(cleanText(formData.get("wizardTimezone"), 100));
-  const zoomJoinUrl = cleanText(formData.get("wizardZoomJoinUrl"), 1000) || null;
-  const weekdays = formData.getAll("wizardWeekdays").map(Number).filter((value) => Number.isInteger(value) && value >= 1 && value <= 7);
-  const monthlyStartDay = parseInteger(formData.get("wizardMonthlyStartDay"), 1);
-  const consecutiveDays = parseInteger(formData.get("wizardConsecutiveDays"), 3);
-
-  if (!["single", "weekly", "monthly_intensive", "custom"].includes(requestedType) || label.length < 3 || !startTime || !Number.isInteger(durationMinutes) || durationMinutes < 1 || durationMinutes > 1440) {
-    throw new Error("ACADEMY_WIZARD_INVALID_SCHEDULE");
-  }
-
-  const build = (input: {
-    scheduleType: "weekly" | "monthly_intensive" | "single";
-    startsOn: string;
-    endsOn: string;
-    scheduleLabel: string;
-    scheduleWeekdays?: number[];
-    scheduleMonthlyStartDay?: number;
-    scheduleConsecutiveDays?: number;
-  }): AcademyWizardSchedule => {
-    const dates = generateSessionDates({
-      scheduleType: input.scheduleType,
-      startsOn: input.startsOn,
-      endsOn: input.endsOn,
-      weekdays: input.scheduleWeekdays ?? [],
-      monthlyStartDay: input.scheduleMonthlyStartDay ?? 1,
-      consecutiveDays: input.scheduleConsecutiveDays ?? 3,
-    });
-    if (!dates.length) throw new Error("ACADEMY_WIZARD_NO_SESSIONS");
-    const sessions = dates.map((date) => {
-      const startsAt = zonedDateTimeToUtc(date, startTime, timezone);
-      const endsAt = new Date(startsAt.getTime() + durationMinutes * 60_000);
-      const intensiveDay = input.scheduleType === "monthly_intensive"
-        ? ((Number(date.slice(8, 10)) - (input.scheduleMonthlyStartDay ?? 1)) % (input.scheduleConsecutiveDays ?? 3)) + 1
-        : null;
-      return {
-        title: intensiveDay ? `${input.scheduleLabel} - Jour ${intensiveDay}` : input.scheduleLabel,
-        session_date: date,
-        local_start_time: startTime,
-        timezone,
-        starts_at: startsAt.toISOString(),
-        ends_at: endsAt.toISOString(),
-        delivery_mode: zoomJoinUrl ? "zoom" : "other",
-        zoom_join_url: zoomJoinUrl,
-      };
-    });
-    return {
-      label: input.scheduleLabel,
-      schedule_type: input.scheduleType,
-      starts_on: input.startsOn,
-      ends_on: input.endsOn,
-      local_start_time: startTime,
-      duration_minutes: durationMinutes,
-      timezone,
-      weekdays: input.scheduleType === "weekly" ? input.scheduleWeekdays ?? [] : [],
-      monthly_start_day: input.scheduleType === "monthly_intensive" ? input.scheduleMonthlyStartDay ?? 1 : null,
-      consecutive_days: input.scheduleType === "monthly_intensive" ? input.scheduleConsecutiveDays ?? 3 : null,
-      zoom_join_url: zoomJoinUrl,
-      sessions,
-    };
-  };
-
-  if (requestedType === "custom") {
-    const customDates = [...new Set(formData.getAll("wizardCustomDates").map(normalizeDate).filter(Boolean))].sort();
-    if (!customDates.length || customDates.length > 100) throw new Error("ACADEMY_WIZARD_INVALID_SCHEDULE");
-    return customDates.map((date, index) => build({scheduleType: "single", startsOn: date, endsOn: date, scheduleLabel: `${label} - ${index + 1}`}));
-  }
-
-  const startsOn = normalizeDate(formData.get("wizardStartsOn"));
-  const endsOn = requestedType === "single" ? startsOn : normalizeDate(formData.get("wizardEndsOn"));
-  if (!startsOn || !endsOn || endsOn < startsOn) throw new Error("ACADEMY_WIZARD_INVALID_SCHEDULE");
-  if (requestedType === "weekly" && !weekdays.length) throw new Error("ACADEMY_WIZARD_INVALID_SCHEDULE");
-  if (requestedType === "monthly_intensive" && (monthlyStartDay < 1 || monthlyStartDay > 28 || consecutiveDays < 1 || consecutiveDays > 14)) throw new Error("ACADEMY_WIZARD_INVALID_SCHEDULE");
-
-  return [build({
-    scheduleType: requestedType as "weekly" | "monthly_intensive" | "single",
-    startsOn,
-    endsOn,
-    scheduleLabel: label,
-    scheduleWeekdays: weekdays,
-    scheduleMonthlyStartDay: monthlyStartDay,
-    scheduleConsecutiveDays: consecutiveDays,
-  })];
-}
-
 export async function createAcademyCourseAction(formData: FormData) {
   const {user, membership, admin, t} = await context();
   if (!academyAdminRoles.has(membership.role)) go(t("academy.messages.permissionDenied"), "error");
@@ -484,179 +318,6 @@ export async function createAcademyCourseAction(formData: FormData) {
 
   revalidatePath("/dashboard/academy");
   go(t("academy.messages.courseCreated"), "success", course.id);
-}
-
-
-export async function createAcademyCourseWizardAction(formData: FormData) {
-  const {user, membership, admin, t, visibleUserIds} = await context();
-  if (!academyAdminRoles.has(membership.role)) go(t("academy.messages.permissionDenied"), "error");
-
-  const title = cleanText(formData.get("title"), 180);
-  const description = cleanText(formData.get("description"), 5000);
-  const category = cleanText(formData.get("category"), 80) || "professional_development";
-  const trainingMonth = normalizeMonth(formData.get("trainingMonth"));
-  const deadline = normalizeDate(formData.get("deadline"));
-  const durationMinutes = parseInteger(formData.get("durationMinutes"));
-  const passingScore = parseNumber(formData.get("passingScore"));
-  const maxAttempts = parseInteger(formData.get("maxAttempts"));
-  const attendanceRequiredPercent = parseNumber(formData.get("attendanceRequiredPercent"), 80);
-  const resourceUrl = cleanText(formData.get("resourceUrl"), 1000) || null;
-  const isRequired = formData.get("isRequired") === "on";
-  const certificateEnabled = formData.get("certificateEnabled") === "on";
-  const publish = cleanText(formData.get("wizardPublishMode"), 20) === "publish";
-
-  if (
-    title.length < 3 ||
-    !trainingMonth ||
-    !deadline ||
-    deadline < trainingMonth ||
-    !Number.isInteger(durationMinutes) || durationMinutes < 1 || durationMinutes > 10080 ||
-    !Number.isFinite(passingScore) || passingScore < 0 || passingScore > 100 ||
-    !Number.isInteger(maxAttempts) || maxAttempts < 1 || maxAttempts > 20 ||
-    !Number.isFinite(attendanceRequiredPercent) || attendanceRequiredPercent < 0 || attendanceRequiredPercent > 100
-  ) {
-    go(t("academy.messages.invalidCourse"), "error");
-  }
-
-  let questions: ReturnType<typeof academyWizardQuestions>;
-  let schedules: AcademyWizardSchedule[];
-  try {
-    questions = academyWizardQuestions(formData);
-    schedules = academyWizardSchedulePayload(formData, title);
-  } catch (error) {
-    const code = error instanceof Error ? error.message : "";
-    if (code === "ACADEMY_WIZARD_INVALID_QUESTION") go(t("academy.messages.wizardInvalidQuestion"), "error");
-    if (code === "ACADEMY_WIZARD_NO_SESSIONS") go(t("academy.messages.wizardNoSessions"), "error");
-    go(t("academy.messages.invalidSchedule"), "error");
-  }
-
-  if (publish && certificateEnabled && !questions.length) go(t("academy.messages.quizRequiredBeforePublish"), "error");
-  const totalSessions = schedules.reduce((sum, schedule) => sum + schedule.sessions.length, 0);
-  if (!totalSessions || totalSessions > 500) go(t("academy.messages.wizardNoSessions"), "error");
-
-  const assignmentScope = cleanText(formData.get("wizardAssignmentScope"), 30);
-  const requestedUserIds = formData.getAll("wizardUserIds").map(String);
-  const requestedTeamIds = formData.getAll("wizardTeamIds").map(String);
-  let assignedUserIds: string[] = [];
-
-  if (assignmentScope === "organization") {
-    const {data, error} = await admin
-      .from("organization_members")
-      .select("user_id")
-      .eq("organization_id", membership.organization_id)
-      .eq("is_active", true);
-    if (error) go(t("academy.messages.wizardAssignmentFailed", {message: error.message}), "error");
-    assignedUserIds = (data ?? []).map((row) => String(row.user_id));
-  } else if (assignmentScope === "selected") {
-    assignedUserIds = requestedUserIds.filter((userId) => visibleUserIds.includes(userId));
-  } else if (assignmentScope === "teams" && requestedTeamIds.length) {
-    const {data: teamRows, error: teamError} = await admin
-      .from("teams")
-      .select("id, manager_id")
-      .eq("organization_id", membership.organization_id)
-      .eq("is_active", true)
-      .in("id", requestedTeamIds);
-    if (teamError) go(t("academy.messages.wizardAssignmentFailed", {message: teamError.message}), "error");
-    const validTeamIds = (teamRows ?? []).map((row) => String(row.id));
-    const managerIds = (teamRows ?? []).map((row) => row.manager_id ? String(row.manager_id) : "").filter(Boolean);
-    if (validTeamIds.length) {
-      const {data: memberRows, error: memberError} = await admin.from("team_members").select("user_id").in("team_id", validTeamIds);
-      if (memberError) go(t("academy.messages.wizardAssignmentFailed", {message: memberError.message}), "error");
-      assignedUserIds = [...managerIds, ...(memberRows ?? []).map((row) => String(row.user_id))];
-    }
-  }
-
-  assignedUserIds = [...new Set(assignedUserIds)].filter((userId) => visibleUserIds.includes(userId));
-
-  const {data, error} = await admin.rpc("academy_create_course_bundle_v2_2_4", {
-    p_organization_id: membership.organization_id,
-    p_actor_id: user.id,
-    p_course: {
-      title,
-      description,
-      category,
-      training_month: trainingMonth,
-      deadline,
-      duration_minutes: durationMinutes,
-      is_required: isRequired,
-      passing_score: passingScore,
-      max_attempts: maxAttempts,
-      attendance_required_percent: attendanceRequiredPercent,
-      certificate_enabled: certificateEnabled,
-      resource_url: resourceUrl ?? "",
-    },
-    p_schedules: schedules,
-    p_questions: questions,
-    p_user_ids: assignedUserIds,
-    p_publish: publish,
-  });
-
-  if (error) {
-    const message = error.message.includes("ACADEMY_WIZARD_QUIZ_REQUIRED")
-      ? t("academy.messages.quizRequiredBeforePublish")
-      : error.message.includes("ACADEMY_WIZARD_PERMISSION_DENIED")
-        ? t("academy.messages.permissionDenied")
-        : error.message.includes("academy_create_course_bundle_v2_2_4") || error.code === "PGRST202"
-          ? t("academy.messages.wizardMigrationRequired")
-          : t("academy.messages.wizardCreateFailed", {message: error.message});
-    go(message, "error");
-  }
-
-  const result = (data ?? {}) as {
-    course_id?: string;
-    questions_created?: number;
-    schedules_created?: number;
-    sessions_created?: number;
-    enrollments_created?: number;
-    published?: boolean;
-  };
-  const courseId = String(result.course_id ?? "");
-  if (!courseId) go(t("academy.messages.wizardCreateFailed", {message: "Missing course id"}), "error");
-
-  if (publish) {
-    await Promise.allSettled(assignedUserIds.map((userId) => createNotification({
-      organizationId: membership.organization_id,
-      userId,
-      actorId: user.id,
-      category: "performance",
-      eventType: "academy_course_assigned",
-      titleFr: "Nouvelle formation assignée",
-      titleEn: "New training assigned",
-      bodyFr: `${title} doit être terminée avant le ${deadline}.`,
-      bodyEn: `${title} must be completed by ${deadline}.`,
-      actionUrl: `/dashboard/academy?course=${courseId}`,
-      priority: isRequired ? "warning" : "info",
-      requiresAction: isRequired,
-      dedupeKey: `academy-assigned-${courseId}-${userId}`,
-    })));
-  }
-
-  await audit({
-    organizationId: membership.organization_id,
-    actorId: user.id,
-    entityType: "academy_course",
-    entityId: courseId,
-    action: "wizard_created",
-    details: {
-      title,
-      published: publish,
-      questions: result.questions_created ?? questions.length,
-      schedules: result.schedules_created ?? schedules.length,
-      sessions: result.sessions_created ?? totalSessions,
-      enrollments: result.enrollments_created ?? assignedUserIds.length,
-      assignment_scope: assignmentScope,
-    },
-  });
-
-  revalidatePath("/dashboard/academy");
-  revalidatePath("/dashboard/my-day");
-  go(
-    publish
-      ? t("academy.messages.wizardPublished", {sessions: result.sessions_created ?? totalSessions, participants: result.enrollments_created ?? assignedUserIds.length})
-      : t("academy.messages.wizardDraftCreated", {sessions: result.sessions_created ?? totalSessions}),
-    "success",
-    courseId,
-  );
 }
 
 export async function updateAcademyCourseAction(formData: FormData) {
@@ -780,27 +441,11 @@ export async function publishAcademyCourseAction(formData: FormData) {
     .select("id", {count: "exact", head: true})
     .eq("course_id", courseId);
   if (countError) go(t("academy.messages.coursePublishFailed", {message: countError.message}), "error", courseId);
-  if (course.certificate_enabled && !count) go(t("academy.messages.quizRequiredBeforePublish"), "error", courseId);
+  if (!count) go(t("academy.messages.quizRequiredBeforePublish"), "error", courseId);
 
   const now = new Date().toISOString();
   const {error} = await admin.from("academy_courses").update({status: "published", published_by: user.id, published_at: now}).eq("id", courseId).eq("organization_id", membership.organization_id);
   if (error) go(t("academy.messages.coursePublishFailed", {message: error.message}), "error", courseId);
-  const {data: assignedRows} = await admin.from("academy_enrollments").select("user_id").eq("organization_id", membership.organization_id).eq("course_id", courseId);
-  await Promise.allSettled((assignedRows ?? []).map((row) => createNotification({
-    organizationId: membership.organization_id,
-    userId: String(row.user_id),
-    actorId: user.id,
-    category: "performance",
-    eventType: "academy_course_assigned",
-    titleFr: "Nouvelle formation assignée",
-    titleEn: "New training assigned",
-    bodyFr: `${course.title} doit être terminée avant le ${course.deadline}.`,
-    bodyEn: `${course.title} must be completed by ${course.deadline}.`,
-    actionUrl: `/dashboard/academy?course=${courseId}`,
-    priority: course.is_required ? "warning" : "info",
-    requiresAction: course.is_required,
-    dedupeKey: `academy-assigned-${courseId}-${String(row.user_id)}`,
-  })));
   await audit({organizationId: membership.organization_id, actorId: user.id, entityType: "academy_course", entityId: courseId, action: "published"});
   revalidatePath("/dashboard/academy");
   go(t("academy.messages.coursePublished"), "success", courseId);
@@ -932,21 +577,6 @@ async function createCertificate({
   score: number | null;
 }) {
   const admin = createAdminClient();
-  if (score == null || Number(score) < Number(course.passing_score)) {
-    throw new Error("Quiz pass mark has not been reached.");
-  }
-  const attendanceRequired = Number(course.attendance_required_percent);
-  if (attendanceRequired > 0) {
-    const attendance = await getAttendanceSnapshot({
-      admin,
-      organizationId: enrollment.organization_id,
-      courseId: course.id,
-      enrollmentId: enrollment.id,
-    });
-    if (!attendance.totalSessions || !attendance.allSessionsFinished || attendance.percent < attendanceRequired) {
-      throw new Error("Attendance and session completion requirements have not been met.");
-    }
-  }
   const {data: existing} = await admin.from("academy_certificates").select("id").eq("enrollment_id", enrollment.id).maybeSingle<{id: string}>();
   if (existing) return existing.id;
 
@@ -985,17 +615,14 @@ export async function submitAcademyQuizAction(formData: FormData) {
   if (!questions.length) go(t("academy.messages.quizMissing"), "error", courseId);
   if (enrollment.attempts_count >= course.max_attempts) go(t("academy.messages.noAttemptsLeft"), "error", courseId);
 
-  let attendance = {totalSessions: 0, finishedSessions: 0, allSessionsFinished: false, expected: 0, attended: 0, percent: 0, nextSessionEndsAt: null as string | null};
+  let attendance = {expected: 0, attended: 0, percent: 0};
   try {
     attendance = await getAttendanceSnapshot({admin, organizationId: membership.organization_id, courseId, enrollmentId});
   } catch (snapshotError) {
     go(t("academy.messages.quizSaveFailed", {message: snapshotError instanceof Error ? snapshotError.message : ""}), "error", courseId);
   }
   const attendanceRequired = Number(course.attendance_required_percent);
-  if (attendanceRequired > 0 && attendance.totalSessions === 0) go(t("academy.messages.quizLockedNoSessions"), "error", courseId);
-  if (attendanceRequired > 0 && !attendance.allSessionsFinished) {
-    go(t("academy.messages.quizLockedSessionsPending", {date: attendance.nextSessionEndsAt ? new Intl.DateTimeFormat("fr-FR", {dateStyle: "medium"}).format(new Date(attendance.nextSessionEndsAt)) : "—"}), "error", courseId);
-  }
+  if (attendanceRequired > 0 && attendance.expected === 0) go(t("academy.messages.quizLockedNoSessions"), "error", courseId);
   if (attendanceRequired > 0 && attendance.percent < attendanceRequired) {
     go(t("academy.messages.quizLockedAttendance", {attendance: attendance.percent, required: attendanceRequired}), "error", courseId);
   }
@@ -1030,7 +657,7 @@ export async function submitAcademyQuizAction(formData: FormData) {
   });
   if (attemptError) go(t("academy.messages.quizSaveFailed", {message: attemptError.message}), "error", courseId);
 
-  const attendanceEligible = Number(course.attendance_required_percent) <= 0 || (attendance.allSessionsFinished && attendance.percent >= Number(course.attendance_required_percent));
+  const attendanceEligible = attendance.percent >= Number(course.attendance_required_percent);
   const completed = passed && attendanceEligible;
   const nextStatus = completed ? "completed" : passed ? "in_progress" : attemptsCount >= course.max_attempts ? "failed" : "in_progress";
   const progressPercent = completed ? 100 : Math.min(99, Math.round((passed ? 40 : 0) + attendance.percent * 0.6));
@@ -1414,8 +1041,7 @@ export async function markAcademySessionAttendanceAction(formData: FormData) {
   if (!course) go(t("academy.messages.courseNotFound"), "error", courseId);
   const attendance = await getAttendanceSnapshot({admin, organizationId: membership.organization_id, courseId, enrollmentId});
   const quizPassed = Number(enrollment.best_score ?? 0) >= Number(course.passing_score);
-  const attendanceEligible = Number(course.attendance_required_percent) <= 0 || (attendance.allSessionsFinished && attendance.percent >= Number(course.attendance_required_percent));
-  const completed = quizPassed && attendanceEligible;
+  const completed = quizPassed && attendance.percent >= Number(course.attendance_required_percent);
   const progressPercent = completed ? 100 : Math.min(99, Math.round((quizPassed ? 40 : 0) + attendance.percent * 0.6));
   const {error: enrollmentError} = await admin.from("academy_enrollments").update({
     status: completed ? "completed" : enrollment.status === "completed" ? "completed" : enrollment.status === "assigned" ? "in_progress" : enrollment.status,

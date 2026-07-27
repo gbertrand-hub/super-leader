@@ -1,0 +1,19 @@
+SUPER LEADER ACADEMY V2.2.5 - VALIDATION REPORT
+
+FILES MODIFIED
+- src/app/dashboard/academy/page.tsx
+- src/app/actions/academy.ts
+- src/i18n/messages.ts
+- supabase/026_academy_strict_quiz_certificate_lock_v2_2_5.sql
+
+STATIC VALIDATION
+- TypeScript/TSX syntax transpilation: PASS
+- French and English message keys: PASS
+- UI, server action and database guard layers: PRESENT
+- Update archive integrity: PASS (unzip integrity test)
+
+RUNTIME VALIDATION REQUIRED
+- Execute migration 026 in Supabase.
+- Test Staff Training before and after its final session.
+- Confirm quiz remains hidden before eligibility.
+- Confirm certificate is refused before quiz + attendance requirements.

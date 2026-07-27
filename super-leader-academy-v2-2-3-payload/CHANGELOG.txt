@@ -1,0 +1,11 @@
+SUPER LEADER - CHANGELOG
+
+V2.2.3 - Academy session integrity and quiz governance
+- Repairs missing sessions from active recurring schedules.
+- Backfills session attendance placeholders for existing enrolments.
+- Prevents repeated assignment or self-enrolment from resetting an existing enrolment.
+- Makes Start training idempotent.
+- Aligns employee Academy counters with published visible courses.
+- Locks the final quiz when no session exists or minimum attendance is not met.
+- Keeps certificate issuance dependent on both attendance and quiz success.
+- Adds an administrator repair action and bilingual interface messages.

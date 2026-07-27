@@ -7,6 +7,7 @@ import {
   cancelAcademySessionAction,
   createAcademyScheduleAction,
   assignAcademyCourseAction,
+  createAcademyCourseAction,
   deleteAcademyQuestionAction,
   exemptAcademyEnrollmentAction,
   markAcademySessionAttendanceAction,
@@ -19,7 +20,6 @@ import {
   updateAcademyScheduleAction,
   restoreAcademyScheduleAction,
 } from "@/app/actions/academy";
-import {AcademyCourseWizard} from "@/components/academy-course-wizard";
 import {ConfirmSubmitButton} from "@/components/confirm-submit-button";
 import {getI18n} from "@/i18n/server";
 import {getVisibleUserIds} from "@/lib/auth/scope";
@@ -229,33 +229,6 @@ export default async function AcademyPage({searchParams}: Props) {
   const certificates = (certificatesResult.data ?? []) as CertificateRow[];
   const profileById = new Map(profiles.map((profile) => [profile.id, profile]));
   const certificateByEnrollment = new Map(certificates.map((certificate) => [certificate.enrollment_id, certificate]));
-  const wizardParticipants = profiles.map((profile) => ({
-    id: profile.id,
-    label: profile.full_name || profile.email || profile.id,
-  }));
-  let wizardTeams: Array<{id: string; name: string; department: string; memberCount: number}> = [];
-  if (isAcademyAdmin) {
-    const {data: teamRows, error: teamError} = await admin
-      .from("teams")
-      .select("id, name, department")
-      .eq("organization_id", membership.organization_id)
-      .eq("is_active", true)
-      .order("name");
-    if (teamError) throw new Error(teamError.message);
-    const teamIds = (teamRows ?? []).map((team) => String(team.id));
-    const teamMemberRows = teamIds.length
-      ? await admin.from("team_members").select("team_id").in("team_id", teamIds)
-      : {data: [], error: null};
-    if (teamMemberRows.error) throw new Error(teamMemberRows.error.message);
-    const counts = new Map<string, number>();
-    (teamMemberRows.data ?? []).forEach((row) => counts.set(String(row.team_id), (counts.get(String(row.team_id)) ?? 0) + 1));
-    wizardTeams = (teamRows ?? []).map((team) => ({
-      id: String(team.id),
-      name: String(team.name),
-      department: String(team.department ?? ""),
-      memberCount: counts.get(String(team.id)) ?? 0,
-    }));
-  }
   const currentMonth = new Date().toISOString().slice(0, 7);
   const today = new Date().toISOString().slice(0, 10);
 
@@ -280,30 +253,19 @@ export default async function AcademyPage({searchParams}: Props) {
   const ownEnrollment = selectedCourse ? selectedEnrollments.find((row) => row.user_id === auth.user.id) ?? null : null;
   const visibleSessions = canAssign || ownEnrollment ? selectedSessions : [];
   const activeSelectedSessions = selectedSessions.filter((session) => session.status !== "cancelled");
-  const nowMs = Date.now();
-  const finishedSelectedSessions = activeSelectedSessions.filter((session) =>
-    session.status === "completed" || new Date(session.ends_at).getTime() <= nowMs,
-  );
-  const pendingSelectedSessions = activeSelectedSessions.filter((session) =>
-    session.status !== "completed" && new Date(session.ends_at).getTime() > nowMs,
-  );
-  const nextPendingSession = [...pendingSelectedSessions].sort(
-    (left, right) => new Date(left.starts_at).getTime() - new Date(right.starts_at).getTime(),
-  )[0] ?? null;
   const ownAttendanceRows = ownEnrollment
-    ? finishedSelectedSessions.map((session) => attendanceBySessionAndEnrollment.get(`${session.id}:${ownEnrollment.id}`)).filter(Boolean) as SessionAttendanceRow[]
+    ? activeSelectedSessions.map((session) => attendanceBySessionAndEnrollment.get(`${session.id}:${ownEnrollment.id}`)).filter(Boolean) as SessionAttendanceRow[]
     : [];
   const ownExcusedSessions = ownAttendanceRows.filter((row) => row.status === "excused").length;
-  const ownExpectedSessions = Math.max(0, finishedSelectedSessions.length - ownExcusedSessions);
+  const ownExpectedSessions = Math.max(0, activeSelectedSessions.length - ownExcusedSessions);
   const ownAttendedSessions = ownAttendanceRows.filter((row) => ["present", "late"].includes(row.status)).length;
   const ownAttendancePercent = ownExpectedSessions
     ? Math.round((ownAttendedSessions / ownExpectedSessions) * 10000) / 100
-    : finishedSelectedSessions.length ? 100 : 0;
+    : activeSelectedSessions.length ? 100 : 0;
   const attendanceRequired = Number(selectedCourse?.attendance_required_percent ?? 0);
   const quizHasSessions = attendanceRequired <= 0 || activeSelectedSessions.length > 0;
-  const quizSessionsFinished = attendanceRequired <= 0 || (activeSelectedSessions.length > 0 && pendingSelectedSessions.length === 0);
   const quizAttendanceEligible = attendanceRequired <= 0 || ownAttendancePercent >= attendanceRequired;
-  const quizUnlocked = quizHasSessions && quizSessionsFinished && quizAttendanceEligible;
+  const quizUnlocked = quizHasSessions && quizAttendanceEligible;
   const ownCertificate = ownEnrollment ? certificateByEnrollment.get(ownEnrollment.id) ?? null : null;
   const assignedUserIds = new Set(selectedEnrollments.map((row) => row.user_id));
   const assignableProfiles = profiles.filter((profile) => !assignedUserIds.has(profile.id));
@@ -342,25 +304,38 @@ export default async function AcademyPage({searchParams}: Props) {
           <article className="rounded-2xl border border-violet-200 bg-violet-50 p-5"><p className="text-sm font-bold text-violet-700">{t("academy.metrics.certificates")}</p><p className="mt-2 text-3xl font-black">{ownCertificates}</p></article>
         </section>
 
-        {isAcademyAdmin ? (
-          <section className="mt-6">
-            <AcademyCourseWizard
-              locale={locale}
-              currentMonth={currentMonth}
-              participants={wizardParticipants}
-              teams={wizardTeams}
-            />
-          </section>
-        ) : null}
-
         <section className="mt-6 grid gap-6 xl:grid-cols-[0.78fr_1.22fr]">
           <div className="space-y-6">
-            {!isAcademyAdmin ? (
+            {isAcademyAdmin ? (
+              <article className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+                <h2 className="text-2xl font-black">{t("academy.createCourse")}</h2>
+                <p className="mt-1 text-sm text-slate-500">{t("academy.createCourseHelp")}</p>
+                <form action={createAcademyCourseAction} className="mt-5 space-y-4">
+                  <label className="block text-sm font-black">{t("academy.fields.title")}<input name="title" required className={fieldClass()} /></label>
+                  <label className="block text-sm font-black">{t("academy.fields.description")}<textarea name="description" rows={4} className={fieldClass()} /></label>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <label className="block text-sm font-black">{t("academy.fields.month")}<input name="trainingMonth" type="month" defaultValue={currentMonth} required className={fieldClass()} /></label>
+                    <label className="block text-sm font-black">{t("academy.fields.deadline")}<input name="deadline" type="date" defaultValue={`${currentMonth}-28`} required className={fieldClass()} /></label>
+                    <label className="block text-sm font-black">{t("academy.fields.category")}<input name="category" defaultValue="professional_development" className={fieldClass()} /></label>
+                    <label className="block text-sm font-black">{t("academy.fields.duration")}<input name="durationMinutes" type="number" min="1" defaultValue="60" required className={fieldClass()} /></label>
+                    <label className="block text-sm font-black">{t("academy.fields.passingScore")}<input name="passingScore" type="number" min="0" max="100" defaultValue="70" required className={fieldClass()} /></label>
+                    <label className="block text-sm font-black">{t("academy.fields.maxAttempts")}<input name="maxAttempts" type="number" min="1" max="20" defaultValue="3" required className={fieldClass()} /></label>
+                    <label className="block text-sm font-black">{t("academy.fields.attendanceRequired")}<input name="attendanceRequiredPercent" type="number" min="0" max="100" defaultValue="80" required className={fieldClass()} /></label>
+                  </div>
+                  <label className="block text-sm font-black">{t("academy.fields.resourceUrl")}<input name="resourceUrl" type="url" placeholder="https://..." className={fieldClass()} /></label>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <label className="flex items-center gap-3 rounded-xl bg-slate-50 p-4 text-sm font-bold"><input name="isRequired" type="checkbox" defaultChecked />{t("academy.fields.required")}</label>
+                    <label className="flex items-center gap-3 rounded-xl bg-slate-50 p-4 text-sm font-bold"><input name="certificateEnabled" type="checkbox" defaultChecked />{t("academy.fields.certificate")}</label>
+                  </div>
+                  <button className="w-full rounded-xl bg-slate-950 px-5 py-3 font-black text-white">{t("academy.actions.create")}</button>
+                </form>
+              </article>
+            ) : (
               <article className="rounded-3xl border border-indigo-200 bg-indigo-50 p-6">
                 <h2 className="text-2xl font-black text-indigo-950">{t("academy.monthlyCommitment")}</h2>
                 <p className="mt-2 text-indigo-800">{t("academy.monthlyCommitmentHelp", {count: monthlyRequired})}</p>
               </article>
-            ) : null}
+            )}
 
             <article className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
               <div className="flex items-center justify-between gap-3"><h2 className="text-2xl font-black">{isAcademyAdmin ? t("academy.courseCatalogue") : t("academy.myCourses")}</h2><span className="rounded-full bg-slate-100 px-3 py-1 text-sm font-black">{courses.length}</span></div>
@@ -571,7 +546,7 @@ export default async function AcademyPage({searchParams}: Props) {
                             <button className="w-full rounded-xl bg-amber-500 px-5 py-3 font-black text-slate-950">{t("academy.actions.submitQuiz")}</button>
                           </form>
                         ) : null}
-                        {["in_progress", "failed"].includes(ownEnrollment.status) && Number(ownEnrollment.best_score ?? 0) < Number(selectedCourse.passing_score) && ownEnrollment.attempts_count < selectedCourse.max_attempts && !quizUnlocked ? <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 p-5 text-amber-950"><p className="text-xl font-black">{t("academy.quizLockedTitle")}</p><p className="mt-2">{!quizHasSessions ? t("academy.quizLockedNoSessions") : !quizSessionsFinished ? t("academy.quizLockedSessionsPending", {date: nextPendingSession ? formatDate(nextPendingSession.session_date, locale) : "—"}) : t("academy.quizLockedAttendance", {attendance: ownAttendancePercent, required: attendanceRequired})}</p></div> : null}
+                        {["in_progress", "failed"].includes(ownEnrollment.status) && Number(ownEnrollment.best_score ?? 0) < Number(selectedCourse.passing_score) && ownEnrollment.attempts_count < selectedCourse.max_attempts && !quizUnlocked ? <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 p-5 text-amber-950"><p className="text-xl font-black">{t("academy.quizLockedTitle")}</p><p className="mt-2">{!quizHasSessions ? t("academy.quizLockedNoSessions") : t("academy.quizLockedAttendance", {attendance: ownAttendancePercent, required: attendanceRequired})}</p></div> : null}
                         {Number(ownEnrollment.best_score ?? 0) >= Number(selectedCourse.passing_score) && ownEnrollment.status !== "completed" ? <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-5 text-amber-900"><p className="text-xl font-black">{t("academy.attendancePendingTitle")}</p><p className="mt-1">{t("academy.attendancePendingHelp", {attendance: ownAttendancePercent, required: selectedCourse.attendance_required_percent})}</p></div> : null}
                         {ownEnrollment.status === "completed" ? <div className="mt-5 rounded-2xl border border-emerald-200 bg-emerald-50 p-5 text-emerald-900"><p className="text-xl font-black">✓ {t("academy.completedCongratulations")}</p><p className="mt-1">{t("academy.completedHelp")}</p></div> : null}
                         {ownEnrollment.status === "failed" && ownEnrollment.attempts_count >= selectedCourse.max_attempts ? <div className="mt-5 rounded-2xl border border-red-200 bg-red-50 p-5 text-red-800"><p className="font-black">{t("academy.noAttemptsLeftTitle")}</p><p className="mt-1 text-sm">{t("academy.noAttemptsLeftHelp")}</p></div> : null}
