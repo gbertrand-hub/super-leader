@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { DashboardNavigation } from "@/components/dashboard/navigation";
+import { readTemporaryAccessState } from "@/lib/auth/temporary-access";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
@@ -22,6 +23,33 @@ export default async function DashboardLayout({
 
   if (authError || !authData.user) {
     redirect("/login");
+  }
+
+  let temporaryAccessRedirect: string | null = null;
+
+  try {
+    const securityAdmin = createAdminClient();
+    const { data: securityProfile } = await securityAdmin
+      .from("profiles")
+      .select("must_change_password,temporary_password_expires_at")
+      .eq("id", authData.user.id)
+      .maybeSingle();
+    const temporaryAccess = readTemporaryAccessState(
+      securityProfile ?? authData.user.user_metadata,
+      new Date().getTime(),
+    );
+
+    if (temporaryAccess.mustChangePassword) {
+      temporaryAccessRedirect = temporaryAccess.expired
+        ? "/auth/temporary-access-expired"
+        : "/change-password-required";
+    }
+  } catch (error) {
+    console.error("Temporary access verification unavailable", error);
+  }
+
+  if (temporaryAccessRedirect) {
+    redirect(temporaryAccessRedirect);
   }
 
   const fullName =

@@ -1,6 +1,6 @@
 "use server";
 
-import { randomBytes, randomUUID } from "crypto";
+import { randomBytes, randomInt, randomUUID } from "crypto";
 import {
   createClient as createSupabaseClient,
   type User,
@@ -8,6 +8,7 @@ import {
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { getI18n } from "@/i18n/server";
+import { sendTemporaryAccessEmail } from "@/lib/auth/temporary-access-email";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
@@ -293,6 +294,17 @@ export type ManualMemberAccessState = {
   message?: string;
   setupLink?: string;
   loginUrl?: string;
+  activated?: boolean;
+};
+
+export type TemporaryPasswordAccessState = {
+  status: "idle" | "success" | "warning" | "error";
+  message?: string;
+  temporaryPassword?: string;
+  expiresAt?: string;
+  loginUrl?: string;
+  instructions?: string;
+  emailSent?: boolean;
   activated?: boolean;
 };
 
@@ -611,6 +623,362 @@ export async function activateInvitationManuallyAction(
         activated: true,
         message: t("members.actionMessages.activeButLinkFailed", { message }),
         loginUrl: `${getSiteUrl()}/login`,
+      };
+    }
+
+    return { status: "error", activated: false, message };
+  }
+}
+
+
+function temporaryPasswordExpiryHours(): number {
+  const parsed = Number.parseInt(
+    cleanEnvironmentValue(process.env.TEMPORARY_PASSWORD_EXPIRY_HOURS),
+    10,
+  );
+
+  if (!Number.isFinite(parsed)) return 48;
+  return Math.min(168, Math.max(1, parsed));
+}
+
+function generateTemporaryPassword(): string {
+  const uppercase = "ABCDEFGHJKLMNPQRSTUVWXYZ";
+  const lowercase = "abcdefghijkmnopqrstuvwxyz";
+  const digits = "23456789";
+  const symbols = "!@#$%*-_";
+  const all = `${uppercase}${lowercase}${digits}${symbols}`;
+  const characters = [
+    uppercase[randomInt(uppercase.length)],
+    lowercase[randomInt(lowercase.length)],
+    digits[randomInt(digits.length)],
+    symbols[randomInt(symbols.length)],
+  ];
+
+  while (characters.length < 14) {
+    characters.push(all[randomInt(all.length)]);
+  }
+
+  for (let index = characters.length - 1; index > 0; index -= 1) {
+    const swapIndex = randomInt(index + 1);
+    [characters[index], characters[swapIndex]] = [
+      characters[swapIndex],
+      characters[index],
+    ];
+  }
+
+  return `SL-${characters.join("")}`;
+}
+
+function accessInstructions(input: {
+  locale: "fr" | "en";
+  fullName: string;
+  email: string;
+  password: string;
+  loginUrl: string;
+  expiresAt: string;
+}): string {
+  const expiry = new Intl.DateTimeFormat(
+    input.locale === "fr" ? "fr-FR" : "en-GB",
+    { dateStyle: "long", timeStyle: "short" },
+  ).format(new Date(input.expiresAt));
+
+  if (input.locale === "en") {
+    return [
+      `Hello ${input.fullName},`,
+      "Your Super Leader account is ready.",
+      `Login: ${input.loginUrl}`,
+      `Email: ${input.email}`,
+      `Temporary password: ${input.password}`,
+      `Expiry: ${expiry}`,
+      "You must create your own password immediately after your first sign-in.",
+    ].join("\n\n");
+  }
+
+  return [
+    `Bonjour ${input.fullName},`,
+    "Votre compte Super Leader est prêt.",
+    `Connexion : ${input.loginUrl}`,
+    `Email : ${input.email}`,
+    `Mot de passe temporaire : ${input.password}`,
+    `Expiration : ${expiry}`,
+    "Vous devrez créer votre propre mot de passe immédiatement après votre première connexion.",
+  ].join("\n\n");
+}
+
+export async function activateInvitationWithTemporaryPasswordAction(
+  _previousState: TemporaryPasswordAccessState,
+  formData: FormData,
+): Promise<TemporaryPasswordAccessState> {
+  const { user, membership, t } = await requirePeopleAdmin();
+  const invitationId = String(formData.get("invitationId") ?? "").trim();
+  const requestedFullName = String(formData.get("fullName") ?? "").trim();
+  const locale = formData.get("locale") === "en" ? "en" : "fr";
+  const shouldSendEmail = formData.get("sendEmail") === "on";
+
+  if (!invitationId) {
+    return {
+      status: "error",
+      message: t("members.actionMessages.invalidInvitation"),
+    };
+  }
+
+  const admin = createAdminClient();
+  const { data: invitation, error: invitationError } = await admin
+    .from("organization_invitations")
+    .select("id,organization_id,email,role,status")
+    .eq("id", invitationId)
+    .eq("organization_id", membership.organization_id)
+    .in("status", ["pending", "expired", "accepted"])
+    .maybeSingle();
+
+  if (invitationError) {
+    return {
+      status: "error",
+      message: t("members.actionMessages.loadImpossible", {
+        message: invitationError.message,
+      }),
+    };
+  }
+
+  if (!invitation) {
+    return {
+      status: "error",
+      message: t("members.actionMessages.invitationUnavailable"),
+    };
+  }
+
+  const email = invitation.email.trim().toLowerCase();
+  const fullName = requestedFullName || fallbackFullName(email);
+  const temporaryPassword = generateTemporaryPassword();
+  const issuedAt = new Date();
+  const expiresAt = new Date(
+    issuedAt.getTime() + temporaryPasswordExpiryHours() * 60 * 60 * 1000,
+  ).toISOString();
+  const loginUrl = `${getSiteUrl()}/login`;
+  let authUser: User | null = null;
+  let activated = invitation.status === "accepted";
+  let existingAccount = false;
+
+  try {
+    authUser = await findAuthUserByEmail(admin, email, t);
+    existingAccount = Boolean(authUser);
+
+    if (!authUser) {
+      const { data: createData, error: createError } =
+        await runAuthAdminWithRetry(
+          () =>
+            admin.auth.admin.createUser({
+              email,
+              password: temporaryPassword,
+              email_confirm: true,
+              user_metadata: {
+                full_name: fullName,
+                must_change_password: true,
+                temporary_password_expires_at: expiresAt,
+              },
+            }),
+          t("members.actionMessages.emptyAuthResult"),
+        );
+
+      if (createError || !createData.user) {
+        throw new Error(
+          t("members.actionMessages.createAccountImpossible", {
+            message: createError
+              ? improveAuthAdminError(createError.message)
+              : t("members.actionMessages.noReturnedUser"),
+          }),
+        );
+      }
+
+      authUser = createData.user;
+    } else {
+      const currentMetadata = authUser.user_metadata ?? {};
+      const { data: updateData, error: updateError } =
+        await runAuthAdminWithRetry(
+          () =>
+            admin.auth.admin.updateUserById(authUser!.id, {
+              password: temporaryPassword,
+              email_confirm: true,
+              user_metadata: {
+                ...currentMetadata,
+                full_name:
+                  requestedFullName ||
+                  String(currentMetadata.full_name ?? "").trim() ||
+                  fullName,
+                must_change_password: true,
+                temporary_password_expires_at: expiresAt,
+              },
+            }),
+          t("members.actionMessages.emptyAuthResult"),
+        );
+
+      if (updateError || !updateData.user) {
+        throw new Error(
+          t("members.actionMessages.updateAccountImpossible", {
+            message: updateError
+              ? improveAuthAdminError(updateError.message)
+              : t("members.actionMessages.noUserAfterUpdate"),
+          }),
+        );
+      }
+
+      authUser = updateData.user;
+    }
+
+    const effectiveFullName =
+      String(authUser.user_metadata?.full_name ?? "").trim() || fullName;
+    const now = issuedAt.toISOString();
+
+    const { error: profileError } = await admin.from("profiles").upsert(
+      {
+        id: authUser.id,
+        full_name: effectiveFullName,
+        email,
+        must_change_password: true,
+        temporary_password_issued_at: now,
+        temporary_password_expires_at: expiresAt,
+        temporary_password_issued_by: user.id,
+        password_changed_at: null,
+        updated_at: now,
+      },
+      { onConflict: "id" },
+    );
+
+    if (profileError) {
+      throw new Error(
+        t("members.actionMessages.profileImpossible", {
+          message: profileError.message,
+        }),
+      );
+    }
+
+    const { error: membershipError } = await admin
+      .from("organization_members")
+      .upsert(
+        {
+          organization_id: invitation.organization_id,
+          user_id: authUser.id,
+          role: invitation.role,
+          is_active: true,
+          disabled_at: null,
+          updated_at: now,
+        },
+        { onConflict: "organization_id,user_id" },
+      );
+
+    if (membershipError) {
+      throw new Error(
+        t("members.actionMessages.organisationActivationImpossible", {
+          message: membershipError.message,
+        }),
+      );
+    }
+
+    activated = true;
+
+    const { error: invitationUpdateError } = await admin
+      .from("organization_invitations")
+      .update({ status: "accepted" })
+      .eq("id", invitation.id)
+      .eq("organization_id", membership.organization_id);
+
+    if (invitationUpdateError) {
+      throw new Error(
+        t("members.actionMessages.closeInvitationImpossible", {
+          message: invitationUpdateError.message,
+        }),
+      );
+    }
+
+    await admin.from("temporary_access_audit_log").insert({
+      organization_id: invitation.organization_id,
+      user_id: authUser.id,
+      invitation_id: invitation.id,
+      event_type: existingAccount ? "regenerated" : "issued",
+      actor_user_id: user.id,
+      metadata: {
+        expires_at: expiresAt,
+        email_requested: shouldSendEmail,
+      },
+    });
+
+    let emailSent = false;
+    let emailWarning = "";
+
+    if (shouldSendEmail) {
+      const { data: organization } = await admin
+        .from("organizations")
+        .select("name")
+        .eq("id", invitation.organization_id)
+        .maybeSingle();
+      const emailResult = await sendTemporaryAccessEmail({
+        to: email,
+        fullName: effectiveFullName,
+        temporaryPassword,
+        expiresAt,
+        locale,
+        organizationName: organization?.name ?? "Super Leader",
+      });
+      emailSent = emailResult.sent;
+      emailWarning = emailResult.error ?? "";
+
+      await admin.from("temporary_access_audit_log").insert({
+        organization_id: invitation.organization_id,
+        user_id: authUser.id,
+        invitation_id: invitation.id,
+        event_type: emailResult.sent ? "email_sent" : "email_failed",
+        actor_user_id: user.id,
+        metadata: {
+          provider_message_id: emailResult.providerMessageId ?? null,
+          configuration_missing: emailResult.configurationMissing ?? false,
+          error: emailResult.error ?? null,
+        },
+      });
+    }
+
+    const instructions = accessInstructions({
+      locale,
+      fullName: effectiveFullName,
+      email,
+      password: temporaryPassword,
+      loginUrl,
+      expiresAt,
+    });
+
+    revalidatePath("/dashboard/members");
+    revalidatePath("/dashboard");
+
+    return {
+      status: shouldSendEmail && !emailSent ? "warning" : "success",
+      activated,
+      temporaryPassword,
+      expiresAt,
+      loginUrl,
+      instructions,
+      emailSent,
+      message:
+        shouldSendEmail && !emailSent
+          ? t("members.actionMessages.temporaryCreatedEmailFailed", {
+              message: emailWarning || t("common.unknownError"),
+            })
+          : shouldSendEmail
+            ? t("members.actionMessages.temporaryCreatedAndSent", { email })
+            : t("members.actionMessages.temporaryCreated", { email }),
+    };
+  } catch (error) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : t("members.actionMessages.unknownActivationError");
+
+    if (activated && authUser) {
+      return {
+        status: "warning",
+        activated: true,
+        message: t("members.actionMessages.activeButTemporaryFailed", {
+          message,
+        }),
+        loginUrl,
       };
     }
 
