@@ -1,0 +1,30 @@
+SUPER LEADER V2.2 - SUPER LEADER ACADEMY V1
+VALIDATION REPORT
+
+FEATURES
+- Monthly training catalogue
+- Mandatory and optional training
+- Role- and team-scoped assignments
+- Training progress and final quiz
+- Server-side quiz grading
+- Limited attempts and pass mark
+- Verifiable completion certificates
+- Performance score integration (10% default)
+- Employee of the Month eligibility rule
+- Dashboard, navigation and My Day integration
+- Audit log and notifications
+
+SECURITY
+- Correct quiz answers are not granted to authenticated API clients.
+- Managers remain limited to officially supervised users.
+- Certificate access follows organization scope.
+- Public certificate verification uses a unique token.
+
+TECHNICAL CHECKS
+- TypeScript/TSX syntax transpilation: PASS
+- Local application import paths: PASS
+- SQL migration transaction and schema reload: PRESENT
+- Full Next.js build: to be run locally after npm dependencies are available
+
+REQUIRED DATABASE STEP
+Run supabase/021_super_leader_academy_v1.sql in Supabase SQL Editor.

@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { getI18n } from "@/i18n/server";
+import { getVisibleUserIds } from "@/lib/auth/scope";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
@@ -61,7 +62,14 @@ async function getContext() {
 
   if (!membership) redirect("/dashboard/company");
 
-  return { user: authData.user, membership, admin, t };
+  const visibleUserIds = await getVisibleUserIds({
+    admin,
+    organizationId: membership.organization_id,
+    actorId: authData.user.id,
+    role: membership.role,
+  });
+
+  return { user: authData.user, membership, admin, t, visibleUserIds };
 }
 
 async function ensureActiveMember(
@@ -81,7 +89,7 @@ async function ensureActiveMember(
 }
 
 export async function createActionPlanAction(formData: FormData) {
-  const { user, membership, admin, t } = await getContext();
+  const { user, membership, admin, t, visibleUserIds } = await getContext();
 
   const objective = String(formData.get("objective") ?? "").trim();
   const actionTitle = String(formData.get("actionTitle") ?? "").trim();
@@ -117,6 +125,9 @@ export async function createActionPlanAction(formData: FormData) {
   if (!(await ensureActiveMember(membership.organization_id, ownerId, admin))) {
     go(t("actionPlans.actionMessages.ownerNotActive"), "error");
   }
+  if (!visibleUserIds.includes(ownerId)) {
+    go(t("actionPlans.actionMessages.noEditPermission"), "error");
+  }
 
   const { error } = await admin.from("action_plans").insert({
     organization_id: membership.organization_id,
@@ -142,7 +153,7 @@ export async function createActionPlanAction(formData: FormData) {
 }
 
 export async function updateActionPlanAction(formData: FormData) {
-  const { user, membership, admin, t } = await getContext();
+  const { user, membership, admin, t, visibleUserIds } = await getContext();
 
   const planId = String(formData.get("planId") ?? "").trim();
   const status = String(formData.get("status") ?? "todo") as Status;
@@ -173,7 +184,11 @@ export async function updateActionPlanAction(formData: FormData) {
   }
 
   const canEdit =
-    isLeader(membership.role) ||
+    membership.role === "owner" ||
+    membership.role === "admin" ||
+    membership.role === "hr" ||
+    (membership.role === "manager"
+      && (visibleUserIds.includes(plan.owner_id) || visibleUserIds.includes(plan.created_by))) ||
     plan.owner_id === user.id ||
     plan.created_by === user.id;
 

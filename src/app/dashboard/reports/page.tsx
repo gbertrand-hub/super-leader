@@ -2,14 +2,14 @@ import Link from "next/link";
 import {redirect} from "next/navigation";
 import {ReportExportButtons} from "@/components/reports/report-export-buttons";
 import {getI18n} from "@/i18n/server";
+import {REPORT_ROLES} from "@/lib/auth/permissions";
+import {getVisibleUserIds} from "@/lib/auth/scope";
 import {
   loadReportAnalytics,
   type ReportFilterInput,
 } from "@/lib/reports/analytics";
 import {createAdminClient} from "@/lib/supabase/admin";
 import {createClient} from "@/lib/supabase/server";
-
-const reportRoles = new Set(["owner", "admin", "hr", "manager"]);
 
 type SearchParams = {
   period?: string | string[];
@@ -90,12 +90,20 @@ export default async function ReportsPage({searchParams}: PageProps) {
     );
   }
   if (!membership) redirect("/dashboard/company");
-  if (!reportRoles.has(membership.role)) redirect("/dashboard");
+  if (!REPORT_ROLES.has(membership.role)) redirect("/dashboard");
+
+  const visibleUserIds = await getVisibleUserIds({
+    admin,
+    organizationId: membership.organization_id,
+    actorId: authData.user.id,
+    role: membership.role,
+  });
 
   const analytics = await loadReportAnalytics({
     organizationId: membership.organization_id,
     filters: filterInput,
     locale,
+    allowedMemberIds: membership.role === "manager" ? visibleUserIds : undefined,
   }).catch((error: unknown) => {
     const message = error instanceof Error ? error.message : t("common.unknownError");
     throw new Error(t("reports.loadError", {message}));

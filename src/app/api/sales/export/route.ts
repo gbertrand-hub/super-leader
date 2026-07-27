@@ -1,8 +1,10 @@
 import {getI18n} from "@/i18n/server";
+import {COMMERCIAL_MANAGER_ROLES, canUseCommercialModules} from "@/lib/auth/permissions";
+import {getVisibleUserIds} from "@/lib/auth/scope";
 import {createAdminClient} from "@/lib/supabase/admin";
 import {createClient} from "@/lib/supabase/server";
 
-const leaderRoles = new Set(["owner", "admin", "hr", "manager"]);
+const leaderRoles = COMMERCIAL_MANAGER_ROLES;
 const validStatuses = new Set(["submitted", "verified", "approved", "rejected", "cancelled", "refunded"]);
 
 type Membership = {organization_id: string; role: string};
@@ -51,6 +53,14 @@ export async function GET(request: Request) {
     .limit(1)
     .maybeSingle<Membership>();
   if (membershipError || !membership) return new Response("Forbidden", {status: 403});
+  if (!canUseCommercialModules(membership.role)) return new Response("Forbidden", {status: 403});
+
+  const visibleUserIds = await getVisibleUserIds({
+    admin,
+    organizationId: membership.organization_id,
+    actorId: authData.user.id,
+    role: membership.role,
+  });
 
   const url = new URL(request.url);
   const status = url.searchParams.get("status") ?? "";
@@ -64,8 +74,14 @@ export async function GET(request: Request) {
     .order("sale_date", {ascending: false})
     .limit(5000);
 
-  if (!isLeader) query = query.eq("seller_id", authData.user.id);
-  if (isLeader && seller) query = query.eq("seller_id", seller);
+  if (membership.role === "manager") {
+    query = query.in("seller_id", visibleUserIds);
+  } else if (!isLeader) {
+    query = query.eq("seller_id", authData.user.id);
+  }
+  if (isLeader && seller && visibleUserIds.includes(seller)) {
+    query = query.eq("seller_id", seller);
+  }
   if (validStatuses.has(status)) query = query.eq("workflow_status", status);
 
   const {data, error} = await query;

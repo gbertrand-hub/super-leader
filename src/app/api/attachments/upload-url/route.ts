@@ -12,7 +12,7 @@ import {createClient} from "@/lib/supabase/server";
 
 const purposes = new Set<AttachmentPurpose>(["leave", "sale", "payment"]);
 
-type Membership = {organization_id: string; is_active: boolean};
+type Membership = {organization_id: string; role: string; is_active: boolean};
 
 async function getContext() {
   const supabase = await createClient();
@@ -22,7 +22,7 @@ async function getContext() {
   const admin = createAdminClient();
   const {data: membership} = await admin
     .from("organization_members")
-    .select("organization_id, is_active")
+    .select("organization_id, role, is_active")
     .eq("user_id", authData.user.id)
     .eq("is_active", true)
     .limit(1)
@@ -50,6 +50,10 @@ export async function POST(request: Request) {
 
   if (!purposes.has(purpose)) {
     return NextResponse.json({error: "Invalid attachment purpose"}, {status: 400});
+  }
+
+  if (context.membership.role === "hr" && purpose !== "leave") {
+    return NextResponse.json({error: "Forbidden"}, {status: 403});
   }
 
   try {

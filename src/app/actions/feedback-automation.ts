@@ -7,7 +7,7 @@ import {processFeedbackAutomation} from "@/lib/crm/feedback-automation";
 import {createAdminClient} from "@/lib/supabase/admin";
 import {createClient} from "@/lib/supabase/server";
 
-const adminRoles = new Set(["owner", "admin", "hr"]);
+const adminRoles = new Set(["owner", "admin"]);
 const allowedOutcomes = new Set(["resolved", "follow_up", "payment_promise", "escalated", "other"]);
 
 function toInteger(value: FormDataEntryValue | null) {

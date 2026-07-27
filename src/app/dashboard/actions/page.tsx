@@ -4,6 +4,7 @@ import {
   updateActionPlanAction,
 } from "@/app/actions/action-plans";
 import { getI18n } from "@/i18n/server";
+import { getVisibleUserIds } from "@/lib/auth/scope";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
@@ -91,6 +92,14 @@ export default async function ActionPlansPage({
   }
   if (!membership) redirect("/dashboard/company");
 
+  const visibleUserIds = await getVisibleUserIds({
+    admin,
+    organizationId: membership.organization_id,
+    actorId: authData.user.id,
+    role: membership.role,
+  });
+  const visibleUserIdSet = new Set(visibleUserIds);
+
   const { data: memberRows } = await admin
     .from("organization_members")
     .select("user_id, role")
@@ -98,7 +107,7 @@ export default async function ActionPlansPage({
     .eq("is_active", true)
     .order("created_at");
 
-  const members = (memberRows ?? []) as Member[];
+  const members = ((memberRows ?? []) as Member[]).filter((member) => visibleUserIdSet.has(member.user_id));
   const memberIds = members.map((member) => member.user_id);
   const { data: profileRows } = memberIds.length
     ? await admin.from("profiles").select("id, full_name, email").in("id", memberIds)
@@ -115,7 +124,11 @@ export default async function ActionPlansPage({
     .eq("organization_id", membership.organization_id)
     .order("created_at", { ascending: false });
 
-  if (!isLeader(membership.role)) {
+  if (membership.role === "manager") {
+    plansQuery = plansQuery.or(
+      `owner_id.in.(${visibleUserIds.join(",")}),created_by.in.(${visibleUserIds.join(",")})`,
+    );
+  } else if (!isLeader(membership.role)) {
     plansQuery = plansQuery.or(
       `owner_id.eq.${authData.user.id},created_by.eq.${authData.user.id}`,
     );

@@ -13,6 +13,8 @@ import {
 } from "@/app/actions/crm";
 import {FeedbackShareLinks} from "@/components/crm/feedback-share-links";
 import {getI18n} from "@/i18n/server";
+import {COMMERCIAL_MANAGER_ROLES, canUseCommercialModules, type OrganizationRole} from "@/lib/auth/permissions";
+import {getVisibleUserIds} from "@/lib/auth/scope";
 import {buildFeedbackMessage} from "@/lib/crm/feedback-delivery";
 import {createAdminClient} from "@/lib/supabase/admin";
 import {createClient} from "@/lib/supabase/server";
@@ -58,6 +60,7 @@ type ContractRow = {
   seller_id: string | null;
   collection_owner_id: string | null;
   expected_end_date: string | null;
+  created_by: string;
 };
 type InteractionRow = {
   id: string;
@@ -82,6 +85,7 @@ type TaskRow = {
   due_at: string | null;
   priority: string;
   status: string;
+  created_by: string;
 };
 type RequestRow = {
   id: string;
@@ -181,13 +185,20 @@ export default async function CrmPage({searchParams}: PageProps) {
     .maybeSingle<Membership>();
   if (membershipError) throw new Error(membershipError.message);
   if (!membership) redirect("/dashboard/company");
+  if (!canUseCommercialModules(membership.role)) redirect("/dashboard/performance");
 
-  const isLeader = ["owner", "admin", "hr", "manager"].includes(membership.role);
-  const canConfigure = ["owner", "admin", "hr"].includes(membership.role);
+  const visibleUserIds = await getVisibleUserIds({
+    admin,
+    organizationId: membership.organization_id,
+    actorId: authData.user.id,
+    role: membership.role,
+  });
+  const isLeader = COMMERCIAL_MANAGER_ROLES.has(membership.role as OrganizationRole);
+  const canConfigure = ["owner", "admin"].includes(membership.role);
 
   const [schemaCheck, membersResult, organizationResult, settingsResult] = await Promise.all([
     admin.from("crm_clients").select("id", {head: true, count: "exact"}).limit(1),
-    admin.from("organization_members").select("user_id, role").eq("organization_id", membership.organization_id).eq("is_active", true).order("created_at"),
+    admin.from("organization_members").select("user_id, role").eq("organization_id", membership.organization_id).eq("is_active", true).in("user_id", visibleUserIds).order("created_at"),
     admin.from("organizations").select("name").eq("id", membership.organization_id).maybeSingle<{name: string}>(),
     admin.from("crm_settings").select("default_feedback_channel, feedback_cooldown_days, feedback_expiry_days, low_score_threshold, auto_send_email, feedback_message_fr, feedback_message_en").eq("organization_id", membership.organization_id).maybeSingle<SettingsRow>(),
   ]);
@@ -232,20 +243,64 @@ export default async function CrmPage({searchParams}: PageProps) {
     .eq("organization_id", membership.organization_id)
     .order("created_at", {ascending: false})
     .limit(300);
-  if (!isLeader) clientsQuery = clientsQuery.or(`owner_id.eq.${authData.user.id},follow_up_owner_id.eq.${authData.user.id}`);
+  if (membership.role === "manager") {
+    const scopedIds = visibleUserIds.join(",");
+    clientsQuery = clientsQuery.or(
+      `owner_id.in.(${scopedIds}),follow_up_owner_id.in.(${scopedIds})`,
+    );
+  } else if (!isLeader) {
+    clientsQuery = clientsQuery.or(
+      `owner_id.eq.${authData.user.id},follow_up_owner_id.eq.${authData.user.id}`,
+    );
+  }
   const {data: clientsData, error: clientsError} = await clientsQuery;
   if (clientsError) throw new Error(t("crm.messages.loadFailed", {message: clientsError.message}));
   const clients = (clientsData ?? []) as ClientRow[];
   const clientIds = clients.map((client) => client.id);
   const clientById = new Map(clients.map((client) => [client.id, client]));
 
+  let contractsQuery = admin
+    .from("crm_contracts")
+    .select("id, client_id, contract_number, title, total_amount, currency, status, seller_id, collection_owner_id, expected_end_date, created_by")
+    .eq("organization_id", membership.organization_id)
+    .in("client_id", clientIds)
+    .order("created_at", {ascending: false});
+  let interactionsQuery = admin
+    .from("crm_interactions")
+    .select("id, client_id, contract_id, employee_id, channel, interaction_type, outcome, summary, occurred_at, next_follow_up_at, feedback_requested")
+    .eq("organization_id", membership.organization_id)
+    .in("client_id", clientIds)
+    .order("occurred_at", {ascending: false})
+    .limit(150);
+  let tasksQuery = admin
+    .from("crm_follow_up_tasks")
+    .select("id, client_id, contract_id, assigned_to, title, description, due_at, priority, status, created_by")
+    .eq("organization_id", membership.organization_id)
+    .in("client_id", clientIds)
+    .order("due_at", {ascending: true, nullsFirst: false})
+    .limit(200);
+  let requestsQuery = admin
+    .from("crm_feedback_requests")
+    .select("id, client_id, contract_id, interaction_id, employee_id, public_token, channel, locale, recipient, message, status, sent_at, expires_at, delivery_error, created_at")
+    .eq("organization_id", membership.organization_id)
+    .in("client_id", clientIds)
+    .order("created_at", {ascending: false})
+    .limit(150);
+
+  if (!["owner", "admin"].includes(membership.role)) {
+    const scopedIds = visibleUserIds.join(",");
+    contractsQuery = contractsQuery.or(
+      `seller_id.in.(${scopedIds}),collection_owner_id.in.(${scopedIds}),created_by.in.(${scopedIds})`,
+    );
+    interactionsQuery = interactionsQuery.in("employee_id", visibleUserIds);
+    tasksQuery = tasksQuery.or(
+      `assigned_to.in.(${scopedIds}),created_by.in.(${scopedIds})`,
+    );
+    requestsQuery = requestsQuery.in("employee_id", visibleUserIds);
+  }
+
   const [contractsResult, interactionsResult, tasksResult, requestsResult] = clientIds.length
-    ? await Promise.all([
-        admin.from("crm_contracts").select("id, client_id, contract_number, title, total_amount, currency, status, seller_id, collection_owner_id, expected_end_date").in("client_id", clientIds).order("created_at", {ascending: false}),
-        admin.from("crm_interactions").select("id, client_id, contract_id, employee_id, channel, interaction_type, outcome, summary, occurred_at, next_follow_up_at, feedback_requested").in("client_id", clientIds).order("occurred_at", {ascending: false}).limit(150),
-        admin.from("crm_follow_up_tasks").select("id, client_id, contract_id, assigned_to, title, description, due_at, priority, status").in("client_id", clientIds).order("due_at", {ascending: true, nullsFirst: false}).limit(200),
-        admin.from("crm_feedback_requests").select("id, client_id, contract_id, interaction_id, employee_id, public_token, channel, locale, recipient, message, status, sent_at, expires_at, delivery_error, created_at").in("client_id", clientIds).order("created_at", {ascending: false}).limit(150),
-      ])
+    ? await Promise.all([contractsQuery, interactionsQuery, tasksQuery, requestsQuery])
     : [
         {data: [] as ContractRow[], error: null},
         {data: [] as InteractionRow[], error: null},

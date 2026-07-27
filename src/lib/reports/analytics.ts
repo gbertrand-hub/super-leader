@@ -227,11 +227,13 @@ export async function loadReportAnalytics({
   filters: rawFilters,
   locale,
   now = new Date(),
+  allowedMemberIds,
 }: {
   organizationId: string;
   filters: ReportFilterInput;
   locale: Locale;
   now?: Date;
+  allowedMemberIds?: string[];
 }): Promise<ReportAnalytics> {
   const admin = createAdminClient();
   const filters = normalizeReportFilters(rawFilters);
@@ -255,7 +257,10 @@ export async function loadReportAnalytics({
   if (membersResult.error) throw membersResult.error;
   if (teamsResult.error) throw teamsResult.error;
 
-  const memberRows = (membersResult.data ?? []) as MemberRow[];
+  const allowedMemberSet = allowedMemberIds ? new Set(allowedMemberIds) : null;
+  const memberRows = ((membersResult.data ?? []) as MemberRow[]).filter(
+    (member) => !allowedMemberSet || allowedMemberSet.has(member.user_id),
+  );
   const teamRows = (teamsResult.data ?? []) as TeamRow[];
   const activeMemberIds = memberRows.map((member) => member.user_id);
   const activeMemberSet = new Set(activeMemberIds);
@@ -299,11 +304,14 @@ export async function loadReportAnalytics({
     })
     .sort((a, b) => a.name.localeCompare(b.name));
 
-  const teams: ReportTeam[] = teamRows.map((team) => ({
-    id: team.id,
-    name: team.name,
-    department: team.department,
-  }));
+  const visibleTeamIds = new Set(relevantTeamMembers.map((row) => row.team_id));
+  const teams: ReportTeam[] = teamRows
+    .filter((team) => !allowedMemberSet || visibleTeamIds.has(team.id))
+    .map((team) => ({
+      id: team.id,
+      name: team.name,
+      department: team.department,
+    }));
 
   const validSelectedTeam = teams.find((team) => team.id === filters.teamId) ?? null;
   const validSelectedMember = members.find((member) => member.id === filters.memberId) ?? null;

@@ -1,9 +1,9 @@
 import {NextResponse} from "next/server";
 import {PRIVATE_ATTACHMENTS_BUCKET} from "@/lib/storage/private-attachments";
+import {getVisibleUserIds} from "@/lib/auth/scope";
 import {createAdminClient} from "@/lib/supabase/admin";
 import {createClient} from "@/lib/supabase/server";
 
-const leaderRoles = new Set(["owner", "admin", "hr", "manager"]);
 type Membership = {organization_id: string; role: string; is_active: boolean};
 
 type AttachmentRecord = {
@@ -99,20 +99,22 @@ export async function GET(
     .maybeSingle<Membership>();
   if (!membership) return NextResponse.json({error: "Forbidden"}, {status: 403});
 
-  let allowed = leaderRoles.has(membership.role)
+  const visibleUserIds = await getVisibleUserIds({
+    admin,
+    organizationId: record.organizationId,
+    actorId: authData.user.id,
+    role: membership.role,
+  });
+
+  let allowed = membership.role === "owner"
+    || membership.role === "admin"
+    || (membership.role === "hr" && kind === "leave")
     || record.ownerId === authData.user.id
     || record.secondaryOwnerId === authData.user.id;
 
-  if (!allowed && kind === "leave") {
-    const {data: schedule} = await admin
-      .from("member_work_schedules")
-      .select("id")
-      .eq("organization_id", record.organizationId)
-      .eq("user_id", record.ownerId)
-      .eq("supervisor_id", authData.user.id)
-      .eq("is_active", true)
-      .maybeSingle();
-    allowed = Boolean(schedule);
+  if (!allowed && membership.role === "manager") {
+    allowed = visibleUserIds.includes(record.ownerId)
+      || Boolean(record.secondaryOwnerId && visibleUserIds.includes(record.secondaryOwnerId));
   }
 
   if (!allowed) return NextResponse.json({error: "Forbidden"}, {status: 403});

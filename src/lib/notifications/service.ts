@@ -32,6 +32,23 @@ export async function createNotification(input: {
   scheduledFor?: string;
 }) {
   const admin = createAdminClient();
+  const { data: activeMembership, error: membershipError } = await admin
+    .from("organization_members")
+    .select("user_id")
+    .eq("organization_id", input.organizationId)
+    .eq("user_id", input.userId)
+    .eq("is_active", true)
+    .maybeSingle<{ user_id: string }>();
+
+  if (membershipError || !activeMembership) {
+    console.warn("Notification skipped for inactive or out-of-scope recipient", {
+      organizationId: input.organizationId,
+      userId: input.userId,
+      error: membershipError?.message,
+    });
+    return null;
+  }
+
   const {data, error} = await admin
     .from("notifications")
     .insert({

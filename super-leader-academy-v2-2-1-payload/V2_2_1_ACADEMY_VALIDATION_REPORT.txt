@@ -1,0 +1,18 @@
+SUPER LEADER ACADEMY V2.2.1 - VALIDATION REPORT
+Date: 27 July 2026
+
+Validated:
+- 90 TypeScript and TSX files transpiled without syntax errors.
+- Recurrence date-generation test passed for Monday/Friday and monthly 3-day sessions.
+- Time-zone conversion test passed for Europe/Dublin, Africa/Douala and America/Chicago.
+- Update archive paths and required migration verified.
+
+Environment limitation:
+- A complete Next.js production build was not run in the build sandbox because npm dependencies were not available there.
+- The Supabase migration must be executed in the user's project before runtime testing.
+
+Required runtime test:
+1. Run supabase/022_academy_recurring_sessions_v2_2_1.sql.
+2. Restart the application.
+3. Create weekly and monthly-intensive series.
+4. Assign a participant and test attendance, Zoom link, quiz and certificate.

@@ -1,0 +1,19 @@
+SUPER LEADER - VALIDATION ROLES, PERMISSIONS ET CONFIDENTIALITE V2
+
+Validation effectuee le 27 juillet 2026.
+
+CONTROLES REUSSIS
+- 86 fichiers TypeScript/TSX transcompiles sans diagnostic de syntaxe.
+- Tous les imports locaux resolus.
+- Structure de la migration SQL 019 verifiee : 9 fonctions, 11 policies, transactions et delimitateurs equilibres.
+- Matrice des routes, permissions centrales et perimetre Manager verifies statiquement.
+- HR absent des modules commerciaux et financiers.
+- Notifications bloquees pour les memberships inactifs.
+
+CONTROLE A EFFECTUER DANS L'ENVIRONNEMENT DU PROJET
+- Executer npm install puis npm run build.
+- Executer supabase/019_roles_permissions_privacy_v2.sql dans Supabase SQL Editor.
+- Suivre docs/permissions-v2-test-matrix.md avec les cinq roles.
+
+LIMITATION DE L'ENVIRONNEMENT DE VALIDATION
+Le build Next.js complet n'a pas pu etre execute dans le bac a sable, car les dependances npm du projet n'y etaient pas disponibles (`next` introuvable). Cette limitation ne concerne pas la validation syntaxique des fichiers modifies.

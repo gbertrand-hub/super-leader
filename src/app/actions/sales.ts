@@ -4,6 +4,13 @@ import {revalidatePath} from "next/cache";
 import {redirect} from "next/navigation";
 import {getI18n} from "@/i18n/server";
 import {
+  COMMERCIAL_MANAGER_ROLES,
+  FINANCE_ROLES,
+  PRODUCT_MANAGER_ROLES,
+  canUseCommercialModules,
+} from "@/lib/auth/permissions";
+import {getVisibleUserIds} from "@/lib/auth/scope";
+import {
   finalizeTemporaryAttachment,
   readPendingAttachment,
   removePrivateAttachment,
@@ -11,9 +18,9 @@ import {
 import {createAdminClient} from "@/lib/supabase/admin";
 import {createClient} from "@/lib/supabase/server";
 
-const leaderRoles = new Set(["owner", "admin", "hr", "manager"]);
-const financeRoles = new Set(["owner", "admin", "hr"]);
-const productManagerRoles = new Set(["owner", "admin", "hr"]);
+const leaderRoles = COMMERCIAL_MANAGER_ROLES;
+const financeRoles = FINANCE_ROLES;
+const productManagerRoles = PRODUCT_MANAGER_ROLES;
 const currencies = new Set(["USD", "EUR", "GBP", "XAF", "CAD"]);
 const paymentMethods = new Set([
   "bank_transfer",
@@ -115,8 +122,18 @@ async function getContext() {
     go(t("sales.messages.organisationLoadFailed", {message: membershipError.message}), "error");
   }
   if (!membership) redirect("/dashboard/company");
+  if (!canUseCommercialModules(membership.role)) {
+    redirect("/dashboard/performance");
+  }
 
-  return {user: authData.user, membership, admin, t};
+  const visibleUserIds = await getVisibleUserIds({
+    admin,
+    organizationId: membership.organization_id,
+    actorId: authData.user.id,
+    role: membership.role,
+  });
+
+  return {user: authData.user, membership, admin, t, visibleUserIds};
 }
 
 async function ensureActiveMember(
@@ -270,10 +287,13 @@ export async function toggleSalesProductAction(formData: FormData) {
 }
 
 export async function createSaleAction(formData: FormData) {
-  const {user, membership, admin, t} = await getContext();
+  const {user, membership, admin, t, visibleUserIds} = await getContext();
 
-  const requestedSellerId = String(formData.get("sellerId") ?? user.id).trim();
-  const sellerId = leaderRoles.has(membership.role) ? requestedSellerId || user.id : user.id;
+  const requestedSellerId = String(formData.get("sellerId") ?? user.id).trim() || user.id;
+  if (leaderRoles.has(membership.role) && !visibleUserIds.includes(requestedSellerId)) {
+    go(t("sales.messages.sellerNotActive"), "error");
+  }
+  const sellerId = leaderRoles.has(membership.role) ? requestedSellerId : user.id;
   const productId = String(formData.get("productId") ?? "").trim() || null;
   const customProductName = String(formData.get("customProductName") ?? "").trim();
   const customerName = String(formData.get("customerName") ?? "").trim();
@@ -295,6 +315,13 @@ export async function createSaleAction(formData: FormData) {
   const nextPaymentAmountRaw = String(formData.get("nextPaymentAmount") ?? "").trim();
   const nextPaymentAmount = nextPaymentAmountRaw ? parseMoney(formData.get("nextPaymentAmount")) : null;
   const requestedCollectionOwnerId = String(formData.get("collectionOwnerId") ?? "").trim() || null;
+  if (
+    requestedCollectionOwnerId &&
+    leaderRoles.has(membership.role) &&
+    !visibleUserIds.includes(requestedCollectionOwnerId)
+  ) {
+    go(t("sales.messages.collectorNotActive"), "error");
+  }
   const collectionOwnerId = leaderRoles.has(membership.role) ? requestedCollectionOwnerId : null;
   const notes = cleanOptional(formData.get("notes"), 3000);
 
@@ -503,7 +530,7 @@ export async function createSaleAction(formData: FormData) {
 }
 
 export async function reviewSaleAction(formData: FormData) {
-  const {user, membership, admin, t} = await getContext();
+  const {user, membership, admin, t, visibleUserIds} = await getContext();
   if (!leaderRoles.has(membership.role)) {
     go(t("sales.messages.reviewPermissionDenied"), "error");
   }
@@ -523,6 +550,9 @@ export async function reviewSaleAction(formData: FormData) {
     .maybeSingle<SaleRow>();
 
   if (saleError || !sale) go(t("sales.messages.saleNotFound"), "error");
+  if (membership.role === "manager" && !visibleUserIds.includes(sale.seller_id)) {
+    go(t("sales.messages.reviewPermissionDenied"), "error");
+  }
 
   const updates: Record<string, string | null> = {
     workflow_status: workflowStatus,
@@ -661,7 +691,7 @@ export async function markCommissionPaidAction(formData: FormData) {
 }
 
 export async function upsertSalesTargetAction(formData: FormData) {
-  const {user, membership, admin, t} = await getContext();
+  const {user, membership, admin, t, visibleUserIds} = await getContext();
   if (!leaderRoles.has(membership.role)) {
     go(t("sales.messages.targetPermissionDenied"), "error");
   }
@@ -671,7 +701,10 @@ export async function upsertSalesTargetAction(formData: FormData) {
   const amount = parseMoney(formData.get("targetAmount"));
   const currency = normalizeCurrency(formData.get("currency"));
 
-  if (!(await ensureActiveMember(membership.organization_id, memberId, admin))) {
+  if (
+    !visibleUserIds.includes(memberId) ||
+    !(await ensureActiveMember(membership.organization_id, memberId, admin))
+  ) {
     go(t("sales.messages.sellerNotActive"), "error");
   }
   if (!/^\d{4}-\d{2}$/.test(period)) {

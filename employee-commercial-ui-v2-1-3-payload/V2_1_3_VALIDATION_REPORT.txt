@@ -1,0 +1,20 @@
+SUPER LEADER V2.1.3 VALIDATION REPORT
+
+Scope:
+- Employee navigation label
+- Employee Sales copy and export label
+- Employee Collections copy
+- CRM Employee ownership fields
+- Server-side ownership enforcement
+
+Validation completed:
+- 85 TypeScript/TSX files transpiled for syntax checking
+- 0 syntax errors detected
+- No database migration required
+
+Runtime verification required after installation:
+1. Log in as Employee.
+2. Confirm "Mon planning" appears in the sidebar.
+3. Open Sales and Collections and confirm employee-specific wording.
+4. Open a CRM client and confirm owner fields are read-only.
+5. Create a test contract and confirm the Employee is automatically assigned.

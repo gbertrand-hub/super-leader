@@ -5,6 +5,7 @@ import {
   updateFeedbackAutomationSettingsAction,
 } from "@/app/actions/feedback-automation";
 import {getI18n} from "@/i18n/server";
+import {getVisibleUserIds} from "@/lib/auth/scope";
 import {getFeedbackProviderConfiguration} from "@/lib/crm/feedback-delivery";
 import {createAdminClient} from "@/lib/supabase/admin";
 import {createClient} from "@/lib/supabase/server";
@@ -26,6 +27,7 @@ type SettingsRow = {
 };
 type RequestRow = {
   id: string;
+  employee_id: string;
   channel: string;
   status: string;
   automated: boolean;
@@ -45,9 +47,11 @@ type EventRow = {
   created_at: string;
   crm_feedback_requests: {
     channel: string;
+    employee_id: string;
     crm_clients: {full_name: string} | {full_name: string}[] | null;
   } | {
     channel: string;
+    employee_id: string;
     crm_clients: {full_name: string} | {full_name: string}[] | null;
   }[] | null;
 };
@@ -101,9 +105,16 @@ export default async function FeedbackAutomationPage({searchParams}: PageProps) 
     .limit(1)
     .maybeSingle<{organization_id: string; role: string}>();
   if (!membership) redirect("/dashboard/company");
-  if (!["owner", "admin", "hr", "manager"].includes(membership.role)) redirect("/dashboard/crm");
+  if (!["owner", "admin", "manager"].includes(membership.role)) redirect("/dashboard/crm");
 
-  const canConfigure = ["owner", "admin", "hr"].includes(membership.role);
+  const visibleUserIds = await getVisibleUserIds({
+    admin,
+    organizationId: membership.organization_id,
+    actorId: authData.user.id,
+    role: membership.role,
+  });
+  const visibleUserIdSet = new Set(visibleUserIds);
+  const canConfigure = ["owner", "admin"].includes(membership.role);
   const [settingsResult, requestsResult, eventsResult] = await Promise.all([
     admin
       .from("crm_settings")
@@ -112,13 +123,13 @@ export default async function FeedbackAutomationPage({searchParams}: PageProps) 
       .maybeSingle<SettingsRow>(),
     admin
       .from("crm_feedback_requests")
-      .select("id, channel, status, automated, delivery_attempts, reminder_count, last_provider_status, scheduled_send_at, next_reminder_at, created_at, crm_clients(full_name)")
+      .select("id, employee_id, channel, status, automated, delivery_attempts, reminder_count, last_provider_status, scheduled_send_at, next_reminder_at, created_at, crm_clients(full_name)")
       .eq("organization_id", membership.organization_id)
       .order("created_at", {ascending: false})
       .limit(100),
     admin
       .from("crm_feedback_delivery_events")
-      .select("id, provider, event_type, event_status, created_at, crm_feedback_requests(channel, crm_clients(full_name))")
+      .select("id, provider, event_type, event_status, created_at, crm_feedback_requests(channel, employee_id, crm_clients(full_name))")
       .eq("organization_id", membership.organization_id)
       .order("created_at", {ascending: false})
       .limit(30),
@@ -158,8 +169,14 @@ export default async function FeedbackAutomationPage({searchParams}: PageProps) 
     max_reminders: 2,
     fallback_channel: "web",
   };
-  const requests = (requestsResult.data ?? []) as RequestRow[];
-  const events = (eventsResult.data ?? []) as EventRow[];
+  const requests = ((requestsResult.data ?? []) as RequestRow[]).filter(
+    (request) => membership.role !== "manager" || visibleUserIdSet.has(request.employee_id),
+  );
+  const events = ((eventsResult.data ?? []) as EventRow[]).filter((event) => {
+    if (membership.role !== "manager") return true;
+    const request = first(event.crm_feedback_requests);
+    return Boolean(request && visibleUserIdSet.has(request.employee_id));
+  });
   const providers = getFeedbackProviderConfiguration();
   const sent = requests.filter((item) => ["sent", "delivered", "opened", "completed"].includes(item.status)).length;
   const completed = requests.filter((item) => item.status === "completed").length;

@@ -3,6 +3,8 @@
 import {revalidatePath} from "next/cache";
 import {redirect} from "next/navigation";
 import {getI18n} from "@/i18n/server";
+import {COMMERCIAL_MANAGER_ROLES, canUseCommercialModules} from "@/lib/auth/permissions";
+import {getVisibleUserIds} from "@/lib/auth/scope";
 import {
   finalizeTemporaryAttachment,
   readPendingAttachment,
@@ -11,7 +13,7 @@ import {
 import {createAdminClient} from "@/lib/supabase/admin";
 import {createClient} from "@/lib/supabase/server";
 
-const leaderRoles = new Set(["owner", "admin", "hr", "manager"]);
+const leaderRoles = COMMERCIAL_MANAGER_ROLES;
 const currencies = new Set(["USD", "EUR", "GBP", "XAF", "CAD"]);
 const paymentMethods = new Set([
   "bank_transfer",
@@ -104,8 +106,16 @@ async function getContext() {
     go(t("collections.messages.organisationLoadFailed", {message: membershipError.message}), "error");
   }
   if (!membership) redirect("/dashboard/company");
+  if (!canUseCommercialModules(membership.role)) redirect("/dashboard/performance");
 
-  return {user: authData.user, membership, admin, t};
+  const visibleUserIds = await getVisibleUserIds({
+    admin,
+    organizationId: membership.organization_id,
+    actorId: authData.user.id,
+    role: membership.role,
+  });
+
+  return {user: authData.user, membership, admin, t, visibleUserIds};
 }
 
 async function getSale(
@@ -122,8 +132,19 @@ async function getSale(
   return {sale: data, error};
 }
 
-function canHandleCase(role: string, userId: string, sale: CollectionSale) {
-  return leaderRoles.has(role) || sale.collection_owner_id === userId;
+function canHandleCase(
+  role: string,
+  userId: string,
+  sale: CollectionSale,
+  visibleUserIds: string[],
+) {
+  if (["owner", "admin"].includes(role)) return true;
+  if (role === "manager") {
+    return Boolean(
+      sale.collection_owner_id && visibleUserIds.includes(sale.collection_owner_id),
+    );
+  }
+  return sale.collection_owner_id === userId;
 }
 
 async function ensureActiveMember(
@@ -218,7 +239,7 @@ async function syncScheduleItem(
 }
 
 export async function assignCollectionCaseAction(formData: FormData) {
-  const {user, membership, admin, t} = await getContext();
+  const {user, membership, admin, t, visibleUserIds} = await getContext();
   if (!leaderRoles.has(membership.role)) {
     go(t("collections.messages.assignmentPermissionDenied"), "error");
   }
@@ -238,12 +259,26 @@ export async function assignCollectionCaseAction(formData: FormData) {
   if (nextPaymentAmount !== null && (!Number.isFinite(nextPaymentAmount) || nextPaymentAmount < 0)) {
     go(t("collections.messages.invalidAmount"), "error");
   }
-  if (collectionOwnerId && !(await ensureActiveMember(membership.organization_id, collectionOwnerId, admin))) {
+  if (
+    collectionOwnerId &&
+    (!visibleUserIds.includes(collectionOwnerId) ||
+      !(await ensureActiveMember(membership.organization_id, collectionOwnerId, admin)))
+  ) {
     go(t("collections.messages.collectorNotActive"), "error");
   }
 
   const {sale, error: saleError} = await getSale(saleId, membership.organization_id, admin);
   if (saleError || !sale) go(t("collections.messages.saleNotFound"), "error");
+  if (
+    membership.role === "manager" &&
+    sale.collection_owner_id &&
+    !visibleUserIds.includes(sale.collection_owner_id)
+  ) {
+    go(t("collections.messages.assignmentPermissionDenied"), "error");
+  }
+  if (membership.role === "manager" && !sale.collection_owner_id && !collectionOwnerId) {
+    go(t("collections.messages.assignmentPermissionDenied"), "error");
+  }
 
   const status = collectionOwnerId && requestedStatus === "not_started" ? "assigned" : requestedStatus;
   const {error} = await admin
@@ -279,7 +314,7 @@ export async function assignCollectionCaseAction(formData: FormData) {
 }
 
 export async function createCollectionPaymentAction(formData: FormData) {
-  const {user, membership, admin, t} = await getContext();
+  const {user, membership, admin, t, visibleUserIds} = await getContext();
   const saleId = String(formData.get("saleId") ?? "").trim();
   const amount = parseMoney(formData.get("amount"));
   const paymentDate = normalizeDate(formData.get("paymentDate"));
@@ -299,7 +334,7 @@ export async function createCollectionPaymentAction(formData: FormData) {
 
   const {sale, error: saleError} = await getSale(saleId, membership.organization_id, admin);
   if (saleError || !sale) go(t("collections.messages.saleNotFound"), "error");
-  if (!canHandleCase(membership.role, user.id, sale)) {
+  if (!canHandleCase(membership.role, user.id, sale, visibleUserIds)) {
     go(t("collections.messages.casePermissionDenied"), "error");
   }
   if (currency !== sale.currency) go(t("collections.messages.currencyMismatch"), "error");
@@ -396,7 +431,7 @@ export async function createCollectionPaymentAction(formData: FormData) {
 }
 
 export async function reviewCollectionPaymentAction(formData: FormData) {
-  const {user, membership, admin, t} = await getContext();
+  const {user, membership, admin, t, visibleUserIds} = await getContext();
   if (!leaderRoles.has(membership.role)) {
     go(t("collections.messages.paymentReviewPermissionDenied"), "error");
   }
@@ -424,6 +459,9 @@ export async function reviewCollectionPaymentAction(formData: FormData) {
 
   const {sale, error: saleError} = await getSale(payment.sale_id, membership.organization_id, admin);
   if (saleError || !sale) go(t("collections.messages.saleNotFound"), "error");
+  if (!canHandleCase(membership.role, user.id, sale, visibleUserIds)) {
+    go(t("collections.messages.paymentReviewPermissionDenied"), "error");
+  }
   if (decision === "confirmed" && !sale.commission_trigger_payment_id) {
     const minimumInitialPayment = sale.initial_payment_type === "percentage"
       ? Math.round(Number(sale.total_amount) * (Number(sale.initial_payment_value) / 100) * 100) / 100
@@ -477,7 +515,7 @@ export async function reviewCollectionPaymentAction(formData: FormData) {
 }
 
 export async function addPaymentScheduleItemAction(formData: FormData) {
-  const {user, membership, admin, t} = await getContext();
+  const {user, membership, admin, t, visibleUserIds} = await getContext();
   const saleId = String(formData.get("saleId") ?? "").trim();
   const dueDate = normalizeDate(formData.get("dueDate"));
   const expectedAmount = parseMoney(formData.get("expectedAmount"));
@@ -491,7 +529,7 @@ export async function addPaymentScheduleItemAction(formData: FormData) {
 
   const {sale, error: saleError} = await getSale(saleId, membership.organization_id, admin);
   if (saleError || !sale) go(t("collections.messages.saleNotFound"), "error");
-  if (!canHandleCase(membership.role, user.id, sale)) {
+  if (!canHandleCase(membership.role, user.id, sale, visibleUserIds)) {
     go(t("collections.messages.casePermissionDenied"), "error");
   }
 

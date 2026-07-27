@@ -3,6 +3,32 @@ import { type NextRequest, NextResponse } from "next/server";
 import { readTemporaryAccessState } from "@/lib/auth/temporary-access";
 import { getSupabasePublicConfig } from "@/lib/supabase/env";
 
+type OrganizationRole = "owner" | "admin" | "hr" | "manager" | "employee";
+
+type RouteRule = {
+  prefix: string;
+  roles: OrganizationRole[];
+};
+
+const dashboardRouteRules: RouteRule[] = [
+  { prefix: "/dashboard/company", roles: ["owner", "admin", "hr"] },
+  { prefix: "/dashboard/team", roles: ["owner", "admin", "hr", "manager"] },
+  { prefix: "/dashboard/members", roles: ["owner", "admin", "hr", "manager"] },
+  { prefix: "/dashboard/sales", roles: ["owner", "admin", "manager", "employee"] },
+  { prefix: "/dashboard/collections", roles: ["owner", "admin", "manager", "employee"] },
+  { prefix: "/dashboard/crm", roles: ["owner", "admin", "manager", "employee"] },
+  { prefix: "/dashboard/feedback-automation", roles: ["owner", "admin", "manager"] },
+  { prefix: "/dashboard/reports", roles: ["owner", "admin", "hr", "manager"] },
+];
+
+function roleCanOpenPath(pathname: string, role: OrganizationRole): boolean {
+  const rule = dashboardRouteRules.find(
+    (candidate) =>
+      pathname === candidate.prefix || pathname.startsWith(`${candidate.prefix}/`),
+  );
+  return !rule || rule.roles.includes(role);
+}
+
 export async function proxy(request: NextRequest) {
   let response = NextResponse.next({ request });
 
@@ -95,6 +121,42 @@ export async function proxy(request: NextRequest) {
       url.pathname = "/dashboard/my-day";
       url.search = "";
       return NextResponse.redirect(url);
+    }
+
+    if (userId && pathname.startsWith("/dashboard")) {
+      const { data: membership, error: membershipError } = await supabase
+        .from("organization_members")
+        .select("role,is_active")
+        .eq("user_id", userId)
+        .eq("is_active", true)
+        .limit(1)
+        .maybeSingle<{ role: OrganizationRole; is_active: boolean }>();
+
+      if (membershipError) {
+        console.error("Dashboard authorization lookup failed", membershipError);
+        if (pathname !== "/dashboard") {
+          const url = request.nextUrl.clone();
+          url.pathname = "/dashboard";
+          url.search = "";
+          url.searchParams.set("error", "authorization-unavailable");
+          return NextResponse.redirect(url);
+        }
+      } else if (!membership) {
+        const allowedWithoutOrganization =
+          pathname === "/dashboard" || pathname.startsWith("/dashboard/company");
+        if (!allowedWithoutOrganization) {
+          const url = request.nextUrl.clone();
+          url.pathname = "/dashboard/company";
+          url.search = "";
+          return NextResponse.redirect(url);
+        }
+      } else if (!roleCanOpenPath(pathname, membership.role)) {
+        const url = request.nextUrl.clone();
+        url.pathname = "/dashboard";
+        url.search = "";
+        url.searchParams.set("error", "access-denied");
+        return NextResponse.redirect(url);
+      }
     }
   }
 

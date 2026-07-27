@@ -1,9 +1,9 @@
 import {getI18n} from "@/i18n/server";
+import {REPORT_ROLES} from "@/lib/auth/permissions";
+import {getVisibleUserIds} from "@/lib/auth/scope";
 import {loadReportAnalytics} from "@/lib/reports/analytics";
 import {createAdminClient} from "@/lib/supabase/admin";
 import {createClient} from "@/lib/supabase/server";
-
-const reportRoles = new Set(["owner", "admin", "hr", "manager"]);
 
 type OrganizationRelation =
   | {name?: string | null}
@@ -48,9 +48,16 @@ export async function GET(request: Request) {
     .limit(1)
     .maybeSingle();
 
-  if (membershipError || !membership || !reportRoles.has(membership.role)) {
+  if (membershipError || !membership || !REPORT_ROLES.has(membership.role)) {
     return new Response("Forbidden", {status: 403});
   }
+
+  const visibleUserIds = await getVisibleUserIds({
+    admin,
+    organizationId: membership.organization_id,
+    actorId: authData.user.id,
+    role: membership.role,
+  });
 
   const {t, locale} = await getI18n();
   const url = new URL(request.url);
@@ -62,6 +69,7 @@ export async function GET(request: Request) {
       member: url.searchParams.get("member"),
     },
     locale,
+    allowedMemberIds: membership.role === "manager" ? visibleUserIds : undefined,
   });
 
   const organizationName =

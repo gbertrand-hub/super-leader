@@ -1,0 +1,113 @@
+SUPER LEADER - RAPPORTS & ANALYSES V1
+
+Ajouts:
+- /dashboard/reports
+- /api/reports/export
+- filtres période, équipe et collaborateur
+- indicateurs feedback, reconnaissance et plans d'action
+- tendances mensuelles
+- résultats par équipe
+- export CSV
+- impression / PDF
+- traductions FR / EN
+
+Modifications:
+- activation de Rapports dans le menu
+- ajout de Rapports au tableau de bord des rôles autorisés
+- amélioration de l'impression en masquant la navigation
+
+SQL: aucun
+Dépendances: aucune
+
+SUPER LEADER - ROLES, PERMISSIONS ET CONFIDENTIALITE V2
+
+Ajouts:
+- matrice centrale de permissions dans `src/lib/auth/permissions.ts`
+- calcul centralise du perimetre utilisateur dans `src/lib/auth/scope.ts`
+- protection des URL par role dans `proxy.ts`
+- migration Supabase `019_roles_permissions_privacy_v2.sql`
+- documentation fonctionnelle et matrice de tests V2
+
+Corrections:
+- Manager limite a lui-meme et aux collaborateurs officiellement supervises
+- RH retire des modules commerciaux et financiers
+- raccourcis du tableau de bord filtres selon le role
+- requetes, actions serveur, exports, pieces jointes et notifications controles par perimetre
+- CRM, ventes, recouvrement, rapports, performance et plans d'action renforces
+- calcul du classement global reserve a Owner/Admin/HR
+- parametres RH sensibles caches et refuses au Manager
+- protection du compte Owner et du parcours mot de passe temporaire conservees
+
+SQL:
+- executer `supabase/019_roles_permissions_privacy_v2.sql` apres la migration 018
+
+Dependances:
+- aucune nouvelle dependance
+
+SUPER LEADER V2.1 - MEMBERS DISPLAY HOTFIX
+Date: 27 July 2026
+
+- Fixed the Members & assignments page showing Collaborators (0) even when active organization members exist.
+- Replaced an invalid PostgREST embedded profiles relationship with two explicit queries joined by user_id.
+- Added query error handling so a failed members query is no longer silently displayed as an empty list.
+- Fixed the Company & members page using the same invalid profile relationship.
+- Managers no longer count themselves as a supervised collaborator on the Members & assignments page.
+- No Supabase migration is required for this hotfix.
+
+SUPER LEADER V2.1 - GESTION COMPLETE DES DEPARTEMENTS ET EQUIPES
+Date: 27 July 2026
+
+Ajouts:
+- cartes d'equipe cliquables et fiche de configuration complete
+- responsable officiel par equipe avec `teams.manager_id`
+- ajout et retrait des membres directement dans la fiche
+- modification du nom et du departement
+- archivage et restauration sans suppression de l'historique
+- journal `team_activity_log`
+- migration `020_team_management_v2_1.sql`
+- documentation et matrice de tests V2.1
+
+Permissions:
+- Owner/Admin: structure, affectations et cycle de vie
+- RH: responsables et affectations uniquement
+- Manager: lecture seule de ses equipes et de leurs membres
+- Employee: aucun acces au module d'administration des equipes
+
+Confidentialite:
+- le perimetre Manager inclut les collaborateurs des equipes qu'il dirige
+- RLS renforce sur les equipes, affectations et historique
+- un Manager demis de son role ou desactive est retire des equipes et de la supervision courante
+
+Dependances:
+- aucune nouvelle dependance
+
+SUPER LEADER V2.1.2 - VUE MANAGER SIMPLIFIEE ET SECURISEE
+Date: 27 July 2026
+
+Interface:
+- titre et explications adaptes au role Manager
+- boutons de modification du role et de desactivation totalement masques
+- fiche collaborateur simplifiee avec role, statut et equipes en lecture seule
+- affectation disponible uniquement vers les equipes dirigees par le Manager
+
+Securite:
+- controles serveur sur l'equipe cible et le collaborateur cible
+- refus des affectations ou retraits hors du perimetre Manager
+- changement du Manager officiel toujours reserve a Owner/Admin/RH
+- structure et cycle de vie des equipes toujours reserves a Owner/Admin
+
+SQL:
+- aucune nouvelle migration
+
+Dependances:
+- aucune nouvelle dependance
+
+V2.2 - SUPER LEADER ACADEMY V1
+- Ajout du catalogue mensuel de formations obligatoires et facultatives.
+- Ajout des affectations limitées par rôle et périmètre d’équipe.
+- Ajout de la progression, du quiz final et des tentatives limitées.
+- Correction sécurisée du quiz côté serveur.
+- Ajout de certificats de complétion vérifiables et imprimables.
+- Ajout du critère Formation au score mensuel et à l’éligibilité Employé du mois.
+- Ajout de Super Leader Academy dans le menu, le tableau de bord et Ma journée.
+- Ajout de notifications, priorités et journal d’audit.
