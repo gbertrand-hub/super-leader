@@ -1,0 +1,45 @@
+SUPER LEADER ACADEMY V2.2.5
+
+- Verrouille le quiz jusqu’à la fin de toutes les séances non annulées.
+- Ne compte plus les séances futures comme absences.
+- Calcule la présence uniquement sur les séances terminées.
+- Bloque côté serveur les soumissions anticipées.
+- Ajoute des triggers Supabase contre les tentatives et certificats non éligibles.
+- Vérifie à nouveau les conditions avant toute création de certificat.
+- Ajoute des messages FR/EN distincts pour séances en attente et présence insuffisante.
+
+SUPER LEADER ACADEMY V2.2.6
+
+- Ajoute le logo officiel iLEAD Global au certificat de complétion.
+- Ajoute un QR code unique relié à la page publique de vérification.
+- Utilise l’URL publique configurée par NEXT_PUBLIC_SITE_URL pour les certificats imprimés.
+- Affiche clairement les statuts Certificat valide et Certificat révoqué.
+- Modernise la page publique de vérification avec le titulaire, la formation, le score, la présence et le numéro unique.
+- Ajoute une route QR mise en cache avec une image de secours si le fournisseur QR est indisponible.
+- Marque la page de vérification comme non indexable par les moteurs de recherche.
+
+SUPER LEADER V2.3 - PLAN DE CROISSANCE ET CONTRIBUTIONS D'IMPACT
+
+- Sépare les heures de travail, les heures supplémentaires RH et les heures d'impact.
+- Ajoute un plan mensuel avec objectifs d'heures, de crédits et de compétences.
+- Ajoute les déclarations de contributions avec résultat, livrable et preuve privée.
+- Calcule automatiquement les durées de nuit, de week-end et le passage à minuit.
+- Ajoute la validation complète, partielle ou le refus par le périmètre autorisé.
+- Ajoute des crédits de croissance basés sur la durée reconnue et l'impact validé.
+- Ajoute une alerte de bien-être pour les contributions tardives ou de week-end.
+- Intègre Initiative et ajout de valeur au classement de l'Employé du mois.
+- Ajoute les notifications, le journal d'audit et les protections RLS.
+
+SUPER LEADER V2.3.1 - PARCOURS DE FORMATION ET HEURES DE DEVELOPPEMENT
+
+- Ajoute les Écoles des Coachs, des Affaires, des Experts et des Éleveurs au Plan de croissance.
+- Ajoute le Lundi de la Vision, la lecture de livres et les autres formations autorisées.
+- Synchronise automatiquement les présences Academy avec les heures de développement.
+- Empêche le double comptage d'une même présence.
+- Ajoute les objectifs mensuels d'heures de formation et de lecture.
+- Ajoute des taux et un plafond configurables pour les crédits de développement.
+- Ajoute la déclaration manuelle des formations externes et des lectures.
+- Exige les enseignements et une action d'application pour la lecture d'un livre.
+- Intègre les crédits de formation et de lecture au score mensuel de croissance.
+- Comptabilise séparément les activités du soir, de nuit et du week-end sans paiement automatique.
+- Ajoute les notifications, l'audit, la confidentialité par périmètre et les politiques RLS.

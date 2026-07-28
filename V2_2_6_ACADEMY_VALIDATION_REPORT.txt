@@ -1,0 +1,13 @@
+SUPER LEADER ACADEMY V2.2.6 - VALIDATION
+
+- Logo iLEAD Global optimisé et ajouté : OK
+- Certificat connecté mis à jour : OK
+- Page publique de vérification mise à jour : OK
+- QR code relié au jeton public unique : OK
+- Route QR avec cache et image de secours : OK
+- Statuts actif/révoqué affichés : OK
+- Traductions FR/EN ajoutées : OK
+- Vérification syntaxique TypeScript/TSX des fichiers modifiés : OK
+- Migration Supabase requise : NON
+
+Contrôle final à réaliser dans l’environnement utilisateur : scan du QR sur le domaine de production et impression PDF.

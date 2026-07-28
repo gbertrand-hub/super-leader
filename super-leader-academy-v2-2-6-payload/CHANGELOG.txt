@@ -1,0 +1,19 @@
+SUPER LEADER ACADEMY V2.2.5
+
+- Verrouille le quiz jusqu’à la fin de toutes les séances non annulées.
+- Ne compte plus les séances futures comme absences.
+- Calcule la présence uniquement sur les séances terminées.
+- Bloque côté serveur les soumissions anticipées.
+- Ajoute des triggers Supabase contre les tentatives et certificats non éligibles.
+- Vérifie à nouveau les conditions avant toute création de certificat.
+- Ajoute des messages FR/EN distincts pour séances en attente et présence insuffisante.
+
+SUPER LEADER ACADEMY V2.2.6
+
+- Ajoute le logo officiel iLEAD Global au certificat de complétion.
+- Ajoute un QR code unique relié à la page publique de vérification.
+- Utilise l’URL publique configurée par NEXT_PUBLIC_SITE_URL pour les certificats imprimés.
+- Affiche clairement les statuts Certificat valide et Certificat révoqué.
+- Modernise la page publique de vérification avec le titulaire, la formation, le score, la présence et le numéro unique.
+- Ajoute une route QR mise en cache avec une image de secours si le fournisseur QR est indisponible.
+- Marque la page de vérification comme non indexable par les moteurs de recherche.

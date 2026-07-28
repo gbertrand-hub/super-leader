@@ -1,0 +1,45 @@
+SUPER LEADER V2.3.1 - VALIDATION REPORT
+PARCOURS DE FORMATION ET HEURES DE DEVELOPPEMENT
+
+DATE: 2026-07-28
+
+SCOPE
+- Growth pathway classification for Academy courses.
+- Automatic Academy attendance synchronisation.
+- Manual training and book-reading declarations.
+- Monthly training and reading targets.
+- Development credits and Employee of the Month integration.
+- Evening, night and weekend tracking.
+- Role scope, RLS, notifications and audit.
+
+MODIFIED APPLICATION FILES
+- src/app/actions/growth.ts
+- src/app/dashboard/growth/page.tsx
+- src/app/actions/academy.ts
+- src/app/dashboard/academy/page.tsx
+- src/components/academy-course-wizard.tsx
+- src/app/actions/performance.ts
+- src/i18n/messages.ts
+- README.md
+- CHANGELOG.txt
+
+NEW FILES
+- supabase/028_development_learning_hours_v2_3_1.sql
+- docs/development-learning-hours-v2-3-1.md
+- docs/development-learning-hours-v2-3-1-test-matrix.md
+
+CHECKS COMPLETED
+- TypeScript/TSX transpilation syntax check: PASSED for all 7 modified source files.
+- Static French and English translation-key check: PASSED for 283 referenced keys.
+- SQL structural checks: PASSED.
+- Existing schema references checked for Academy attendance, supervision helpers and update triggers.
+- Package file structure and installer paths checked.
+
+IMPORTANT RUNTIME CHECKS
+- Execute supabase/028_development_learning_hours_v2_3_1.sql in Supabase SQL Editor.
+- Confirm the SQL result in the connected Supabase project.
+- Run npm run build in the installed project where npm dependencies are available.
+- Complete the V2.3.1 test matrix before organisation-wide activation.
+
+LIMITATION OF THIS VALIDATION ENVIRONMENT
+The full Next.js production build was not executed because the isolated source workspace does not contain the project's installed npm dependencies. Syntax validation passed, but the connected local/production environment remains the authority for the final build and database execution.

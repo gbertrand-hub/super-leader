@@ -1,0 +1,22 @@
+SUPER LEADER V2.3 - RAPPORT DE VALIDATION
+PLAN DE CROISSANCE ET CONTRIBUTIONS D'IMPACT
+
+CONTROLES EFFECTUES
+- 96 fichiers TypeScript/TSX transpilés sans erreur de syntaxe.
+- Navigation FR/EN ajoutée.
+- Périmètres Owner/Admin/RH/Manager/Employee appliqués côté serveur.
+- Calcul nuit, week-end et passage à minuit intégré.
+- Pièces justificatives privées intégrées au système existant.
+- Liens de preuve limités à HTTP/HTTPS.
+- Validation complète, partielle ou refusée avec audit et notification.
+- Crédits plafonnés par contribution et par mois.
+- Intégration au classement mensuel et score total plafonné à 100.
+- Ecritures directes des clients authentifiés retirées des tables V2.3.
+- Création automatique des paramètres pour les nouvelles organisations.
+
+CONTROLE A REALISER DANS L'ENVIRONNEMENT CONNECTE
+- Exécuter supabase/027_growth_impact_v2_3.sql.
+- Lancer npm run build après installation complète des dépendances.
+- Tester les cinq rôles avec de vraies affectations d'équipe.
+- Tester une contribution de nuit passant à minuit et une contribution de week-end.
+- Recalculer un classement mensuel après validation d'une contribution.
