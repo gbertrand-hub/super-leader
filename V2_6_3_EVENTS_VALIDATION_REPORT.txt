@@ -1,0 +1,16 @@
+SUPER LEADER V2.6.3 - EVENTS AND TEMPORARY TEAMS
+
+Validated:
+- New event database model and RLS scope.
+- Separate temporary mission-team assignments.
+- Event creation, update, team, tasks, schedule, documents and final-report actions.
+- Event navigation and subscription entitlement.
+- French and English navigation labels.
+- TypeScript/TSX syntax checks completed for changed files.
+- Server-action imports matched against exports.
+- Package integrity to be checked after ZIP creation.
+
+To confirm in the connected environment:
+- Supabase migration execution.
+- npm run build.
+- Role and RLS tests with Owner, Manager and Employee accounts.

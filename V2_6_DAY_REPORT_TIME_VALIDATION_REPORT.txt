@@ -1,0 +1,23 @@
+SUPER LEADER V2.6 - RAPPORT DE VALIDATION
+
+Perimetre : gouvernance de Ma journee, rapport unique, versions de rapport, classification du temps, reunions et bien-etre.
+
+CONTROLES EFFECTUES
+- 124 fichiers TypeScript/TSX analyses par transpilation TypeScript.
+- 0 erreur de syntaxe detectee.
+- Imports locaux et chemins des fichiers V2.6 verifies.
+- Migration SQL 033 inspectee statiquement.
+- Regles de permissions Employee / Manager / HR / Admin / Owner verifiees dans les actions serveur.
+- Cas de cloture apres minuit pris en charge par recherche de la derniere presence ouverte.
+- Test de calcul jour : 09:00-20:00 = 660 min total, 180 min hors planning.
+- Test de calcul nuit/week-end : vendredi 20:00-samedi 02:00 = 360 min total, 240 min de nuit, 120 min de week-end.
+- Cache .next et dependances exclus du paquet de mise a jour.
+
+CONTROLE NON EXECUTE DANS L'ENVIRONNEMENT DE PREPARATION
+- Le build Next.js complet n'a pas pu etre execute : npm ci n'a pas termine dans le delai disponible et node_modules n'etait pas inclus dans le ZIP source.
+
+CONTROLE REQUIS SUR LE POSTE DU PROJET
+1. Executer la migration 033 dans Supabase.
+2. Lancer npm install si necessaire.
+3. Executer npm run build.
+4. Appliquer la matrice de tests docs/day-report-time-governance-v2-6-test-matrix.md.

@@ -1,0 +1,16 @@
+SUPER LEADER V2.6.2 - VALIDATION REPORT
+
+Scope:
+- Replaced native window.confirm with a controlled Super Leader modal.
+- Added explicit Confirm and Cancel actions.
+- Added French and English labels.
+- Applied labels to My Day and Performance confirmation actions.
+
+Static validation:
+- confirm-submit-button.tsx: TypeScript transpilation passed.
+- dashboard/my-day/page.tsx: TypeScript transpilation passed.
+- dashboard/performance/page.tsx: TypeScript transpilation passed.
+- i18n/messages.ts: TypeScript transpilation passed.
+
+Database migration: none.
+Required runtime test: cancel once, then confirm once from both My Day and Performance.

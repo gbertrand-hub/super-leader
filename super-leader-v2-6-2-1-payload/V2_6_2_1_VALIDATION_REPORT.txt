@@ -1,0 +1,7 @@
+SUPER LEADER V2.6.2.1 VALIDATION
+- Complete performance action file included.
+- reopenWorkdayAction export verified.
+- reopenDailyReportAction export verified.
+- Installer backs up the previous file.
+- Installer stops Node processes and clears .next.
+- No Supabase SQL required.

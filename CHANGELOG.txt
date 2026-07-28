@@ -83,3 +83,30 @@ V2.5.2 - Plan Free, limite de 5 utilisateurs et conversion vers Starter
 - Appel a l action pour passer vers Starter.
 - Aucun paiement reel active.
 
+
+SUPER LEADER V2.6.1 - REINITIALISATION D ACCES DEPUIS LA FICHE MEMBRE
+- Lien securise personnel avec envoi email facultatif.
+- Nouveau mot de passe temporaire avec expiration et changement obligatoire.
+- Protection du Owner, du compte courant et des membres desactives.
+- Journal d audit des generations et des envois.
+
+
+SUPER LEADER V2.6.2 - CONFIRMATION FIABLE AVANT CLOTURE
+- Fenetre Super Leader avant la cloture de journee.
+- Annulation sans appel de l action serveur.
+- Confirmation explicite FR et EN.
+- Protection contre les doubles soumissions.
+
+
+SUPER LEADER V2.6.3 - EVENTS AND TEMPORARY TEAMS
+- Event operations centre.
+- Cross-team temporary mission teams.
+- Tasks, schedule, documents and final report.
+- Event permissions, notifications and audit trail.
+
+
+SUPER LEADER V2.6.3.1 - EVENT TASK EDITING
+- Edit task definition after creation.
+- Assign or reassign tasks to mission team members.
+- Notify newly assigned members and preserve audit history.
+

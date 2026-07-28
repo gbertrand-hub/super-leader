@@ -1,6 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 
-function clean(value: string | null | undefined): string {
+function clean(value: string | undefined): string {
   return String(value ?? "").trim();
 }
 

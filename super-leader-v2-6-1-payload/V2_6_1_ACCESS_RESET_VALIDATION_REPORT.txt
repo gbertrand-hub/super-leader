@@ -1,0 +1,19 @@
+SUPER LEADER V2.6.1 - RAPPORT DE VALIDATION
+
+Fonctions integrees :
+- Reinitialisation directe depuis la fiche membre.
+- Lien securise personnel avec envoi Resend facultatif.
+- Mot de passe temporaire avec expiration et changement obligatoire.
+- Protection Owner, auto-reinitialisation et membres desactives.
+- Nettoyage de la contrainte temporaire apres un changement par lien securise.
+- Journal d audit reutilisant temporary_access_audit_log.
+
+Controles effectues :
+- Analyse syntaxique TypeScript/TSX des 6 fichiers modifies : OK.
+- Verification manuelle des controles de role et d organisation : OK.
+- Aucun changement SQL requis.
+
+A confirmer sur le poste utilisateur :
+- npm run build
+- envoi reel Resend
+- parcours complet avec un compte de test

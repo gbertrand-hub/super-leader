@@ -1,0 +1,5 @@
+SUPER LEADER V2.6.3.1
+- TypeScript/TSX syntax checked with TypeScript transpilation.
+- No SQL migration required.
+- Task definition editing restricted to event managers.
+- Task execution editing remains available to the assignee.
