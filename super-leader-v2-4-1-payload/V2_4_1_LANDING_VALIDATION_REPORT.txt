@@ -1,0 +1,24 @@
+SUPER LEADER V2.4.1 - VALIDATION REPORT
+
+Scope:
+- Commercial landing page
+- Public demo conversion path
+- Internal iLEAD access path
+- Responsive bilingual presentation
+
+Validation performed:
+- TypeScript/TSX syntax transpilation: PASSED
+- Local relative imports reviewed: PASSED
+- No database migration required: CONFIRMED
+- External image dependency: NONE
+- Existing authentication-aware navigation preserved: CONFIRMED
+
+Files changed:
+- src/app/page.tsx
+
+Manual acceptance tests remain required in the connected Next.js environment:
+- desktop visual review
+- mobile visual review
+- FR/EN switching
+- /signup, /ilead-access and /login navigation
+- authenticated /dashboard button

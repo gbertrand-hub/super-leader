@@ -1,0 +1,21 @@
+SUPER LEADER V2.5.1 - PUBLIC PRICING VALIDATION REPORT
+
+FILES ADDED OR UPDATED
+- src/app/pricing/page.tsx
+- supabase/031_public_pricing_catalog_v2_5_1.sql
+- docs/public-pricing-catalog-v2-5-1.md
+- docs/public-pricing-catalog-v2-5-1-test-matrix.md
+
+VALIDATION
+- TypeScript/TSX syntax inspected with TypeScript 5.8.3.
+- Only expected unresolved-import diagnostics occurred because project dependencies were not installed in the packaging environment.
+- No TSX parse or syntax diagnostics were reported.
+- SQL migration reviewed for idempotent UPDATE operations after migration 030.
+- Legacy Full Access remains internal and hidden from public pricing.
+- No live payment provider or bank charge is enabled.
+
+MANUAL ENVIRONMENT TESTS REQUIRED
+- Run migration 031 in Supabase.
+- Open /pricing in monthly and annual modes.
+- Confirm the plans and values match the administration page.
+- Confirm responsive rendering in desktop and mobile browsers.

@@ -53,3 +53,33 @@ SUPER LEADER V2.4 - ACQUISITION SAAS & DEMANDES D'ACCES INTERNES
 - Separation stricte des donnees commerciales et des demandes RH internes.
 - Creation libre d'organisation desactivee pour les comptes sans membership.
 - Journal d'audit et notifications de nouvelles demandes.
+
+V2.4.1 - Landing Page commerciale & parcours de conversion
+- Nouvelle landing page commerciale responsive FR/EN.
+- Parcours distincts demande de demo et acces interne iLEAD.
+- Presentation des fonctionnalites, du fonctionnement et de la securite.
+
+
+V2.5 - Plans, abonnements & controle des fonctionnalites
+- Catalogue Starter, Growth et Enterprise configurable.
+- Essais, suspensions, annulations programmees et plan historique protege.
+- Controle des modules, limites de collaborateurs, coupons et factures de test.
+- Page publique /pricing. Aucun paiement reel active.
+
+
+V2.5.1 - Catalogue public Starter, Growth et Enterprise
+- Cartes publiques avec tarifs mensuels et annuels provisoires.
+- Limites de collaborateurs et modules inclus par plan.
+- Growth mis en avant et Enterprise sur devis.
+- Le plan historique interne reste masque.
+- Aucun paiement reel active.
+
+
+V2.5.2 - Plan Free, limite de 5 utilisateurs et conversion vers Starter
+- Nouveau plan Free public a 0 USD.
+- Limite de 5 utilisateurs actifs, proprietaire inclus.
+- Demande d activation gratuite et approbation dans le pipeline Acquisition.
+- Attribution automatique du plan demande lors de la conversion.
+- Appel a l action pour passer vers Starter.
+- Aucun paiement reel active.
+

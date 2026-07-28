@@ -1,0 +1,25 @@
+SUPER LEADER V2.5 - VALIDATION REPORT
+
+Scope:
+- Plan catalogue
+- Trial and manual subscriptions
+- Feature entitlements
+- Member limits
+- Coupons
+- Manual test invoices
+- Public pricing page
+- Prospect conversion to Starter trial
+
+Validation performed:
+- 121 TypeScript/TSX files parsed without syntax errors.
+- All local @/ imports resolved to existing files.
+- Feature gates added to navigation, dashboard, pages and primary server actions.
+- Existing organizations receive protected legacy full access in migration 030.
+- No live payment provider or real bank charge is enabled.
+
+Environment limitation:
+- A complete Next.js build could not be executed in the packaging environment because project npm dependencies were not installed there.
+- Run npm install and npm run build on the target computer before production deployment.
+
+Required database step:
+- Execute supabase/030_subscriptions_feature_control_v2_5.sql exactly once.

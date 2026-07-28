@@ -1,0 +1,31 @@
+SUPER LEADER V2.5.2 - FREE PLAN VALIDATION REPORT
+
+FILES ADDED OR UPDATED
+- src/app/pricing/page.tsx
+- src/app/signup/page.tsx
+- src/components/acquisition/organization-signup-form.tsx
+- src/lib/acquisition/requests.ts
+- src/app/actions/auth.ts
+- src/app/actions/acquisition.ts
+- src/app/dashboard/acquisition/page.tsx
+- src/app/dashboard/subscription/page.tsx
+- supabase/032_free_plan_v2_5_2.sql
+- docs/free-plan-v2-5-2.md
+- docs/free-plan-v2-5-2-test-matrix.md
+
+VALIDATION COMPLETED
+- 121 TypeScript/TSX files parsed with TypeScript 5.8.3.
+- No TypeScript or TSX syntax diagnostics were reported.
+- Free plan is public, active, free and limited to 5 active users including the owner.
+- Requested plan is preserved from pricing through signup and acquisition.
+- Free activation is separated from paid-plan trials.
+- Conversion rolls back the organization if subscription assignment fails.
+- Legacy Full Access remains internal and hidden.
+- No live payment provider or bank charge is enabled.
+
+MANUAL ENVIRONMENT TESTS REQUIRED
+- Run migration 032 in Supabase.
+- Test the public Free CTA and signup form.
+- Approve and convert one Free request.
+- Confirm the fifth-user limit and sixth-user rejection.
+- Confirm non-Free modules redirect to the subscription page.
