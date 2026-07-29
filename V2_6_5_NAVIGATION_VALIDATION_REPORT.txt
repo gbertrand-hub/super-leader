@@ -1,0 +1,12 @@
+SUPER LEADER V2.6.5 — VALIDATION
+
+- Configuration centrale du menu créée.
+- 5 sections fonctionnelles ajoutées.
+- 21 routes principales du dashboard couvertes.
+- Filtres par rôle, espace plateforme et abonnement vérifiés.
+- Modules verrouillés visibles pour Owner/Admin avec redirection abonnement.
+- Traductions FR/EN ajoutées.
+- Navigation mobile et compteur de notifications conservés.
+- 129 fichiers TypeScript/TSX analysés : 0 erreur de syntaxe.
+- Aucun SQL Supabase requis.
+- Build Next.js complet à confirmer localement ; npm ci indisponible dans l’environnement de préparation (paquet registry manquant).

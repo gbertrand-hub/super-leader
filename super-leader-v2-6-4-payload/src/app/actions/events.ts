@@ -8,8 +8,6 @@ import {createNotification} from "@/lib/notifications/service";
 import {createAdminClient} from "@/lib/supabase/admin";
 import {createClient} from "@/lib/supabase/server";
 import {normalizeTimeZone} from "@/lib/timezone";
-import {createZoomMeeting, deleteZoomMeeting} from "@/lib/zoom/client";
-import {zoomAvailableForOrganization} from "@/lib/zoom/settings";
 
 const eventAdminRoles = new Set(["owner", "admin", "hr"]);
 const eventTypes = new Set(["conference", "masterclass", "training", "ceremony", "networking", "community", "other"]);
@@ -653,76 +651,9 @@ export async function createEventScheduleItemAction(formData: FormData) {
   const startAt = zonedLocalToIso(formData.get("startAt"), event.timezone);
   const endAt = zonedLocalToIso(formData.get("endAt"), event.timezone);
   const ownerId = first(formData.get("ownerId"));
-  const createZoomRequested = formData.get("createZoom") === "on" && itemType === "meeting";
   if (title.length < 2 || !startAt || !endAt || endAt <= startAt) goEvent(copy.invalid, "error", eventId);
   if (ownerId && !(await activeOrganizationMember(admin, event.organization_id, ownerId))) goEvent(copy.memberInvalid, "error", eventId);
 
-  let zoomMeeting: Awaited<ReturnType<typeof createZoomMeeting>> | null = null;
-  let performanceMeetingId: string | null = null;
-  if (createZoomRequested) {
-    await enforceOrganizationFeature(event.organization_id, "api_integrations");
-    const zoom = await zoomAvailableForOrganization(admin, event.organization_id);
-    if (!zoom.available || !zoom.settings.default_host_email) {
-      goEvent("Zoom n’est pas encore configuré pour cette organisation.", "error", eventId, "schedule");
-    }
-    try {
-      zoomMeeting = await createZoomMeeting({
-        hostEmail: zoom.settings.default_host_email,
-        topic: `${event.name} — ${title}`,
-        startTime: startAt,
-        durationMinutes: Math.max(15, Math.round((new Date(endAt).getTime() - new Date(startAt).getTime()) / 60000)),
-        timezone: event.timezone,
-        agenda: nullable(formData.get("notes"), 2000),
-      });
-      const {data: performanceMeeting, error: meetingError} = await admin.from("performance_meetings").insert({
-        organization_id: event.organization_id,
-        title: `${event.name} — ${title}`,
-        meeting_type: "company",
-        mandatory: true,
-        starts_at: startAt,
-        ends_at: endAt,
-        notes: nullable(formData.get("notes"), 2000),
-        created_by: user.id,
-        provider: "zoom",
-        meeting_url: zoomMeeting.join_url,
-        zoom_meeting_id: String(zoomMeeting.id),
-        zoom_meeting_uuid: zoomMeeting.uuid,
-        zoom_host_id: zoomMeeting.host_id,
-        zoom_host_email: zoomMeeting.host_email || zoom.settings.default_host_email,
-        zoom_start_url: null,
-        zoom_status: "scheduled",
-        zoom_created_at: new Date().toISOString(),
-        source_type: "event",
-        source_id: eventId,
-      }).select("id").single<{id: string}>();
-      if (meetingError || !performanceMeeting) throw new Error(meetingError?.message || "Unable to create the Super Leader meeting.");
-      performanceMeetingId = performanceMeeting.id;
-
-      const {data: teamRows} = await admin
-        .from("event_team_members")
-        .select("user_id")
-        .eq("event_id", eventId)
-        .in("status", ["assigned", "confirmed"]);
-      const participantIds = new Set<string>((teamRows || []).map((row) => String(row.user_id)));
-      if (event.leader_id) participantIds.add(event.leader_id);
-      if (ownerId) participantIds.add(ownerId);
-      if (participantIds.size) {
-        const {error: attendeeError} = await admin.from("performance_meeting_attendance").insert([...participantIds].map((participantId) => ({
-          organization_id: event.organization_id,
-          meeting_id: performanceMeeting.id,
-          user_id: participantId,
-          status: "invited",
-        })));
-        if (attendeeError) throw new Error(attendeeError.message);
-      }
-    } catch (error) {
-      if (performanceMeetingId) await admin.from("performance_meetings").delete().eq("id", performanceMeetingId);
-      if (zoomMeeting) await deleteZoomMeeting(String(zoomMeeting.id)).catch(() => undefined);
-      goEvent(`Création Zoom impossible : ${error instanceof Error ? error.message : "erreur inconnue"}`, "error", eventId, "schedule");
-    }
-  }
-
-  const manualMeetingUrl = normalizeUrl(formData.get("meetingUrl"));
   const {data: scheduleItem, error} = await admin.from("event_schedule_items").insert({
     organization_id: event.organization_id,
     event_id: eventId,
@@ -731,22 +662,17 @@ export async function createEventScheduleItemAction(formData: FormData) {
     start_at: startAt,
     end_at: endAt,
     location: nullable(formData.get("location"), 240),
-    meeting_url: zoomMeeting?.join_url || manualMeetingUrl,
-    performance_meeting_id: performanceMeetingId,
+    meeting_url: normalizeUrl(formData.get("meetingUrl")),
     unit_name: nullable(formData.get("unitName"), 160),
     owner_id: ownerId || null,
     status,
     notes: nullable(formData.get("notes"), 2000),
     created_by: user.id,
   }).select("id").single<{id: string}>();
-  if (error || !scheduleItem) {
-    if (performanceMeetingId) await admin.from("performance_meetings").delete().eq("id", performanceMeetingId);
-    if (zoomMeeting) await deleteZoomMeeting(String(zoomMeeting.id)).catch(() => undefined);
-    goEvent(message(copy.saveFailed, {message: error?.message ?? "Unknown error"}), "error", eventId);
-  }
-  await logEvent(admin, {organizationId: event.organization_id, eventId, actorId: user.id, action: "schedule_item_created", targetUserId: ownerId || null, details: {schedule_item_id: scheduleItem.id, title, start_at: startAt, end_at: endAt, provider: zoomMeeting ? "zoom" : "manual", performance_meeting_id: performanceMeetingId}});
+  if (error || !scheduleItem) goEvent(message(copy.saveFailed, {message: error?.message ?? "Unknown error"}), "error", eventId);
+  await logEvent(admin, {organizationId: event.organization_id, eventId, actorId: user.id, action: "schedule_item_created", targetUserId: ownerId || null, details: {schedule_item_id: scheduleItem.id, title, start_at: startAt, end_at: endAt}});
   refreshEventViews();
-  goEvent(zoomMeeting ? "Activité et réunion Zoom ajoutées au planning." : copy.scheduleCreated, "success", eventId, "schedule");
+  goEvent(copy.scheduleCreated, "success", eventId, "schedule");
 }
 
 export async function addEventDocumentAction(formData: FormData) {

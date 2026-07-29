@@ -110,3 +110,26 @@ SUPER LEADER V2.6.3.1 - EVENT TASK EDITING
 - Assign or reassign tasks to mission team members.
 - Notify newly assigned members and preserve audit history.
 
+
+SUPER LEADER V2.6.4 - EVENT OPERATIONS CENTRE REDESIGN
+- Event selector and compact operational header.
+- Tabbed views for team, tasks, schedule, budget, documents and report.
+- Quick actions and operational overview indicators.
+- Correct date-based active event counter.
+
+
+SUPER LEADER V2.6.5 - NAVIGATION UNIFIEE ET MENU DYNAMIQUE
+- Menu centralise en cinq sections fonctionnelles.
+- Affichage selon le role, le plan et l espace plateforme.
+- Modules non inclus visibles comme verrouilles pour Owner et Admin.
+- Couverture de toutes les pages principales du dashboard.
+- Traductions FR et EN harmonisees.
+
+
+SUPER LEADER V2.7 - ZOOM API ET PRESENCE AUTOMATIQUE
+- Creation Zoom depuis Performance et Evenements.
+- Boutons Rejoindre et Demarrer comme hote.
+- Webhooks signes pour entree, sortie et fin de reunion.
+- Calcul automatique des presences, retards et durees.
+- Ecran d administration des integrations.
+

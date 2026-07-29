@@ -172,13 +172,6 @@ function Icon({ name, className = "h-5 w-5" }: { name: DashboardIconName; classN
         <path d="M3 9h18M7 14h4M15 14h2" />
       </>
     ),
-    integrations: (
-      <>
-        <path d="M8 7V4M16 7V4M7 12H4M20 12h-3M8 17v3M16 17v3" />
-        <rect x="7" y="7" width="10" height="10" rx="3" />
-        <path d="M10 12h4" />
-      </>
-    ),
     schedule: (
       <>
         <rect x="3" y="5" width="18" height="16" rx="2" />

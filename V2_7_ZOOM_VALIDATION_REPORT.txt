@@ -1,0 +1,17 @@
+SUPER LEADER V2.7 - ZOOM API ET PRESENCE AUTOMATIQUE
+
+CONTROLES EFFECTUES
+- 136 fichiers TypeScript/TSX transpilés sans erreur de syntaxe.
+- Tous les imports locaux @/ résolus.
+- Création Zoom intégrée aux réunions Performance et aux événements.
+- Webhook signé, anti-rejeu et dédupliqué.
+- Durée du rapport Zoom convertie de secondes en minutes.
+- Double comptage des synchronisations finales évité.
+- Lien participant visible selon les permissions.
+- Lien hôte obtenu uniquement au moment du démarrage et non exposé aux participants.
+- Migration Supabase 035 préparée.
+- Documentation et matrice de tests incluses.
+
+LIMITES DE VALIDATION
+- Le build Next.js complet n'a pas pu être exécuté dans l'environnement de préparation car les dépendances npm n'étaient pas disponibles via le registre configuré.
+- Les appels Zoom réels, la validation du webhook et le rapport de participants doivent être testés avec les identifiants du compte Zoom iLEAD.
