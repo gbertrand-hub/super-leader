@@ -1,19 +1,25 @@
 import type {ReactNode} from "react";
 import Link from "next/link";
 import {redirect} from "next/navigation";
-import {saveZoomSettingsAction, testZoomConnectionAction} from "@/app/actions/integrations";
+import {
+  saveZoomHostAction,
+  saveZoomSettingsAction,
+  syncZoomHostsAction,
+  testZoomConnectionAction,
+} from "@/app/actions/integrations";
 import {getI18n} from "@/i18n/server";
 import {enforceOrganizationFeature} from "@/lib/billing/entitlements";
 import {getSiteUrl} from "@/lib/supabase/env";
 import {createAdminClient} from "@/lib/supabase/admin";
 import {createClient} from "@/lib/supabase/server";
 import {getZoomRuntimeStatus} from "@/lib/zoom/config";
-import {getOrganizationZoomSettings} from "@/lib/zoom/settings";
+import {getOrganizationZoomHosts, getOrganizationZoomSettings} from "@/lib/zoom/settings";
 
 type SearchParams = {success?: string | string[]; error?: string | string[]};
 type PageProps = {searchParams?: Promise<SearchParams>};
 type Membership = {organization_id: string; role: string};
-type MeetingRow = {id: string; title: string; starts_at: string; zoom_status: string; zoom_last_synced_at: string | null; zoom_sync_error: string | null};
+type MeetingRow = {id: string; title: string; starts_at: string; zoom_status: string; zoom_last_synced_at: string | null; zoom_sync_error: string | null; zoom_host_email: string | null; zoom_department: string | null};
+type TeamRow = {department: string | null};
 
 function first(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] || "" : value || "";
@@ -47,27 +53,35 @@ export default async function IntegrationsPage({searchParams}: PageProps) {
   if (!membership || !["owner", "admin"].includes(membership.role)) redirect("/dashboard");
   await enforceOrganizationFeature(membership.organization_id, "api_integrations");
 
-  const [settings, runtime, meetingsResult] = await Promise.all([
+  const [settings, runtime, hosts, meetingsResult, teamsResult] = await Promise.all([
     getOrganizationZoomSettings(admin, membership.organization_id),
     Promise.resolve(getZoomRuntimeStatus()),
+    getOrganizationZoomHosts(admin, membership.organization_id),
     admin
       .from("performance_meetings")
-      .select("id,title,starts_at,zoom_status,zoom_last_synced_at,zoom_sync_error")
+      .select("id,title,starts_at,zoom_status,zoom_last_synced_at,zoom_sync_error,zoom_host_email,zoom_department")
       .eq("organization_id", membership.organization_id)
       .eq("provider", "zoom")
       .order("starts_at", {ascending: false})
       .limit(10),
+    admin.from("teams").select("department").eq("organization_id", membership.organization_id).eq("is_active", true),
   ]);
   if (meetingsResult.error && !["42703", "42P01", "PGRST205"].includes(meetingsResult.error.code)) throw new Error(meetingsResult.error.message);
+  if (teamsResult.error && !["42703", "42P01", "PGRST205"].includes(teamsResult.error.code)) throw new Error(teamsResult.error.message);
   const meetings = (meetingsResult.data || []) as MeetingRow[];
+  const departments = [...new Set([
+    ...((teamsResult.data || []) as TeamRow[]).map((team) => String(team.department || "").trim()),
+    ...hosts.map((host) => String(host.department || "").trim()),
+  ].filter(Boolean))].sort((a, b) => a.localeCompare(b));
   const webhookUrl = `${getSiteUrl()}/api/zoom/webhook`;
-  const ready = runtime.configured && runtime.webhookSecretPresent && settings.enabled && Boolean(settings.default_host_email);
+  const activeHosts = hosts.filter((host) => host.is_active && host.zoom_status === "active");
+  const ready = runtime.configured && runtime.webhookSecretPresent && settings.enabled && (activeHosts.length > 0 || Boolean(settings.default_host_email));
 
   const c = fr ? {
     back: "Retour au tableau de bord",
     eyebrow: "INTÉGRATIONS",
     title: "Zoom Meetings",
-    subtitle: "Crée les réunions Zoom depuis Super Leader, offre un accès en un clic et synchronise automatiquement les présences.",
+    subtitle: "Crée les réunions Zoom depuis Super Leader, sélectionne le bon hôte par département et synchronise automatiquement les présences.",
     configured: "Identifiants API configurés",
     missing: "Configuration incomplète",
     enabled: "Intégration activée",
@@ -75,7 +89,7 @@ export default async function IntegrationsPage({searchParams}: PageProps) {
     webhook: "Adresse du webhook Zoom",
     webhookHelp: "Ajoute cette adresse dans les Event Subscriptions de ton application Zoom Server-to-Server OAuth.",
     settings: "Configuration de l’organisation",
-    host: "Email du compte Zoom hôte",
+    host: "Compte Zoom hôte général par défaut",
     activate: "Activer Zoom pour cette organisation",
     autoCreate: "Proposer Zoom par défaut lors de la création d’une réunion",
     autoSync: "Synchroniser automatiquement les présences via les webhooks",
@@ -85,17 +99,28 @@ export default async function IntegrationsPage({searchParams}: PageProps) {
     test: "Tester la connexion Zoom",
     recent: "Réunions Zoom récentes",
     noRecent: "Aucune réunion Zoom n’a encore été créée.",
-    status: "Statut",
     lastSync: "Dernière synchronisation",
     environment: "Variables d’environnement requises",
     envHelp: "Configure ces variables dans .env.local et dans Vercel. Les secrets ne sont jamais affichés dans Super Leader.",
     ready: "Zoom est prêt",
     notReady: "Zoom n’est pas encore prêt",
+    hostsTitle: "Comptes Zoom hôtes par département",
+    hostsHelp: "Synchronise les utilisateurs du compte Zoom, puis associe chaque hôte à son département. Un compte marqué par défaut sera sélectionné automatiquement.",
+    syncHosts: "Synchroniser les comptes Zoom",
+    noHosts: "Aucun compte hôte n’est encore synchronisé. Exécute la migration V2.8, vérifie le scope Zoom de lecture de la liste des utilisateurs, puis clique sur Synchroniser.",
+    department: "Département / pôle",
+    active: "Compte actif dans Super Leader",
+    departmentDefault: "Compte par défaut de ce département",
+    organizationDefault: "Utiliser aussi comme hôte général par défaut",
+    concurrent: "Autoriser les réunions simultanées sur ce compte",
+    saveHost: "Enregistrer ce compte",
+    synced: "Dernière synchronisation Zoom",
+    migration: "Migration requise : supabase/036_zoom_multi_hosts_v2_8.sql",
   } : {
     back: "Back to dashboard",
     eyebrow: "INTEGRATIONS",
     title: "Zoom Meetings",
-    subtitle: "Create Zoom meetings from Super Leader, provide one-click access and automatically sync attendance.",
+    subtitle: "Create Zoom meetings from Super Leader, select the correct departmental host and automatically sync attendance.",
     configured: "API credentials configured",
     missing: "Incomplete configuration",
     enabled: "Integration enabled",
@@ -103,7 +128,7 @@ export default async function IntegrationsPage({searchParams}: PageProps) {
     webhook: "Zoom webhook URL",
     webhookHelp: "Add this URL to the Event Subscriptions of your Zoom Server-to-Server OAuth app.",
     settings: "Organization settings",
-    host: "Zoom host account email",
+    host: "General default Zoom host account",
     activate: "Enable Zoom for this organization",
     autoCreate: "Offer Zoom by default when creating a meeting",
     autoSync: "Automatically sync attendance through webhooks",
@@ -113,12 +138,23 @@ export default async function IntegrationsPage({searchParams}: PageProps) {
     test: "Test Zoom connection",
     recent: "Recent Zoom meetings",
     noRecent: "No Zoom meeting has been created yet.",
-    status: "Status",
     lastSync: "Last sync",
     environment: "Required environment variables",
     envHelp: "Configure these variables in .env.local and Vercel. Secrets are never displayed in Super Leader.",
     ready: "Zoom is ready",
     notReady: "Zoom is not ready yet",
+    hostsTitle: "Department Zoom host accounts",
+    hostsHelp: "Sync users from the Zoom account, then assign each host to a department. A departmental default is selected automatically.",
+    syncHosts: "Sync Zoom host accounts",
+    noHosts: "No host account has been synced. Run the V2.8 migration, verify the Zoom scope for listing users, then click Sync.",
+    department: "Department / unit",
+    active: "Active account in Super Leader",
+    departmentDefault: "Default account for this department",
+    organizationDefault: "Also use as the general default host",
+    concurrent: "Allow simultaneous meetings on this account",
+    saveHost: "Save this account",
+    synced: "Last Zoom sync",
+    migration: "Required migration: supabase/036_zoom_multi_hosts_v2_8.sql",
   };
 
   return <main className="min-h-screen bg-slate-50 p-5 text-slate-950 lg:p-8">
@@ -143,7 +179,8 @@ export default async function IntegrationsPage({searchParams}: PageProps) {
         <article className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
           <h2 className="text-2xl font-black">{c.settings}</h2>
           <form action={saveZoomSettingsAction} className="mt-5 space-y-4">
-            <label className="block text-sm font-black">{c.host}<input name="defaultHostEmail" type="email" defaultValue={settings.default_host_email || ""} required className={fieldClass()} /></label>
+            <label className="block text-sm font-black">{c.host}<input name="defaultHostEmail" list="zoom-host-emails" type="email" defaultValue={settings.default_host_email || ""} required className={fieldClass()} /></label>
+            <datalist id="zoom-host-emails">{hosts.map((host) => <option key={host.id} value={host.email}>{host.display_name || host.email}</option>)}</datalist>
             <label className="flex items-center gap-3 rounded-xl bg-slate-50 p-4 text-sm font-bold"><input name="enabled" type="checkbox" defaultChecked={settings.enabled} />{c.activate}</label>
             <label className="flex items-center gap-3 rounded-xl bg-slate-50 p-4 text-sm font-bold"><input name="autoCreateMeetings" type="checkbox" defaultChecked={settings.auto_create_meetings} />{c.autoCreate}</label>
             <label className="flex items-center gap-3 rounded-xl bg-slate-50 p-4 text-sm font-bold"><input name="autoSyncAttendance" type="checkbox" defaultChecked={settings.auto_sync_attendance} />{c.autoSync}</label>
@@ -158,11 +195,38 @@ export default async function IntegrationsPage({searchParams}: PageProps) {
 
         <div className="space-y-6">
           <article className="rounded-3xl border border-indigo-200 bg-indigo-50 p-6"><h2 className="text-xl font-black text-indigo-950">{c.webhook}</h2><code className="mt-4 block break-all rounded-xl bg-slate-950 p-4 text-sm text-white">{webhookUrl}</code><p className="mt-3 text-sm leading-6 text-indigo-900">{c.webhookHelp}</p></article>
-          <article className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"><h2 className="text-xl font-black">{c.environment}</h2><p className="mt-2 text-sm leading-6 text-slate-500">{c.envHelp}</p><pre className="mt-4 overflow-x-auto rounded-xl bg-slate-950 p-4 text-sm text-white">ZOOM_ACCOUNT_ID=\nZOOM_CLIENT_ID=\nZOOM_CLIENT_SECRET=\nZOOM_WEBHOOK_SECRET_TOKEN=</pre></article>
+          <article className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"><h2 className="text-xl font-black">{c.environment}</h2><p className="mt-2 text-sm leading-6 text-slate-500">{c.envHelp}</p><pre className="mt-4 overflow-x-auto rounded-xl bg-slate-950 p-4 text-sm text-white">{"ZOOM_ACCOUNT_ID=\nZOOM_CLIENT_ID=\nZOOM_CLIENT_SECRET=\nZOOM_WEBHOOK_SECRET_TOKEN="}</pre></article>
         </div>
       </section>
 
-      <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"><h2 className="text-2xl font-black">{c.recent}</h2><div className="mt-5 space-y-3">{meetings.length ? meetings.map((meeting) => <div key={meeting.id} className="flex flex-wrap items-center justify-between gap-4 rounded-2xl bg-slate-50 p-4"><div><p className="font-black">{meeting.title}</p><p className="mt-1 text-sm text-slate-500">{new Intl.DateTimeFormat(locale === "fr" ? "fr-FR" : "en-GB", {dateStyle: "medium", timeStyle: "short"}).format(new Date(meeting.starts_at))}</p>{meeting.zoom_sync_error ? <p className="mt-1 text-xs font-bold text-red-700">{meeting.zoom_sync_error}</p> : null}</div><div className="text-right"><Status ok={["scheduled","started","ended"].includes(meeting.zoom_status)}>{meeting.zoom_status}</Status><p className="mt-2 text-xs text-slate-500">{c.lastSync}: {meeting.zoom_last_synced_at ? new Intl.DateTimeFormat(locale === "fr" ? "fr-FR" : "en-GB", {dateStyle: "short", timeStyle: "short"}).format(new Date(meeting.zoom_last_synced_at)) : "—"}</p></div></div>) : <p className="rounded-2xl bg-slate-50 p-5 text-sm text-slate-500">{c.noRecent}</p>}</div></section>
+      <section className="rounded-3xl border border-blue-200 bg-white p-6 shadow-sm">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div><h2 className="text-2xl font-black">{c.hostsTitle}</h2><p className="mt-2 max-w-3xl text-sm leading-6 text-slate-500">{c.hostsHelp}</p></div>
+          <form action={syncZoomHostsAction}><button className="rounded-xl bg-blue-600 px-5 py-3 text-sm font-black text-white">{c.syncHosts}</button></form>
+        </div>
+        {!hosts.length ? <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-5 text-sm font-bold leading-6 text-amber-900"><p>{c.noHosts}</p><code className="mt-3 block rounded-xl bg-slate-950 p-3 text-white">{c.migration}</code></div> : null}
+        <div className="mt-5 grid gap-4 lg:grid-cols-2">
+          {hosts.map((host) => {
+            const hostDepartments = host.department && !departments.includes(host.department) ? [host.department, ...departments] : departments;
+            const isGeneralDefault = settings.default_host_email?.toLocaleLowerCase() === host.email.toLocaleLowerCase();
+            return <form key={host.id} action={saveZoomHostAction} className={`rounded-2xl border p-5 ${host.is_active ? "border-blue-200 bg-blue-50/50" : "border-slate-200 bg-slate-50"}`}>
+              <input type="hidden" name="hostId" value={host.id} />
+              <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="font-black text-slate-950">{host.display_name || host.email}</p><p className="mt-1 text-sm text-slate-600">{host.email}</p><p className="mt-1 text-xs font-bold text-slate-500">Zoom ID: {host.zoom_user_id}</p></div><Status ok={host.zoom_status === "active"}>{host.zoom_status}</Status></div>
+              <label className="mt-4 block text-sm font-black">{c.department}<select name="department" defaultValue={host.department || ""} className={fieldClass()}><option value="">—</option>{hostDepartments.map((department) => <option key={department} value={department}>{department}</option>)}</select></label>
+              <div className="mt-4 space-y-2">
+                <label className="flex items-center gap-3 rounded-xl bg-white p-3 text-sm font-bold"><input name="isActive" type="checkbox" defaultChecked={host.is_active} />{c.active}</label>
+                <label className="flex items-center gap-3 rounded-xl bg-white p-3 text-sm font-bold"><input name="isDepartmentDefault" type="checkbox" defaultChecked={host.is_department_default} />{c.departmentDefault}</label>
+                <label className="flex items-center gap-3 rounded-xl bg-white p-3 text-sm font-bold"><input name="organizationDefault" type="checkbox" defaultChecked={isGeneralDefault} />{c.organizationDefault}</label>
+                <label className="flex items-center gap-3 rounded-xl bg-white p-3 text-sm font-bold"><input name="allowConcurrentMeetings" type="checkbox" defaultChecked={host.allow_concurrent_meetings} />{c.concurrent}</label>
+              </div>
+              <p className="mt-3 text-xs text-slate-500">{c.synced}: {host.last_synced_at ? new Intl.DateTimeFormat(fr ? "fr-FR" : "en-GB", {dateStyle: "short", timeStyle: "short"}).format(new Date(host.last_synced_at)) : "—"}</p>
+              <button className="mt-4 w-full rounded-xl bg-slate-950 px-5 py-3 font-black text-white">{c.saveHost}</button>
+            </form>;
+          })}
+        </div>
+      </section>
+
+      <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"><h2 className="text-2xl font-black">{c.recent}</h2><div className="mt-5 space-y-3">{meetings.length ? meetings.map((meeting) => <div key={meeting.id} className="flex flex-wrap items-center justify-between gap-4 rounded-2xl bg-slate-50 p-4"><div><p className="font-black">{meeting.title}</p><p className="mt-1 text-sm text-slate-500">{new Intl.DateTimeFormat(fr ? "fr-FR" : "en-GB", {dateStyle: "medium", timeStyle: "short"}).format(new Date(meeting.starts_at))}</p><p className="mt-1 text-xs font-bold text-indigo-700">{[meeting.zoom_department, meeting.zoom_host_email].filter(Boolean).join(" · ")}</p>{meeting.zoom_sync_error ? <p className="mt-1 text-xs font-bold text-red-700">{meeting.zoom_sync_error}</p> : null}</div><div className="text-right"><Status ok={["scheduled","started","ended"].includes(meeting.zoom_status)}>{meeting.zoom_status}</Status><p className="mt-2 text-xs text-slate-500">{c.lastSync}: {meeting.zoom_last_synced_at ? new Intl.DateTimeFormat(fr ? "fr-FR" : "en-GB", {dateStyle: "short", timeStyle: "short"}).format(new Date(meeting.zoom_last_synced_at)) : "—"}</p></div></div>) : <p className="rounded-2xl bg-slate-50 p-5 text-sm text-slate-500">{c.noRecent}</p>}</div></section>
     </div>
   </main>;
 }

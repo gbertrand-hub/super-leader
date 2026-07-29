@@ -29,7 +29,7 @@ import {createAdminClient} from "@/lib/supabase/admin";
 import {createClient} from "@/lib/supabase/server";
 import {normalizeTimeZone} from "@/lib/timezone";
 import {createZoomMeeting, deleteZoomMeeting} from "@/lib/zoom/client";
-import {zoomAvailableForOrganization} from "@/lib/zoom/settings";
+import {assertZoomHostAvailability, resolveZoomHost, zoomAvailableForOrganization} from "@/lib/zoom/settings";
 
 const leaderRoles = new Set(["owner", "admin", "hr", "manager"]);
 const hrRoles = new Set(["owner", "admin", "hr"]);
@@ -1483,6 +1483,8 @@ export async function createPerformanceMeetingAction(formData: FormData) {
   const notes = cleanText(formData.get("notes"), 2000) || null;
   const mandatory = formData.get("mandatory") === "on";
   const zoomRequested = formData.get("createZoom") === "on";
+  const requestedZoomHostId = cleanText(formData.get("zoomHostAccountId"), 100);
+  const meetingDepartment = cleanText(formData.get("meetingDepartment"), 160);
   const participantIds = [...new Set(formData.getAll("participantIds").map(String).filter(Boolean))];
   const {data: meetingSettings} = await admin
     .from("performance_settings")
@@ -1504,18 +1506,33 @@ export async function createPerformanceMeetingAction(formData: FormData) {
   if (validParticipants.length === 0) go(t("performance.messages.noMeetingParticipants"), "error", "meetings");
 
   let zoomMeeting: Awaited<ReturnType<typeof createZoomMeeting>> | null = null;
+  let selectedZoomHost: Awaited<ReturnType<typeof resolveZoomHost>> = null;
   if (zoomRequested) {
     await enforceOrganizationFeature(membership.organization_id, "api_integrations");
     const zoom = await zoomAvailableForOrganization(admin, membership.organization_id);
-    if (!zoom.available || !zoom.settings.default_host_email) {
+    if (!zoom.available) {
       go("Zoom n’est pas encore configuré pour cette organisation.", "error", "meetings");
     }
     try {
+      selectedZoomHost = await resolveZoomHost(admin, {
+        organizationId: membership.organization_id,
+        hostAccountId: requestedZoomHostId || null,
+        department: meetingDepartment || null,
+        fallbackEmail: zoom.settings.default_host_email,
+      });
+      if (!selectedZoomHost) throw new Error("Aucun compte Zoom hôte actif n’est disponible.");
       const durationMinutes = parsedEnd
         ? Math.max(15, Math.round((parsedEnd.getTime() - parsedStart.getTime()) / 60000))
         : 60;
+      const conflictEnd = parsedEnd ?? new Date(parsedStart.getTime() + durationMinutes * 60000);
+      await assertZoomHostAvailability(admin, {
+        organizationId: membership.organization_id,
+        host: selectedZoomHost,
+        startsAt: parsedStart.toISOString(),
+        endsAt: conflictEnd.toISOString(),
+      });
       zoomMeeting = await createZoomMeeting({
-        hostEmail: zoom.settings.default_host_email,
+        hostEmail: selectedZoomHost.email,
         topic: title,
         startTime: parsedStart.toISOString(),
         durationMinutes,
@@ -1540,8 +1557,10 @@ export async function createPerformanceMeetingAction(formData: FormData) {
     meeting_url: zoomMeeting?.join_url ?? null,
     zoom_meeting_id: zoomMeeting ? String(zoomMeeting.id) : null,
     zoom_meeting_uuid: zoomMeeting?.uuid ?? null,
-    zoom_host_id: zoomMeeting?.host_id ?? null,
-    zoom_host_email: zoomMeeting?.host_email ?? null,
+    zoom_host_id: zoomMeeting?.host_id ?? selectedZoomHost?.zoom_user_id ?? null,
+    zoom_host_email: zoomMeeting?.host_email ?? selectedZoomHost?.email ?? null,
+    zoom_host_account_id: selectedZoomHost?.id || null,
+    zoom_department: meetingDepartment || selectedZoomHost?.department || null,
     zoom_start_url: null,
     zoom_status: zoomMeeting ? "scheduled" : "not_linked",
     zoom_created_at: zoomMeeting ? new Date().toISOString() : null,
@@ -1570,7 +1589,7 @@ export async function createPerformanceMeetingAction(formData: FormData) {
     entityType: "meeting",
     entityId: meeting.id,
     action: "created",
-    details: {title, mandatory, participants: validParticipants.length, provider: zoomMeeting ? "zoom" : "manual", zoom_meeting_id: zoomMeeting ? String(zoomMeeting.id) : null},
+    details: {title, mandatory, participants: validParticipants.length, provider: zoomMeeting ? "zoom" : "manual", zoom_meeting_id: zoomMeeting ? String(zoomMeeting.id) : null, zoom_host_email: selectedZoomHost?.email || null, zoom_department: meetingDepartment || selectedZoomHost?.department || null},
   });
   revalidatePath("/dashboard/performance");
   revalidatePath("/dashboard/my-day");

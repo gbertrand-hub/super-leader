@@ -422,7 +422,7 @@ export function DashboardNavigation({
             {t("navigation.logout")}
           </button>
         </form>
-        <p className="mt-3 px-3 text-[10px] text-slate-600">Super Leader V2.6.5</p>
+        <p className="mt-3 px-3 text-[10px] text-slate-600">Super Leader V2.8.2</p>
       </div>
     </div>
   );

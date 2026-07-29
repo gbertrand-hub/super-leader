@@ -1,0 +1,28 @@
+SUPER LEADER V2.8.1 - DEPARTMENTS & TEAMS WORKSPACE REDESIGN
+Validation date: 2026-07-29
+
+IMPLEMENTED
+- Wide workspace layout using the available dashboard width.
+- Four structure KPIs: departments, active teams, assigned colleagues and manager coverage.
+- Collapsible team-creation panel to keep the directory visible.
+- Search by team name, department or manager.
+- Filters by department, status and manager assignment.
+- Sticky team directory with its own desktop scroll area.
+- Active and archived teams separated in the directory.
+- Automatic opening of the first available active team when no team is selected.
+- Complete team record kept on the right: details, manager, members, history and lifecycle.
+- Responsive behavior for desktop, tablet and mobile.
+- French and English labels added.
+- Navigation version updated to V2.8.1.
+
+DATABASE
+- No Supabase migration is required.
+- Existing team-management tables and permissions are reused.
+
+STATIC VALIDATION
+- 134 TypeScript/TSX files parsed successfully.
+- No TypeScript/TSX syntax errors detected.
+- All local imports resolve.
+
+BUILD STATUS
+- A full Next.js build must be run on the user's computer because the external npm package registry was unavailable in the generation environment.

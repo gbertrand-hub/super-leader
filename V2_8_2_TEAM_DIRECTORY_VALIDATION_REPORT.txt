@@ -1,0 +1,9 @@
+SUPER LEADER V2.8.2 - TEAM DIRECTORY WIDTH HOTFIX
+
+VALIDATED CHANGES
+- Desktop team directory uses minmax(390px, 440px).
+- Team details panel keeps the remaining available width.
+- Directory container includes min-w-0.
+- Scroll region hides horizontal overflow and preserves vertical scrolling.
+- Navigation version updated to V2.8.2.
+- No database migration required.

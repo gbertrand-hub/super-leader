@@ -21,6 +21,10 @@ import { createClient } from "@/lib/supabase/server";
 
 type SearchParams = Promise<{
   team?: string;
+  q?: string;
+  department?: string;
+  status?: string;
+  manager?: string;
   success?: string;
   error?: string;
 }>;
@@ -176,8 +180,11 @@ export default async function TeamPage({
   });
 
   const selectedTeam = params.team
-    ? teams.find((team) => team.id === params.team) ?? null
-    : null;
+    ? teams.find((team) => team.id === params.team) ??
+      teams.find((team) => team.is_active) ??
+      teams[0] ??
+      null
+    : teams.find((team) => team.is_active) ?? teams[0] ?? null;
   const selectedAssignments = selectedTeam
     ? assignmentsByTeam.get(selectedTeam.id) ?? []
     : [];
@@ -258,10 +265,67 @@ export default async function TeamPage({
   const dateLocale = locale === "fr" ? "fr-FR" : "en-GB";
   const activeTeams = teams.filter((team) => team.is_active);
   const archivedTeams = teams.filter((team) => !team.is_active);
+  const departments = Array.from(
+    new Set(
+      teams
+        .map((team) => team.department?.trim())
+        .filter((value): value is string => Boolean(value)),
+    ),
+  ).sort((left, right) => left.localeCompare(right, dateLocale));
+  const assignedMemberCount = new Set(assignments.map((assignment) => assignment.user_id)).size;
+  const activeTeamsWithManager = activeTeams.filter((team) => Boolean(team.manager_id)).length;
+
+  const searchQuery = String(params.q ?? "").trim().toLocaleLowerCase(dateLocale);
+  const departmentFilter = String(params.department ?? "").trim();
+  const statusFilter = ["all", "active", "archived"].includes(String(params.status))
+    ? String(params.status)
+    : "active";
+  const managerFilter = ["all", "assigned", "unassigned"].includes(String(params.manager))
+    ? String(params.manager)
+    : "all";
+
+  const filteredTeams = teams.filter((team) => {
+    const managerName = team.manager_id
+      ? profileName(profilesById.get(team.manager_id), t("common.user"))
+      : "";
+    const searchable = [team.name, team.department ?? "", managerName]
+      .join(" ")
+      .toLocaleLowerCase(dateLocale);
+
+    if (searchQuery && !searchable.includes(searchQuery)) return false;
+    if (departmentFilter && team.department !== departmentFilter) return false;
+    if (statusFilter === "active" && !team.is_active) return false;
+    if (statusFilter === "archived" && team.is_active) return false;
+    if (managerFilter === "assigned" && !team.manager_id) return false;
+    if (managerFilter === "unassigned" && team.manager_id) return false;
+    return true;
+  });
+
+  const filteredActiveTeams = filteredTeams.filter((team) => team.is_active);
+  const filteredArchivedTeams = filteredTeams.filter((team) => !team.is_active);
+  const hasFilters = Boolean(
+    searchQuery ||
+      departmentFilter ||
+      statusFilter !== "active" ||
+      managerFilter !== "all",
+  );
+
+  function teamHref(teamId: string): string {
+    const query = new URLSearchParams({team: teamId});
+    if (params.q) query.set("q", params.q);
+    if (params.department) query.set("department", params.department);
+    if (params.status) query.set("status", params.status);
+    if (params.manager) query.set("manager", params.manager);
+    return `/dashboard/team?${query.toString()}`;
+  }
+
+  const clearFiltersHref = selectedTeam
+    ? `/dashboard/team?team=${encodeURIComponent(selectedTeam.id)}`
+    : "/dashboard/team";
 
   return (
     <main className="min-h-screen bg-slate-50 px-5 py-8 text-slate-950">
-      <div className="mx-auto max-w-7xl">
+      <div className="mx-auto max-w-[1600px]">
         <Link className="font-bold text-indigo-700" href="/dashboard">
           ← {t("common.backToDashboard")}
         </Link>
@@ -285,147 +349,297 @@ export default async function TeamPage({
           </p>
         ) : null}
 
-        <section className="mt-6 grid gap-6 xl:grid-cols-[0.8fr_1.45fr]">
-          <div className="space-y-6">
-            {canEditStructure ? (
-              <form
-                action={createTeamDirectAction}
-                className="rounded-3xl bg-white p-6 shadow-sm"
-              >
-                <h2 className="text-xl font-black">{t("teams.newTeam")}</h2>
+        <section className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <article className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+            <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-500">
+              {t("teams.metrics.departments")}
+            </p>
+            <p className="mt-3 text-3xl font-black">{departments.length}</p>
+            <p className="mt-1 text-sm text-slate-500">{t("teams.metrics.departmentsHelp")}</p>
+          </article>
+          <article className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+            <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-500">
+              {t("teams.metrics.activeTeams")}
+            </p>
+            <p className="mt-3 text-3xl font-black">{activeTeams.length}</p>
+            <p className="mt-1 text-sm text-slate-500">{t("teams.metrics.activeTeamsHelp")}</p>
+          </article>
+          <article className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+            <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-500">
+              {t("teams.metrics.assignedMembers")}
+            </p>
+            <p className="mt-3 text-3xl font-black">{assignedMemberCount}</p>
+            <p className="mt-1 text-sm text-slate-500">{t("teams.metrics.assignedMembersHelp")}</p>
+          </article>
+          <article className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+            <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-500">
+              {t("teams.metrics.managerCoverage")}
+            </p>
+            <p className="mt-3 text-3xl font-black">
+              {activeTeamsWithManager}/{activeTeams.length}
+            </p>
+            <p className="mt-1 text-sm text-slate-500">{t("teams.metrics.managerCoverageHelp")}</p>
+          </article>
+        </section>
+
+        {canEditStructure ? (
+          <details className="group mt-6 rounded-3xl border border-indigo-100 bg-white shadow-sm">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-4 p-6">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.18em] text-indigo-700">
+                  {t("teams.createTeamAction")}
+                </p>
+                <h2 className="mt-1 text-xl font-black">{t("teams.newTeam")}</h2>
                 <p className="mt-1 text-sm text-slate-500">{t("teams.newTeamHelp")}</p>
-                <input type="hidden" name="organizationId" value={organizationId} />
-                <label className="mt-4 grid gap-2 font-semibold">
-                  {t("teams.name")}
-                  <input
-                    name="name"
-                    required
-                    maxLength={120}
-                    className="rounded-xl border border-slate-300 px-4 py-3"
-                  />
-                </label>
-                <label className="mt-4 grid gap-2 font-semibold">
+              </div>
+              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-indigo-700 text-2xl font-black text-white transition group-open:rotate-45">
+                +
+              </span>
+            </summary>
+            <form
+              action={createTeamDirectAction}
+              className="grid gap-4 border-t border-slate-100 p-6 md:grid-cols-[1.2fr_1fr_1fr_auto] md:items-end"
+            >
+              <input type="hidden" name="organizationId" value={organizationId} />
+              <label className="grid gap-2 text-sm font-black">
+                {t("teams.name")}
+                <input
+                  name="name"
+                  required
+                  maxLength={120}
+                  className="rounded-xl border border-slate-300 px-4 py-3 font-medium"
+                />
+              </label>
+              <label className="grid gap-2 text-sm font-black">
+                {t("teams.department")}
+                <input
+                  name="department"
+                  maxLength={120}
+                  placeholder={t("teams.departmentPlaceholder")}
+                  className="rounded-xl border border-slate-300 px-4 py-3 font-medium"
+                />
+              </label>
+              <label className="grid gap-2 text-sm font-black">
+                {t("teams.manager")}
+                <select
+                  name="managerId"
+                  className="rounded-xl border border-slate-300 px-4 py-3 font-medium"
+                >
+                  <option value="">{t("teams.assignLater")}</option>
+                  {managerOptions.map((manager) => (
+                    <option key={manager.user_id} value={manager.user_id}>
+                      {profileName(profilesById.get(manager.user_id), t("common.user"))}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button className="rounded-xl bg-indigo-700 px-6 py-3 font-black text-white hover:bg-indigo-800">
+                {t("teams.createTeam")}
+              </button>
+            </form>
+          </details>
+        ) : (
+          <section className="mt-6 rounded-3xl border border-indigo-100 bg-indigo-50 p-6">
+            <p className="text-sm font-black uppercase text-indigo-700">
+              {t("teams.yourScope")}
+            </p>
+            <p className="mt-2 text-slate-700">{t("teams.managerScopeHelp")}</p>
+          </section>
+        )}
+
+        <section className="mt-6 grid items-start gap-6 xl:grid-cols-[minmax(390px,440px)_minmax(0,1fr)]">
+          <aside className="min-w-0 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm xl:sticky xl:top-6 xl:flex xl:max-h-[calc(100vh-3rem)] xl:flex-col">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.18em] text-indigo-700">
+                  {t("teams.directoryEyebrow")}
+                </p>
+                <h2 className="mt-1 text-xl font-black">
+                  {t("teams.visibleTeams", {count: filteredTeams.length})}
+                </h2>
+              </div>
+              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600">
+                {teams.length}
+              </span>
+            </div>
+
+            <form action="/dashboard/team" method="get" className="mt-5 grid gap-3">
+              {selectedTeam ? <input type="hidden" name="team" value={selectedTeam.id} /> : null}
+              <label className="grid gap-2 text-xs font-black uppercase tracking-wide text-slate-500">
+                {t("teams.searchLabel")}
+                <input
+                  type="search"
+                  name="q"
+                  defaultValue={params.q ?? ""}
+                  placeholder={t("teams.searchPlaceholder")}
+                  className="rounded-xl border border-slate-300 px-4 py-3 text-sm font-medium normal-case tracking-normal text-slate-950"
+                />
+              </label>
+              <div className="grid gap-3 sm:grid-cols-3 xl:grid-cols-1 2xl:grid-cols-3">
+                <label className="grid gap-2 text-xs font-black uppercase tracking-wide text-slate-500">
                   {t("teams.department")}
-                  <input
-                    name="department"
-                    maxLength={120}
-                    placeholder={t("teams.departmentPlaceholder")}
-                    className="rounded-xl border border-slate-300 px-4 py-3"
-                  />
-                </label>
-                <label className="mt-4 grid gap-2 font-semibold">
-                  {t("teams.manager")}
                   <select
-                    name="managerId"
-                    className="rounded-xl border border-slate-300 px-4 py-3"
+                    name="department"
+                    defaultValue={departmentFilter}
+                    className="min-w-0 rounded-xl border border-slate-300 px-3 py-3 text-sm font-medium normal-case tracking-normal text-slate-950"
                   >
-                    <option value="">{t("teams.assignLater")}</option>
-                    {managerOptions.map((manager) => (
-                      <option key={manager.user_id} value={manager.user_id}>
-                        {profileName(profilesById.get(manager.user_id), t("common.user"))}
+                    <option value="">{t("teams.allDepartments")}</option>
+                    {departments.map((department) => (
+                      <option key={department} value={department}>
+                        {department}
                       </option>
                     ))}
                   </select>
                 </label>
-                <button className="mt-5 w-full rounded-xl bg-indigo-700 px-5 py-3 font-bold text-white">
-                  {t("teams.createTeam")}
-                </button>
-              </form>
-            ) : (
-              <section className="rounded-3xl border border-indigo-100 bg-indigo-50 p-6">
-                <p className="text-sm font-black uppercase text-indigo-700">
-                  {t("teams.yourScope")}
-                </p>
-                <p className="mt-2 text-slate-700">{t("teams.managerScopeHelp")}</p>
-              </section>
-            )}
-
-            <section className="rounded-3xl bg-white p-6 shadow-sm">
-              <div className="flex items-center justify-between gap-3">
-                <h2 className="text-xl font-black">
-                  {t("teams.activeTeams", { count: activeTeams.length })}
-                </h2>
+                <label className="grid gap-2 text-xs font-black uppercase tracking-wide text-slate-500">
+                  {t("common.status")}
+                  <select
+                    name="status"
+                    defaultValue={statusFilter}
+                    className="min-w-0 rounded-xl border border-slate-300 px-3 py-3 text-sm font-medium normal-case tracking-normal text-slate-950"
+                  >
+                    <option value="all">{t("teams.allStatuses")}</option>
+                    <option value="active">{t("teams.active")}</option>
+                    <option value="archived">{t("teams.archived")}</option>
+                  </select>
+                </label>
+                <label className="grid gap-2 text-xs font-black uppercase tracking-wide text-slate-500">
+                  {t("teams.manager")}
+                  <select
+                    name="manager"
+                    defaultValue={managerFilter}
+                    className="min-w-0 rounded-xl border border-slate-300 px-3 py-3 text-sm font-medium normal-case tracking-normal text-slate-950"
+                  >
+                    <option value="all">{t("teams.allManagers")}</option>
+                    <option value="assigned">{t("teams.managerAssigned")}</option>
+                    <option value="unassigned">{t("teams.managerUnassigned")}</option>
+                  </select>
+                </label>
               </div>
-              <div className="mt-4 grid gap-3">
-                {activeTeams.map((team) => {
-                  const manager = team.manager_id
-                    ? profilesById.get(team.manager_id)
-                    : undefined;
-                  const memberCount = assignmentsByTeam.get(team.id)?.length ?? 0;
-                  const selected = selectedTeam?.id === team.id;
-                  return (
-                    <Link
-                      key={team.id}
-                      href={`/dashboard/team?team=${encodeURIComponent(team.id)}`}
-                      className={`rounded-2xl border p-4 transition hover:border-indigo-400 hover:shadow-sm ${
-                        selected
-                          ? "border-indigo-500 bg-indigo-50"
-                          : "border-slate-200 bg-white"
-                      }`}
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <p className="font-black">{team.name}</p>
-                          <p className="mt-1 text-sm text-slate-500">
-                            {team.department || t("teams.noDepartment")}
-                          </p>
-                        </div>
-                        <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-black text-emerald-800">
-                          {t("teams.active")}
-                        </span>
-                      </div>
-                      <div className="mt-4 grid gap-1 text-sm text-slate-600">
-                        <p>
-                          <span className="font-bold">{t("teams.manager")}:</span>{" "}
-                          {manager
-                            ? profileName(manager, t("common.user"))
-                            : t("teams.notAssigned")}
-                        </p>
-                        <p>
-                          <span className="font-bold">{t("teams.members")}:</span>{" "}
-                          {memberCount}
-                        </p>
-                      </div>
-                      <p className="mt-4 font-black text-indigo-700">
-                        {t("teams.openTeam")} →
-                      </p>
-                    </Link>
-                  );
-                })}
-                {!activeTeams.length ? (
-                  <p className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-500">
-                    {currentMembership.role === "manager"
-                      ? t("teams.noManagedTeams")
-                      : t("teams.noTeams")}
-                  </p>
+              <div className="flex gap-2">
+                <button className="flex-1 rounded-xl bg-slate-950 px-4 py-3 text-sm font-black text-white hover:bg-slate-800">
+                  {t("teams.applyFilters")}
+                </button>
+                {hasFilters ? (
+                  <Link
+                    href={clearFiltersHref}
+                    className="rounded-xl border border-slate-300 px-4 py-3 text-sm font-black text-slate-700 hover:bg-slate-50"
+                  >
+                    {t("teams.clearFilters")}
+                  </Link>
                 ) : null}
               </div>
-            </section>
+            </form>
 
-            {archivedTeams.length ? (
-              <section className="rounded-3xl bg-white p-6 shadow-sm">
-                <h2 className="text-xl font-black">
-                  {t("teams.archivedTeams", { count: archivedTeams.length })}
-                </h2>
-                <div className="mt-4 grid gap-3">
-                  {archivedTeams.map((team) => (
+            <div className="mt-5 space-y-5 xl:min-h-0 xl:flex-1 xl:overflow-x-hidden xl:overflow-y-auto xl:pr-2">
+              {filteredActiveTeams.length ? (
+                <section>
+                  <h3 className="text-xs font-black uppercase tracking-[0.18em] text-slate-500">
+                    {t("teams.activeTeams", {count: filteredActiveTeams.length})}
+                  </h3>
+                  <div className="mt-3 grid gap-3">
+                    {filteredActiveTeams.map((team) => {
+                      const manager = team.manager_id
+                        ? profilesById.get(team.manager_id)
+                        : undefined;
+                      const memberCount = assignmentsByTeam.get(team.id)?.length ?? 0;
+                      const selected = selectedTeam?.id === team.id;
+                      return (
+                        <Link
+                          key={team.id}
+                          href={teamHref(team.id)}
+                          className={`rounded-2xl border p-4 transition hover:-translate-y-0.5 hover:border-indigo-400 hover:shadow-md ${
+                            selected
+                              ? "border-indigo-500 bg-indigo-50 ring-2 ring-indigo-100"
+                              : "border-slate-200 bg-white"
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="truncate font-black">{team.name}</p>
+                              <p className="mt-1 truncate text-sm text-slate-500">
+                                {team.department || t("teams.noDepartment")}
+                              </p>
+                            </div>
+                            <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-[11px] font-black text-emerald-800">
+                              {t("teams.active")}
+                            </span>
+                          </div>
+                          <div className="mt-4 grid grid-cols-2 gap-2 text-xs">
+                            <div className="rounded-xl bg-slate-50 p-3">
+                              <p className="font-black text-slate-500">{t("teams.manager")}</p>
+                              <p className="mt-1 truncate font-bold text-slate-800">
+                                {manager
+                                  ? profileName(manager, t("common.user"))
+                                  : t("teams.notAssigned")}
+                              </p>
+                            </div>
+                            <div className="rounded-xl bg-slate-50 p-3">
+                              <p className="font-black text-slate-500">{t("teams.members")}</p>
+                              <p className="mt-1 font-bold text-slate-800">{memberCount}</p>
+                            </div>
+                          </div>
+                        </Link>
+                      );
+                    })}
+                  </div>
+                </section>
+              ) : null}
+
+              {filteredArchivedTeams.length ? (
+                <section>
+                  <h3 className="text-xs font-black uppercase tracking-[0.18em] text-slate-500">
+                    {t("teams.archivedTeams", {count: filteredArchivedTeams.length})}
+                  </h3>
+                  <div className="mt-3 grid gap-3">
+                    {filteredArchivedTeams.map((team) => {
+                      const selected = selectedTeam?.id === team.id;
+                      return (
+                        <Link
+                          key={team.id}
+                          href={teamHref(team.id)}
+                          className={`rounded-2xl border p-4 transition hover:border-slate-400 ${
+                            selected
+                              ? "border-slate-500 bg-slate-100 ring-2 ring-slate-200"
+                              : "border-slate-200 bg-slate-50"
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="truncate font-black">{team.name}</p>
+                              <p className="mt-1 truncate text-sm text-slate-500">
+                                {team.department || t("teams.noDepartment")}
+                              </p>
+                            </div>
+                            <span className="rounded-full bg-slate-200 px-2.5 py-1 text-[11px] font-black text-slate-700">
+                              {t("teams.archived")}
+                            </span>
+                          </div>
+                        </Link>
+                      );
+                    })}
+                  </div>
+                </section>
+              ) : null}
+
+              {!filteredTeams.length ? (
+                <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center">
+                  <p className="font-black">{t("teams.noFilteredTeams")}</p>
+                  <p className="mt-2 text-sm text-slate-500">{t("teams.noFilteredTeamsHelp")}</p>
+                  {hasFilters ? (
                     <Link
-                      key={team.id}
-                      href={`/dashboard/team?team=${encodeURIComponent(team.id)}`}
-                      className="rounded-2xl border border-slate-200 bg-slate-50 p-4 hover:border-slate-400"
+                      href={clearFiltersHref}
+                      className="mt-4 inline-flex rounded-xl bg-indigo-700 px-4 py-2 text-sm font-black text-white"
                     >
-                      <p className="font-black">{team.name}</p>
-                      <p className="mt-1 text-sm text-slate-500">
-                        {team.department || t("teams.noDepartment")}
-                      </p>
+                      {t("teams.clearFilters")}
                     </Link>
-                  ))}
+                  ) : null}
                 </div>
-              </section>
-            ) : null}
-          </div>
+              ) : null}
+            </div>
+          </aside>
 
-          <div>
+          <div className="min-w-0">
             {!selectedTeam ? (
               <section className="rounded-3xl border border-dashed border-slate-300 bg-white p-10 text-center shadow-sm">
                 <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-indigo-100 text-2xl">

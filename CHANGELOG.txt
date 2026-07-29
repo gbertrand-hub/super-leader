@@ -133,3 +133,26 @@ SUPER LEADER V2.7 - ZOOM API ET PRESENCE AUTOMATIQUE
 - Calcul automatique des presences, retards et durees.
 - Ecran d administration des integrations.
 
+
+SUPER LEADER V2.8 - ZOOM MULTI-HOST & DEPARTMENT ROUTING
+- Synchronisation des comptes Zoom actifs.
+- Association des comptes aux departements.
+- Selection de l'hote dans Performance et Evenements.
+- Detection des conflits horaires.
+- Correction du bouton Demarrer comme hote.
+
+
+SUPER LEADER V2.8.1 - DEPARTMENTS & TEAMS WORKSPACE REDESIGN
+- Wide two-pane team management workspace.
+- Structure KPI cards.
+- Search and filters for teams, departments, status and managers.
+- Sticky independently scrollable team directory.
+- Collapsible team creation panel.
+- No Supabase migration required.
+
+
+SUPER LEADER V2.8.2 - TEAM DIRECTORY WIDTH HOTFIX
+- Wider desktop team directory (390px to 440px).
+- Horizontal overflow removed while preserving vertical scrolling.
+- No Supabase migration required.
+

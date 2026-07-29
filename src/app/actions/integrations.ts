@@ -5,10 +5,10 @@ import {redirect} from "next/navigation";
 import {enforceOrganizationFeature} from "@/lib/billing/entitlements";
 import {createAdminClient} from "@/lib/supabase/admin";
 import {createClient} from "@/lib/supabase/server";
-import {getZoomMeeting, getZoomUser, listPastMeetingParticipants} from "@/lib/zoom/client";
+import {getZoomMeeting, getZoomUser, listPastMeetingParticipants, listZoomUsers} from "@/lib/zoom/client";
 import {syncZoomParticipantsToAttendance} from "@/lib/zoom/attendance";
 import {getZoomRuntimeStatus} from "@/lib/zoom/config";
-import {getOrganizationZoomSettings} from "@/lib/zoom/settings";
+import {getOrganizationZoomSettings, normalizeZoomDepartment, zoomDepartmentKey} from "@/lib/zoom/settings";
 
 const adminRoles = new Set(["owner", "admin"]);
 const leaderRoles = new Set(["owner", "admin", "hr", "manager"]);
@@ -25,6 +25,7 @@ type MeetingRow = {
   zoom_meeting_uuid: string | null;
   zoom_status: string;
 };
+type ZoomHostRow = {id: string; email: string; department: string | null};
 
 function clean(value: FormDataEntryValue | null, max = 500) {
   return String(value ?? "").trim().slice(0, max);
@@ -100,54 +101,136 @@ export async function saveZoomSettingsAction(formData: FormData) {
 
 export async function testZoomConnectionAction(_formData: FormData) {
   const {user, membership, admin} = await context();
-
-  if (!adminRoles.has(membership.role)) {
-    go("Acc\u00e8s refus\u00e9.", "error");
-  }
-
-  await enforceOrganizationFeature(
-    membership.organization_id,
-    "api_integrations",
-  );
-
-  const settings = await getOrganizationZoomSettings(
-    admin,
-    membership.organization_id,
-  );
-
-  if (!settings.default_host_email) {
-    go(
-      "Configure d\u2019abord l\u2019adresse Zoom h\u00f4te.",
-      "error",
-    );
-  }
+  if (!adminRoles.has(membership.role)) go("Accès refusé.", "error");
+  await enforceOrganizationFeature(membership.organization_id, "api_integrations");
+  const settings = await getOrganizationZoomSettings(admin, membership.organization_id);
+  if (!settings.default_host_email) go("Configure d’abord l’adresse Zoom hôte.", "error");
 
   let zoomUserEmail = settings.default_host_email;
-
+  let failure = "";
   try {
     const zoomUser = await getZoomUser(settings.default_host_email);
     zoomUserEmail = zoomUser.email;
-
     await audit(admin, {
       organizationId: membership.organization_id,
       actorId: user.id,
       action: "zoom_connection_tested",
-      details: {
-        host_email: zoomUser.email,
-      },
+      details: {host_email: zoomUser.email},
     });
   } catch (error) {
-    go(
-      `Connexion Zoom impossible : ${
-        error instanceof Error
-          ? error.message
-          : "erreur inconnue"
-      }`,
-      "error",
-    );
+    failure = error instanceof Error ? error.message : "erreur inconnue";
+  }
+  if (failure) go(`Connexion Zoom impossible : ${failure}`, "error");
+  go(`Connexion Zoom réussie pour ${zoomUserEmail}.`);
+}
+
+export async function syncZoomHostsAction(_formData: FormData) {
+  const {user, membership, admin} = await context();
+  if (!adminRoles.has(membership.role)) go("Accès refusé.", "error");
+  await enforceOrganizationFeature(membership.organization_id, "api_integrations");
+
+  let synced = 0;
+  let failure = "";
+  try {
+    const zoomUsers = await listZoomUsers();
+    if (!zoomUsers.length) throw new Error("Aucun utilisateur Zoom actif n’a été retourné.");
+    const now = new Date().toISOString();
+    const rows = zoomUsers.map((zoomUser) => {
+      const firstName = String(zoomUser.first_name || "").trim();
+      const lastName = String(zoomUser.last_name || "").trim();
+      return {
+        organization_id: membership.organization_id,
+        zoom_user_id: String(zoomUser.id),
+        email: String(zoomUser.email || "").trim().toLowerCase(),
+        first_name: firstName || null,
+        last_name: lastName || null,
+        display_name: String(zoomUser.display_name || `${firstName} ${lastName}`.trim() || zoomUser.email).trim(),
+        zoom_user_type: Number.isFinite(Number(zoomUser.type)) ? Number(zoomUser.type) : null,
+        zoom_status: String(zoomUser.status || "active"),
+        last_synced_at: now,
+        updated_by: user.id,
+      };
+    }).filter((row) => row.email.includes("@"));
+    const {error} = await admin.from("organization_zoom_hosts").upsert(rows, {onConflict: "organization_id,zoom_user_id"});
+    if (error) throw new Error(error.code === "42P01" || error.code === "PGRST205" ? "Exécute d’abord supabase/036_zoom_multi_hosts_v2_8.sql." : error.message);
+    synced = rows.length;
+    await audit(admin, {
+      organizationId: membership.organization_id,
+      actorId: user.id,
+      action: "zoom_hosts_synced",
+      details: {count: synced},
+    });
+  } catch (error) {
+    failure = error instanceof Error ? error.message : "erreur inconnue";
+  }
+  if (failure) go(`Synchronisation des comptes Zoom impossible : ${failure}`, "error");
+  revalidatePath("/dashboard/integrations");
+  revalidatePath("/dashboard/performance");
+  revalidatePath("/dashboard/events");
+  go(`${synced} compte(s) Zoom actif(s) synchronisé(s).`);
+}
+
+export async function saveZoomHostAction(formData: FormData) {
+  const {user, membership, admin} = await context();
+  if (!adminRoles.has(membership.role)) go("Accès refusé.", "error");
+  await enforceOrganizationFeature(membership.organization_id, "api_integrations");
+
+  const hostId = clean(formData.get("hostId"), 100);
+  const department = normalizeZoomDepartment(clean(formData.get("department"), 160));
+  const departmentKey = zoomDepartmentKey(department);
+  const isActive = formData.get("isActive") === "on";
+  const departmentDefault = isActive && Boolean(departmentKey) && formData.get("isDepartmentDefault") === "on";
+  const allowConcurrentMeetings = formData.get("allowConcurrentMeetings") === "on";
+  const organizationDefault = isActive && formData.get("organizationDefault") === "on";
+
+  const {data: host, error: hostError} = await admin
+    .from("organization_zoom_hosts")
+    .select("id,email,department")
+    .eq("id", hostId)
+    .eq("organization_id", membership.organization_id)
+    .maybeSingle<ZoomHostRow>();
+  if (hostError || !host) go(`Compte Zoom introuvable : ${hostError?.message || "identifiant invalide"}`, "error");
+
+  if (departmentDefault) {
+    const {error} = await admin.from("organization_zoom_hosts")
+      .update({is_department_default: false, updated_by: user.id})
+      .eq("organization_id", membership.organization_id)
+      .eq("department_key", departmentKey)
+      .neq("id", host.id);
+    if (error) go(`Mise à jour du compte par défaut impossible : ${error.message}`, "error");
   }
 
-  go(`Connexion Zoom r\u00e9ussie pour ${zoomUserEmail}.`);
+  const {error} = await admin.from("organization_zoom_hosts").update({
+    department: department || null,
+    department_key: departmentKey,
+    is_active: isActive,
+    is_department_default: departmentDefault,
+    allow_concurrent_meetings: allowConcurrentMeetings,
+    updated_by: user.id,
+  }).eq("id", host.id).eq("organization_id", membership.organization_id);
+  if (error) go(`Enregistrement impossible : ${error.message}`, "error");
+
+  if (organizationDefault) {
+    const {error: settingsError} = await admin.from("organization_zoom_settings").upsert({
+      organization_id: membership.organization_id,
+      default_host_email: host.email,
+      updated_by: user.id,
+      created_by: user.id,
+    }, {onConflict: "organization_id"});
+    if (settingsError) go(`Le compte a été enregistré, mais le défaut général n’a pas été mis à jour : ${settingsError.message}`, "error");
+  }
+
+  await audit(admin, {
+    organizationId: membership.organization_id,
+    actorId: user.id,
+    entityId: host.id,
+    action: "zoom_host_updated",
+    details: {email: host.email, department: department || null, is_active: isActive, is_department_default: departmentDefault, allow_concurrent_meetings: allowConcurrentMeetings, organization_default: organizationDefault},
+  });
+  revalidatePath("/dashboard/integrations");
+  revalidatePath("/dashboard/performance");
+  revalidatePath("/dashboard/events");
+  go(`Compte Zoom ${host.email} enregistré.`);
 }
 
 async function loadMeeting(admin: ReturnType<typeof createAdminClient>, organizationId: string, meetingId: string) {
@@ -168,15 +251,20 @@ export async function startZoomMeetingAction(formData: FormData) {
   const meeting = await loadMeeting(admin, membership.organization_id, clean(formData.get("meetingId"), 100));
   if (!["owner", "admin", "hr"].includes(membership.role) && meeting.created_by !== user.id) go("Seul l’hôte ou un administrateur peut démarrer cette réunion.", "error", "performance");
   if (!meeting.zoom_meeting_id) go("Cette réunion n’est pas reliée à Zoom.", "error", "performance");
+
+  let startUrl = "";
+  let failure = "";
   try {
     const zoomMeeting = await getZoomMeeting(meeting.zoom_meeting_id);
-    if (!zoomMeeting.start_url) go("Zoom n’a pas retourné de lien hôte.", "error", "performance");
+    startUrl = String(zoomMeeting.start_url || "");
+    if (!startUrl) throw new Error("Zoom n’a pas retourné de lien hôte.");
     await admin.from("performance_meetings").update({zoom_status: zoomMeeting.status || "scheduled"}).eq("id", meeting.id);
     await audit(admin, {organizationId: membership.organization_id, actorId: user.id, entityId: meeting.id, action: "zoom_meeting_started_link_requested"});
-    redirect(zoomMeeting.start_url);
   } catch (error) {
-    go(`Impossible d’ouvrir la réunion Zoom : ${error instanceof Error ? error.message : "erreur inconnue"}`, "error", "performance");
+    failure = error instanceof Error ? error.message : "erreur inconnue";
   }
+  if (failure) go(`Impossible d’ouvrir la réunion Zoom : ${failure}`, "error", "performance");
+  redirect(startUrl);
 }
 
 export async function syncZoomAttendanceAction(formData: FormData) {

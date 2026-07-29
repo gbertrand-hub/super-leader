@@ -1,0 +1,15 @@
+SUPER LEADER V2.8 - ZOOM MULTI-HOST & DEPARTMENT ROUTING
+
+CONTROLES EFFECTUES
+- Analyse du code V2.7 fourni par l'utilisateur.
+- Ajout de la migration Supabase 036.
+- Ajout du registre des comptes Zoom hôtes.
+- Ajout de la synchronisation GET /users.
+- Ajout du routage par département dans Performance et Événements.
+- Ajout du contrôle de chevauchement horaire.
+- Correction de la redirection du bouton Démarrer comme hôte.
+- Vérification syntaxique des 134 fichiers TypeScript/TSX avec TypeScript 5.8.3.
+- Vérification de tous les imports locaux @/ : aucun import manquant.
+
+LIMITE DE VALIDATION
+Le build Next.js complet n'a pas pu être exécuté dans l'environnement de génération, car le registre npm externe n'était pas accessible. Exécuter npm run build sur l'ordinateur de développement avant publication.

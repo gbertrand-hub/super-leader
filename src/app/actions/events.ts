@@ -9,7 +9,7 @@ import {createAdminClient} from "@/lib/supabase/admin";
 import {createClient} from "@/lib/supabase/server";
 import {normalizeTimeZone} from "@/lib/timezone";
 import {createZoomMeeting, deleteZoomMeeting} from "@/lib/zoom/client";
-import {zoomAvailableForOrganization} from "@/lib/zoom/settings";
+import {assertZoomHostAvailability, resolveZoomHost, zoomAvailableForOrganization} from "@/lib/zoom/settings";
 
 const eventAdminRoles = new Set(["owner", "admin", "hr"]);
 const eventTypes = new Set(["conference", "masterclass", "training", "ceremony", "networking", "community", "other"]);
@@ -653,21 +653,37 @@ export async function createEventScheduleItemAction(formData: FormData) {
   const startAt = zonedLocalToIso(formData.get("startAt"), event.timezone);
   const endAt = zonedLocalToIso(formData.get("endAt"), event.timezone);
   const ownerId = first(formData.get("ownerId"));
+  const requestedZoomHostId = clean(formData.get("zoomHostAccountId"), 100);
+  const meetingDepartment = clean(formData.get("meetingDepartment"), 160);
   const createZoomRequested = formData.get("createZoom") === "on" && itemType === "meeting";
   if (title.length < 2 || !startAt || !endAt || endAt <= startAt) goEvent(copy.invalid, "error", eventId);
   if (ownerId && !(await activeOrganizationMember(admin, event.organization_id, ownerId))) goEvent(copy.memberInvalid, "error", eventId);
 
   let zoomMeeting: Awaited<ReturnType<typeof createZoomMeeting>> | null = null;
+  let selectedZoomHost: Awaited<ReturnType<typeof resolveZoomHost>> = null;
   let performanceMeetingId: string | null = null;
   if (createZoomRequested) {
     await enforceOrganizationFeature(event.organization_id, "api_integrations");
     const zoom = await zoomAvailableForOrganization(admin, event.organization_id);
-    if (!zoom.available || !zoom.settings.default_host_email) {
+    if (!zoom.available) {
       goEvent("Zoom n’est pas encore configuré pour cette organisation.", "error", eventId, "schedule");
     }
     try {
+      selectedZoomHost = await resolveZoomHost(admin, {
+        organizationId: event.organization_id,
+        hostAccountId: requestedZoomHostId || null,
+        department: meetingDepartment || null,
+        fallbackEmail: zoom.settings.default_host_email,
+      });
+      if (!selectedZoomHost) throw new Error("Aucun compte Zoom hôte actif n’est disponible.");
+      await assertZoomHostAvailability(admin, {
+        organizationId: event.organization_id,
+        host: selectedZoomHost,
+        startsAt: startAt,
+        endsAt: endAt,
+      });
       zoomMeeting = await createZoomMeeting({
-        hostEmail: zoom.settings.default_host_email,
+        hostEmail: selectedZoomHost.email,
         topic: `${event.name} — ${title}`,
         startTime: startAt,
         durationMinutes: Math.max(15, Math.round((new Date(endAt).getTime() - new Date(startAt).getTime()) / 60000)),
@@ -687,8 +703,10 @@ export async function createEventScheduleItemAction(formData: FormData) {
         meeting_url: zoomMeeting.join_url,
         zoom_meeting_id: String(zoomMeeting.id),
         zoom_meeting_uuid: zoomMeeting.uuid,
-        zoom_host_id: zoomMeeting.host_id,
-        zoom_host_email: zoomMeeting.host_email || zoom.settings.default_host_email,
+        zoom_host_id: zoomMeeting.host_id || selectedZoomHost.zoom_user_id,
+        zoom_host_email: zoomMeeting.host_email || selectedZoomHost.email,
+        zoom_host_account_id: selectedZoomHost.id || null,
+        zoom_department: meetingDepartment || selectedZoomHost.department || null,
         zoom_start_url: null,
         zoom_status: "scheduled",
         zoom_created_at: new Date().toISOString(),
@@ -744,7 +762,7 @@ export async function createEventScheduleItemAction(formData: FormData) {
     if (zoomMeeting) await deleteZoomMeeting(String(zoomMeeting.id)).catch(() => undefined);
     goEvent(message(copy.saveFailed, {message: error?.message ?? "Unknown error"}), "error", eventId);
   }
-  await logEvent(admin, {organizationId: event.organization_id, eventId, actorId: user.id, action: "schedule_item_created", targetUserId: ownerId || null, details: {schedule_item_id: scheduleItem.id, title, start_at: startAt, end_at: endAt, provider: zoomMeeting ? "zoom" : "manual", performance_meeting_id: performanceMeetingId}});
+  await logEvent(admin, {organizationId: event.organization_id, eventId, actorId: user.id, action: "schedule_item_created", targetUserId: ownerId || null, details: {schedule_item_id: scheduleItem.id, title, start_at: startAt, end_at: endAt, provider: zoomMeeting ? "zoom" : "manual", performance_meeting_id: performanceMeetingId, zoom_host_email: selectedZoomHost?.email || null, zoom_department: meetingDepartment || selectedZoomHost?.department || null}});
   refreshEventViews();
   goEvent(zoomMeeting ? "Activité et réunion Zoom ajoutées au planning." : copy.scheduleCreated, "success", eventId, "schedule");
 }

@@ -14,6 +14,17 @@ export type ZoomMeeting = {
   status?: string;
 };
 
+
+export type ZoomUser = {
+  id: string;
+  email: string;
+  first_name?: string;
+  last_name?: string;
+  display_name?: string;
+  type?: number;
+  status?: string;
+};
+
 export type ZoomPastParticipant = {
   id?: string;
   user_id?: string;
@@ -84,6 +95,20 @@ async function zoomRequest<T>(path: string, init?: RequestInit): Promise<T> {
 
 export async function getZoomUser(userIdOrEmail: string) {
   return zoomRequest<{id: string; email: string; first_name?: string; last_name?: string}>(`/users/${encodeURIComponent(userIdOrEmail)}`);
+}
+
+export async function listZoomUsers(): Promise<ZoomUser[]> {
+  const users: ZoomUser[] = [];
+  let nextPageToken = "";
+  for (let page = 0; page < 20; page += 1) {
+    const query = new URLSearchParams({page_size: "300", status: "active"});
+    if (nextPageToken) query.set("next_page_token", nextPageToken);
+    const data = await zoomRequest<{users?: ZoomUser[]; next_page_token?: string}>(`/users?${query.toString()}`);
+    users.push(...(data.users || []));
+    nextPageToken = String(data.next_page_token || "");
+    if (!nextPageToken) break;
+  }
+  return users;
 }
 
 export async function createZoomMeeting(input: {
