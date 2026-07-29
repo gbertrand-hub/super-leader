@@ -100,17 +100,54 @@ export async function saveZoomSettingsAction(formData: FormData) {
 
 export async function testZoomConnectionAction(_formData: FormData) {
   const {user, membership, admin} = await context();
-  if (!adminRoles.has(membership.role)) go("Accès refusé.", "error");
-  await enforceOrganizationFeature(membership.organization_id, "api_integrations");
-  const settings = await getOrganizationZoomSettings(admin, membership.organization_id);
-  if (!settings.default_host_email) go("Configure d’abord l’adresse Zoom hôte.", "error");
+
+  if (!adminRoles.has(membership.role)) {
+    go("Acc\u00e8s refus\u00e9.", "error");
+  }
+
+  await enforceOrganizationFeature(
+    membership.organization_id,
+    "api_integrations",
+  );
+
+  const settings = await getOrganizationZoomSettings(
+    admin,
+    membership.organization_id,
+  );
+
+  if (!settings.default_host_email) {
+    go(
+      "Configure d\u2019abord l\u2019adresse Zoom h\u00f4te.",
+      "error",
+    );
+  }
+
+  let zoomUserEmail = settings.default_host_email;
+
   try {
     const zoomUser = await getZoomUser(settings.default_host_email);
-    await audit(admin, {organizationId: membership.organization_id, actorId: user.id, action: "zoom_connection_tested", details: {host_email: zoomUser.email}});
-    go(`Connexion Zoom réussie pour ${zoomUser.email}.`);
+    zoomUserEmail = zoomUser.email;
+
+    await audit(admin, {
+      organizationId: membership.organization_id,
+      actorId: user.id,
+      action: "zoom_connection_tested",
+      details: {
+        host_email: zoomUser.email,
+      },
+    });
   } catch (error) {
-    go(`Connexion Zoom impossible : ${error instanceof Error ? error.message : "erreur inconnue"}`, "error");
+    go(
+      `Connexion Zoom impossible : ${
+        error instanceof Error
+          ? error.message
+          : "erreur inconnue"
+      }`,
+      "error",
+    );
   }
+
+  go(`Connexion Zoom r\u00e9ussie pour ${zoomUserEmail}.`);
 }
 
 async function loadMeeting(admin: ReturnType<typeof createAdminClient>, organizationId: string, meetingId: string) {
