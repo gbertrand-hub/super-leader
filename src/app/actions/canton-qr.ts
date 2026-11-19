@@ -1,5 +1,5 @@
-import {assertCantonLive, cantonLiveEnabled} from "@/lib/canton/feature-gate";
 "use server";
+import {assertCantonLive} from "@/lib/canton/feature-gate";
 import {createHash} from "node:crypto";
 import {headers} from "next/headers";
 import {redirect} from "next/navigation";
