@@ -37,7 +37,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
  if(!isSenior) {
   visitQuery = (isManager || isReception)
    ? visitQuery.neq("department","DIRECTION")
-   : visitQuery.eq("announced_by",user.id).neq("department","DIRECTION");
+   : visitQuery.or(`announced_by.eq.${user.id},follow_up_owner_id.eq.${user.id}`).neq("department","DIRECTION");
  }
  const {data:visits,error:queryError}=await visitQuery.order("created_at",{ascending:false}).limit(150);
  const {data:sites}=(isSenior||isManager||isReception)?await db.from("canton_qr_sites").select("id,label,enabled").eq("organization_id",membership.organization_id).order("created_at",{ascending:false}):{data:[]};
@@ -52,8 +52,13 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
  const pendingHandoffs=(visits||[]).filter(v=>v.follow_up_status==="open").length;
  const ratingAverage=(feedback||[]).length
   ? ((feedback||[]).reduce((total,f)=>total+f.rating,0)/(feedback||[]).length).toFixed(1):"—";
- const today=new Date().toLocaleDateString("en-CA",{timeZone:"America/Chicago"});
- const todayRows=(visits||[]).filter(v=>(v.scheduled_local||v.check_in_at||v.created_at).slice(0,10)===today);
+ const cantonDay=(stamp:string)=>{const parts=new Intl.DateTimeFormat("en-US",{timeZone:"America/Chicago",year:"numeric",month:"2-digit",day:"2-digit"}).formatToParts(new Date(stamp));const val=(type:string)=>parts.find(p=>p.type===type)?.value||"";return val("year")+"-"+val("month")+"-"+val("day");};
+ const today=cantonDay(new Date().toISOString());
+ const todayRows=(visits||[]).filter(v=>{
+  if(v.check_in_at) return cantonDay(v.check_in_at)===today;
+  if(v.scheduled_local) return v.scheduled_local.slice(0,10)===today;
+  return cantonDay(v.created_at)===today;
+ });
  const count=(p:(v:(typeof todayRows)[number])=>boolean)=>todayRows.filter(p).length;
  const input="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900";
  return <main className="space-y-6 p-4 md:p-8">
@@ -93,6 +98,14 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
     <button className="rounded-lg bg-indigo-700 px-4 py-2 font-medium text-white md:col-span-3">Register visitor / appointment</button>
    </form></section>
 
+  <section className="rounded-xl border border-indigo-200 bg-indigo-50 p-5">
+   <h2 className="text-lg font-semibold">Mes suivis / My assigned follow-ups</h2>
+   <p className="mb-3 text-sm text-slate-600">Les actions qui vous ont été confiées apparaissent ici, même si le rendez-vous a été annoncé par un autre collègue.</p>
+   <div className="space-y-3">{(visits||[]).filter(v=>v.follow_up_owner_id===user.id && v.follow_up_status==="open").map(v=><div key={v.id} className="flex flex-wrap items-start justify-between gap-3 rounded-lg border bg-white p-3">
+    <div><div className="font-semibold">{map.get(v.visitor_id)?.full_name||"Visiteur"} · {v.department}</div><p className="text-sm">{v.follow_up_note||"Suivi à effectuer"}</p><p className="text-xs text-slate-500">Échéance : {v.follow_up_due_date||"Non précisée"}</p></div>
+    <form action={completeCantonFollowUp}><input type="hidden" name="id" value={v.id}/><button className="rounded-lg bg-emerald-700 px-3 py-2 text-sm text-white">Marquer terminé</button></form>
+   </div>)}{!(visits||[]).some(v=>v.follow_up_owner_id===user.id&&v.follow_up_status==="open")&&<p className="text-sm text-slate-600">Aucun suivi ouvert qui vous est attribué.</p>}</div>
+  </section>
   {(isSenior||membership.role==="manager")&&<section className="rounded-xl border bg-white p-5">
    <h2 className="text-lg font-semibold">Follow-up handoff / Suivi après visite</h2>
    <p className="mb-3 text-sm text-slate-500">Assign a responsible employee and due date after each completed visit. Open tasks remain visible until closed.</p>
@@ -110,7 +123,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
     </div>
    )}</div>
   </section>}
-  <section className="overflow-auto rounded-xl border bg-white p-4"><h2 className="mb-3 text-lg font-semibold">Recent visits and appointments</h2><table className="w-full min-w-[850px] text-left text-sm"><thead><tr className="border-b text-slate-500">{["Visitor","Department","When (Canton)","Status","Host","Actions","Feedback"].map(h=><th className="p-2" key={h}>{h}</th>)}</tr></thead>
+  <section className="overflow-auto rounded-xl border bg-white p-4"><h2 className="mb-3 text-lg font-semibold">Recent visits and appointments (last 150)</h2><table className="w-full min-w-[850px] text-left text-sm"><thead><tr className="border-b text-slate-500">{["Visitor","Department","When (Canton)","Status","Host","Actions","Feedback"].map(h=><th className="p-2" key={h}>{h}</th>)}</tr></thead>
    <tbody>{(visits||[]).map(v=><tr className="border-b align-top" key={v.id}>
     <td className="p-2"><div className="font-medium">{map.get(v.visitor_id)?.full_name||"Visitor"}</div><div className="text-xs text-slate-500">{map.get(v.visitor_id)?.phone}</div></td>
     <td className="p-2">{v.department}<div className="text-xs text-slate-500">{v.purpose}</div></td>
