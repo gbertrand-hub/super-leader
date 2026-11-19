@@ -89,25 +89,26 @@ export async function updateCantonVisit(f:FormData){
  const {data:row}=await db.from("canton_appointments").select("status,check_in_at,check_out_at,department,announced_by")
   .eq("id",id).eq("organization_id",org).maybeSingle();
  if(!row) fail("Visit not found");
- if(!seniorRoles.has(role) && (row.department==="DIRECTION" || role==="employee") && row.announced_by!==user.id) fail("You cannot manage this private or unassigned visit");
+ const visit = row!;
+ if(!seniorRoles.has(role) && (visit.department==="DIRECTION" || role==="employee") && visit.announced_by!==user.id) fail("You cannot manage this private or unassigned visit");
  const now=new Date().toISOString();
  let patch:Record<string,unknown>={updated_at:now};
- if(action==="reschedule" && ["announced","scheduled","no_show"].includes(row.status)){
+ if(action==="reschedule" && ["announced","scheduled","no_show"].includes(visit.status)){
   const scheduled=field(f,"scheduled");
   if(!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(scheduled)) fail("Invalid date for reschedule");
   patch={...patch,status:"scheduled",scheduled_local:scheduled.replace("T"," ")+":00"};
  } else
- if(action==="checkin" && ["announced","scheduled"].includes(row.status)){
+ if(action==="checkin" && ["announced","scheduled"].includes(visit.status)){
   patch={...patch,status:"arrived",check_in_at:now};
- } else if(action==="checkout" && ["arrived","in_progress"].includes(row.status)&&!row.check_out_at){
+ } else if(action==="checkout" && ["arrived","in_progress"].includes(visit.status)&&!visit.check_out_at){
   patch={...patch,status:"completed",check_out_at:now};
- } else if(action==="no_show" && row.status==="scheduled"){
+ } else if(action==="no_show" && visit.status==="scheduled"){
   patch={...patch,status:"no_show"};
- } else if(action==="followup" && row.status==="completed"){
+ } else if(action==="followup" && visit.status==="completed"){
   patch={...patch,follow_up_required:field(f,"required")==="yes"};
  } else fail("Action not allowed in current status");
  const {data:changed,error}=await db.from("canton_appointments").update(patch)
-  .eq("id",id).eq("organization_id",org).eq("status",row.status).select("id");
+  .eq("id",id).eq("organization_id",org).eq("status",visit.status).select("id");
  if(error) fail(error.code==="23505"?"An appointment already exists at this time":"Unable to update visit");
  if(!changed?.length) fail("Visit changed in another session. Please refresh and retry");
  revalidatePath(route);
