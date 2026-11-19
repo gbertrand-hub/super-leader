@@ -1,3 +1,4 @@
+import {assertCantonLive, cantonLiveEnabled} from "@/lib/canton/feature-gate";
 "use server";
 import {createHash} from "node:crypto";
 import {headers} from "next/headers";
@@ -20,6 +21,7 @@ async function staff(){
  return {db,user,org:m.organization_id as string,role:m.role as string,canReview:["owner","admin","manager"].includes(m.role)||!!assigned};
 }
 export async function createCantonQrSite(f:FormData){
+ assertCantonLive();
  const {db,user,org,role}=await staff();
  if(!["owner","admin"].includes(role))fail("Only administrators can create public QR sites");
  const label=value(f,"label",120);
@@ -29,6 +31,7 @@ export async function createCantonQrSite(f:FormData){
  revalidatePath(dash);redirect(dash+"?success=QR%20site%20created");
 }
 export async function submitCantonQrIntake(f:FormData){
+ assertCantonLive();
  const site=value(f,"site",40);
  const back="/canton-checkin?site="+encodeURIComponent(site);
  if(!uuid(site))redirect("/canton-checkin?error=invalid");
@@ -66,6 +69,7 @@ export async function submitCantonQrIntake(f:FormData){
  redirect(back+"&success=1");
 }
 export async function reviewCantonQrIntake(f:FormData){
+ assertCantonLive();
  const {db,user,org,canReview}=await staff();
  if(!canReview)fail("Reception authorization required");
  const id=value(f,"id",40),decision=value(f,"decision",20);
@@ -89,6 +93,7 @@ export async function reviewCantonQrIntake(f:FormData){
  redirect(dash+"?success="+encodeURIComponent("QR request "+(decision==="approve"?"approved":"rejected")));
 }
 export async function submitCantonQrFeedback(f:FormData){
+ assertCantonLive();
  const code=value(f,"code",16).toUpperCase();
  const back="/canton-feedback-qr?code="+encodeURIComponent(code);
  if(value(f,"website",100))redirect("/canton-feedback-qr?success=1");
