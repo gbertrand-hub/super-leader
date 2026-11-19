@@ -13,10 +13,17 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
  const {data:membership}=await db.from("organization_members").select("organization_id,role")
  .eq("user_id",user.id).eq("is_active",true).limit(1).maybeSingle();
  if(!membership) return <main className="p-8">Access denied.</main>;
- const {data:visits,error:queryError}=await db.from("canton_appointments")
+ const isSenior=["owner","admin"].includes(membership.role);
+ const isManager=membership.role==="manager" || membership.role==="hr";
+ let visitQuery=db.from("canton_appointments")
   .select("id,visitor_id,department,purpose,status,scheduled_local,host_name,check_in_at,check_out_at,feedback_token,follow_up_required,created_at")
-  .eq("organization_id",membership.organization_id)
-  .order("created_at",{ascending:false}).limit(150);
+  .eq("organization_id",membership.organization_id);
+ if(!isSenior) {
+  visitQuery = isManager
+   ? visitQuery.or(`department.neq.DIRECTION,announced_by.eq.${user.id}`)
+   : visitQuery.eq("announced_by",user.id);
+ }
+ const {data:visits,error:queryError}=await visitQuery.order("created_at",{ascending:false}).limit(150);
  const visitorIds=[...new Set((visits||[]).map(v=>v.visitor_id))];
  const {data:people}=visitorIds.length?await db.from("canton_visitors").select("id,full_name,phone").eq("organization_id",membership.organization_id).in("id",visitorIds):{data:[]};
  const map=new Map((people||[]).map(p=>[p.id,p]));
