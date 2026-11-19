@@ -14,14 +14,16 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
  .eq("user_id",user.id).eq("is_active",true).limit(1).maybeSingle();
  if(!membership) return <main className="p-8">Access denied.</main>;
  const isSenior=["owner","admin"].includes(membership.role);
+ const {data:reception}=await db.from("canton_reception_staff").select("user_id").eq("organization_id",membership.organization_id).eq("user_id",user.id).maybeSingle();
+ const isReception=!!reception;
  const isManager=membership.role==="manager" || membership.role==="hr";
  let visitQuery=db.from("canton_appointments")
-  .select("id,visitor_id,department,purpose,status,scheduled_local,host_name,check_in_at,check_out_at,feedback_token,follow_up_required,created_at")
+  .select("id,visitor_id,department,purpose,status,scheduled_local,host_name,check_in_at,check_out_at,feedback_token,follow_up_required,created_at,announced_by")
   .eq("organization_id",membership.organization_id);
  if(!isSenior) {
-  visitQuery = isManager
-   ? visitQuery.or(`department.neq.DIRECTION,announced_by.eq.${user.id}`)
-   : visitQuery.eq("announced_by",user.id);
+  visitQuery = (isManager || isReception)
+   ? visitQuery.neq("department","DIRECTION")
+   : visitQuery.eq("announced_by",user.id).neq("department","DIRECTION");
  }
  const {data:visits,error:queryError}=await visitQuery.order("created_at",{ascending:false}).limit(150);
  const visitorIds=[...new Set((visits||[]).map(v=>v.visitor_id))];
@@ -65,11 +67,11 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
     <td className="p-2">{v.scheduled_local?.slice(0,16).replace("T"," ")||"Unscheduled"}</td>
     <td className="p-2">{v.status}</td><td className="p-2">{v.host_name||"—"}</td>
     <td className="p-2"><div className="flex flex-wrap gap-2">
-     {["announced","scheduled"].includes(v.status)&&<form action={updateCantonVisit}><input type="hidden" name="id" value={v.id}/><button name="action" value="checkin" className="rounded bg-green-100 px-2 py-1">Check in</button></form>}
-     {["arrived","in_progress"].includes(v.status)&&<form action={updateCantonVisit}><input type="hidden" name="id" value={v.id}/><button name="action" value="checkout" className="rounded bg-blue-100 px-2 py-1">Check out</button></form>}
-     {["announced","scheduled","no_show"].includes(v.status)&&<form action={updateCantonVisit} className="flex gap-1"><input type="hidden" name="id" value={v.id}/><input name="scheduled" type="datetime-local" aria-label="New Canton appointment time" className="max-w-40 rounded border p-1 text-xs" required/><button name="action" value="reschedule" className="rounded bg-indigo-100 px-2 py-1">Reschedule</button></form>}
-     {v.status==="scheduled"&&<form action={updateCantonVisit}><input type="hidden" name="id" value={v.id}/><button name="action" value="no_show" className="rounded bg-slate-100 px-2 py-1">No show</button></form>}
-     {v.status==="completed"&&v.follow_up_required===null&&<form action={updateCantonVisit} className="flex gap-1"><input type="hidden" name="id" value={v.id}/><input type="hidden" name="action" value="followup"/><button name="required" value="yes" className="rounded bg-amber-100 px-2 py-1">Follow up</button><button name="required" value="no" className="rounded bg-slate-100 px-2 py-1">No follow up</button></form>}
+     {["announced","scheduled"].includes(v.status)&&(isSenior||isManager||isReception||v.announced_by===user.id)&&<form action={updateCantonVisit}><input type="hidden" name="id" value={v.id}/><button name="action" value="checkin" className="rounded bg-green-100 px-2 py-1">Check in</button></form>}
+     {["arrived","in_progress"].includes(v.status)&&(isSenior||isManager||isReception||v.announced_by===user.id)&&<form action={updateCantonVisit}><input type="hidden" name="id" value={v.id}/><button name="action" value="checkout" className="rounded bg-blue-100 px-2 py-1">Check out</button></form>}
+     {["announced","scheduled","no_show"].includes(v.status)&&(isSenior||membership.role==="manager"||v.announced_by===user.id)&&<form action={updateCantonVisit} className="flex gap-1"><input type="hidden" name="id" value={v.id}/><input name="scheduled" type="datetime-local" aria-label="New Canton appointment time" className="max-w-40 rounded border p-1 text-xs" required/><button name="action" value="reschedule" className="rounded bg-indigo-100 px-2 py-1">Reschedule</button></form>}
+     {v.status==="scheduled"&&(isSenior||membership.role==="manager"||v.announced_by===user.id)&&<form action={updateCantonVisit}><input type="hidden" name="id" value={v.id}/><button name="action" value="no_show" className="rounded bg-slate-100 px-2 py-1">No show</button></form>}
+     {v.status==="completed"&&v.follow_up_required===null&&(isSenior||membership.role==="manager"||v.announced_by===user.id)&&<form action={updateCantonVisit} className="flex gap-1"><input type="hidden" name="id" value={v.id}/><input type="hidden" name="action" value="followup"/><button name="required" value="yes" className="rounded bg-amber-100 px-2 py-1">Follow up</button><button name="required" value="no" className="rounded bg-slate-100 px-2 py-1">No follow up</button></form>}
     </div></td>
     <td className="p-2">{v.status==="completed"?<Link className="text-indigo-700 underline" href={`/canton-feedback?token=${v.feedback_token}`} target="_blank">Feedback link</Link>:"After checkout"}</td>
    </tr>)}</tbody></table>
