@@ -45,3 +45,10 @@ These pilot routes are intentionally blocked until an isolated Supabase project 
 - Test staff users are **not created**. They should be created using Supabase QA Auth admin UI/API with account-specific email verification, not via manual `auth.users` SQL or a copy of production identities.
 - New `107_canton_low_score_followup.sql` adds manager-review escalation when a visitor gives 1–2 stars or requests a follow-up, creating an open follow-up with due date. Applied in QA database only; transactional QA passed with fixtures rolled back.
 - **STILL BLOCKED:** Supabase branch reports `MIGRATIONS_FAILED` (unrelated to successful direct SQL QA tests). Need reconstruct complete staging schema, create Auth users, branch-only preview Supabase settings, test role separation; do not turn on feature gates in Vercel yet.
+
+## Update — 19 November 2026, QA readiness
+- Fixed QR appointment selection: scheduled visit is reused only when **visitor, department, purpose, and current Canton calendar day** match. This prevents the QR for a land tour from checking a guest into a different meeting with the same team. Migration `108_canton_qr_match_purpose.sql` was applied to the isolated QA branch; transactional SQL assertion passed, with test rows rolled back.
+- The isolated QA organization and reception site remain, but **no QA Auth employee identities have been provisioned**. Vercel still uses generic preview environment variables, and the pilot stays fail-closed.
+- Updated the preview pilot page to show clear readiness indicators in French, without exposing credentials or inviting real visitor submissions.
+- Supabase branch status still reports `MIGRATIONS_FAILED`; direct QA SQL success is **not** proof of full branch migration integrity. No reset/rebase/merge was performed because it could destroy the isolated QA data or affect production.
+- Need branch-scoped preview credentials and four fake Supabase Auth accounts before the real pilot can be enabled. This is the next **release gate**, not another product feature.
