@@ -20,6 +20,12 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
  const visitorIds=[...new Set((visits||[]).map(v=>v.visitor_id))];
  const {data:people}=visitorIds.length?await db.from("canton_visitors").select("id,full_name,phone").eq("organization_id",membership.organization_id).in("id",visitorIds):{data:[]};
  const map=new Map((people||[]).map(p=>[p.id,p]));
+ const visitIds=(visits||[]).map(v=>v.id);
+ const {data:feedback}=visitIds.length?await db.from("canton_visit_feedback")
+  .select("appointment_id,rating,contact_requested,submitted_at").in("appointment_id",visitIds):{data:[]};
+ const pendingFeedback=(feedback||[]).filter(x=>x.rating<=2||x.contact_requested).length;
+ const ratingAverage=(feedback||[]).length
+  ? ((feedback||[]).reduce((total,f)=>total+f.rating,0)/(feedback||[]).length).toFixed(1):"—";
  const today=new Date().toLocaleDateString("en-CA",{timeZone:"America/Chicago"});
  const todayRows=(visits||[]).filter(v=>(v.scheduled_local||v.check_in_at||v.created_at).slice(0,10)===today);
  const count=(p:(v:(typeof todayRows)[number])=>boolean)=>todayRows.filter(p).length;
@@ -30,7 +36,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
   {success&&<p role="status" className="rounded bg-green-100 p-3 text-green-800">{success}</p>}
   {queryError&&<p role="alert" className="rounded bg-yellow-100 p-3">Database not initialized. Apply the Canton migration before using this module.</p>}
   <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">{[
-   ["Today",todayRows.length],["Expected",count(v=>v.status==="scheduled")],["On site",count(v=>["arrived","in_progress"].includes(v.status))],["Completed",count(v=>v.status==="completed")]
+   ["Today",todayRows.length],["Expected",count(v=>v.status==="scheduled")],["On site",count(v=>["arrived","in_progress"].includes(v.status))],["Completed",count(v=>v.status==="completed")],["Feedback", (feedback||[]).length],["Avg. rating",ratingAverage],["Attention needed",pendingFeedback]
   ].map(([label,value])=><div key={label} className="rounded-xl border bg-white p-4"><div className="text-sm text-slate-500">{label}</div><div className="text-2xl font-bold">{value}</div></div>)}</div>
   <section className="rounded-xl border bg-white p-5"><h2 className="mb-3 text-lg font-semibold">Register or announce a visit</h2>
    <p className="mb-3 text-xs text-slate-500">A phone or email identifies returning visitors. Existing appointments with the same visitor, time, department and purpose are rejected. Date/time is Canton local time.</p>
@@ -54,6 +60,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
     <td className="p-2"><div className="flex flex-wrap gap-2">
      {["announced","scheduled"].includes(v.status)&&<form action={updateCantonVisit}><input type="hidden" name="id" value={v.id}/><button name="action" value="checkin" className="rounded bg-green-100 px-2 py-1">Check in</button></form>}
      {["arrived","in_progress"].includes(v.status)&&<form action={updateCantonVisit}><input type="hidden" name="id" value={v.id}/><button name="action" value="checkout" className="rounded bg-blue-100 px-2 py-1">Check out</button></form>}
+     {["announced","scheduled","no_show"].includes(v.status)&&<form action={updateCantonVisit} className="flex gap-1"><input type="hidden" name="id" value={v.id}/><input name="scheduled" type="datetime-local" aria-label="New Canton appointment time" className="max-w-40 rounded border p-1 text-xs" required/><button name="action" value="reschedule" className="rounded bg-indigo-100 px-2 py-1">Reschedule</button></form>}
      {v.status==="scheduled"&&<form action={updateCantonVisit}><input type="hidden" name="id" value={v.id}/><button name="action" value="no_show" className="rounded bg-slate-100 px-2 py-1">No show</button></form>}
      {v.status==="completed"&&v.follow_up_required===null&&<form action={updateCantonVisit} className="flex gap-1"><input type="hidden" name="id" value={v.id}/><input type="hidden" name="action" value="followup"/><button name="required" value="yes" className="rounded bg-amber-100 px-2 py-1">Follow up</button><button name="required" value="no" className="rounded bg-slate-100 px-2 py-1">No follow up</button></form>}
     </div></td>
