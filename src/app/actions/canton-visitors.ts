@@ -1,5 +1,5 @@
-import {assertCantonLive, cantonLiveEnabled} from "@/lib/canton/feature-gate";
 "use server";
+import {assertCantonLive} from "@/lib/canton/feature-gate";
 import {revalidatePath} from "next/cache";
 import {redirect} from "next/navigation";
 import {createClient} from "@/lib/supabase/server";
