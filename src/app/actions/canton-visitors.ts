@@ -64,16 +64,18 @@ export async function createCantonAppointment(f:FormData){
   }
   matched=data;
  }
+ if(!matched) fail("Visitor identity could not be resolved");
+ const visitorId=matched.id;
  const scheduledLocal=scheduled ? scheduled.replace("T"," ")+":00" : null;
  if(scheduledLocal){
   const {data:existing}=await db.from("canton_appointments").select("id")
-   .eq("organization_id",org).eq("visitor_id",matched.id).eq("department",department)
+   .eq("organization_id",org).eq("visitor_id",visitorId).eq("department",department)
    .eq("purpose",purpose).eq("scheduled_local",scheduledLocal)
    .not("status","in","(cancelled,no_show)").limit(1).maybeSingle();
   if(existing) fail("An appointment already exists for this visitor, purpose and time");
  }
  const {error}=await db.from("canton_appointments").insert({
-  organization_id:org,visitor_id:matched.id,department,purpose,
+  organization_id:org,visitor_id:visitorId,department,purpose,
   scheduled_local:scheduledLocal,status:scheduled?"scheduled":"announced",
   host_name:field(f,"host",140)||null,notes:field(f,"notes",1000)||null,announced_by:user.id
  });
