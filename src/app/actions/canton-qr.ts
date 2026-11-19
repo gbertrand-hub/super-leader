@@ -92,10 +92,21 @@ export async function submitCantonQrFeedback(f:FormData){
  const code=value(f,"code",16).toUpperCase();
  const back="/canton-feedback-qr?code="+encodeURIComponent(code);
  if(value(f,"website",100))redirect("/canton-feedback-qr?success=1");
+ const secret=process.env.CANTON_INTAKE_RATE_SECRET;
+ const hdr=await headers();
+ const rawIp=(hdr.get("x-real-ip")||hdr.get("x-forwarded-for")?.split(",")[0]||"").trim();
+ if(!secret||!rawIp)redirect("/canton-feedback-qr?error=unavailable");
+ const db=createAdminClient();
+ const ipHash=createHash("sha256").update(secret+"|feedback|"+rawIp).digest("hex");
+ const {count:recent,error:rateError}=await db.from("canton_qr_feedback_attempts")
+  .select("id",{count:"exact",head:true}).eq("ip_hash",ipHash)
+  .gte("submitted_at",new Date(Date.now()-60*60*1000).toISOString());
+ if(rateError||(recent??0)>=10)redirect("/canton-feedback-qr?error=limit");
+ const {error:logError}=await db.from("canton_qr_feedback_attempts").insert({ip_hash:ipHash});
+ if(logError)redirect("/canton-feedback-qr?error=unavailable");
  if(!/^[0-9A-F]{16}$/.test(code))redirect("/canton-feedback-qr?error=invalid");
  const rating=Number(value(f,"rating",1));
  if(!Number.isInteger(rating)||rating<1||rating>5)redirect(back+"&error=invalid");
- const db=createAdminClient();
  const {data:visit}=await db.from("canton_appointments").select("id,status,check_out_at")
   .eq("feedback_code",code).maybeSingle();
  if(!visit || visit.status!=="completed" || !visit.check_out_at)redirect(back+"&error=unavailable");
