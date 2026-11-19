@@ -45,3 +45,14 @@ Existing CRM table verified in the Super Leader Supabase project: `public.crm_cl
 - Next.js compilation: passed. TypeScript: passed. Vercel preview: READY.
 - Earlier builds failed type-checking at nullable identity and visit checks, corrected in branch.
 - **Important:** preview can still show missing database table message until an isolated test database is set up and a migration applied. Database/schema functional QA remains blocked.
+
+## Supabase isolated branch: created 2026-11-19 17:55 UTC
+- Parent project: Super Leader `jjbuxrlvxnlnrjcorpwt` (production unchanged).
+- QA branch ref: `xehstmnqljjhacjiukvc`, branch id `d79aa714-8bcf-4a24-9d17-f118afbcfa23`.
+- Branch rate approved by owner: USD 0.01344 per hour. Target check / delete by **2026-11-22 17:55 UTC**, or earlier after acceptance. Deletion is NOT automatic.
+- Supabase branch provisioning did **not** bring over the existing application tables; migration history on the parent project is not mirrored. To test only the Canton SQL schema, we applied a **QA-ONLY minimal foundation** for `organizations`, `crm_clients`, `organization_members` with no real user data. This branch is **not a working replica** of the full Super Leader app. Never merge the QA-only foundation to production.
+- Applied branch migrations: `canton_stage_minimal_foundation_only`; `canton_visitors_appointments_feedback_v1`.
+- Verified 3 Canton tables exist and have RLS enabled. The advisor reports INFO `rls_enabled_no_policy` for 6 QA-only tables: deliberate deny-all with no grants to anon/authenticated. Only server-side scoped service role operations currently access them.
+- SQL transactional fixtures: fake organization, visitor, appointment and feedback; confirmed protection against duplicate appointments, cross-organization visitor association, rating outside 1–5, and second feedback for one visit. Test fixture writes rolled back; zero visitors, appointments and feedback remain in the QA branch.
+- **Not yet tested:** full Super Leader app login or navigation, data flows through server actions, role-scoped security, live CRM data compatibility, WhatsApp, mobile feedback. Preview Vercel is currently NOT connected to this QA branch. Do not point the general app preview at it because the foundation is intentionally incomplete.
+- To obtain genuine end-to-end tests without production data, restore a sanitized full schema into the QA branch or create a separate dedicated preview with an appropriate test-auth environment and a matching schema. Do not clone real customers.
