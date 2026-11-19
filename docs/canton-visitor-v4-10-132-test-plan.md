@@ -1,6 +1,6 @@
 # Canton Visitor & Appointment Management — V4.10.132 (WIP)
 
-Status: development branch only. **Vercel preview build READY for commit 41f5f3f, 2026-11-19. Schema not applied; no functional acceptance tests; do not promote to production.**
+Status: development branch only. **Vercel preview build READY for commit 41f5f3f, 2026-11-19. Canton schema applied only in isolated QA branch; SQL checks pass, full end-to-end tests remain; do not promote to production.**
 
 ## Features implemented in code
 - Canton Visitor Center route: `/dashboard/canton-visitors` (signed-in members).
@@ -37,7 +37,7 @@ Status: development branch only. **Vercel preview build READY for commit 41f5f3f
 - **No WhatsApp messages until API integration and opt-in controls are ready.**
 
 ## QA notes
-Migration file currently: `supabase/100_canton_visitor_v1.sql` (provisional filename; not applied).
+Migration file: `supabase/100_canton_visitor_v1.sql` (applied in isolated QA branch only, not production).
 Existing CRM table verified in the Super Leader Supabase project: `public.crm_clients`.
 
 ## Build verification (2026-11-19)
