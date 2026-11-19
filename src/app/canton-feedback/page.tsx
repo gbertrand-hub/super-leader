@@ -1,8 +1,10 @@
+import {assertCantonLive, cantonLiveEnabled} from "@/lib/canton/feature-gate";
 import {submitCantonFeedback} from "@/app/actions/canton-visitors";
 import {createAdminClient} from "@/lib/supabase/admin";
 export const dynamic="force-dynamic";
 export default async function CantonFeedbackPage({searchParams}:{searchParams:Promise<{token?:string;success?:string;error?:string}>}){
  const {token="",success,error}=await searchParams;
+ if (!cantonLiveEnabled()) return <main className="mx-auto max-w-lg p-8">Canton QR forms are not available in this test environment.</main>;
  const valid=/^[0-9a-f-]{36}$/i.test(token);
  let allowed=false;
  if(valid){
