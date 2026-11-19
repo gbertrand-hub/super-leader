@@ -39,3 +39,9 @@ These pilot routes are intentionally blocked until an isolated Supabase project 
 - Full live role/auth/data flows and mobile QR forms are not verified.
 - Public feedback abuse protections and confidentiality policies require review.
 - The production schema is not reconstructed from the same migrations as the QA branch. Do not treat the QA branch as a full copy of Super Leader.
+
+## QA test organization initialized (2026-11-19)
+- One organization **Canton Visitor Center - QA ONLY** and a **Canton Main Reception - QA ONLY** QR site were created **inside isolated branch** `xehstmnqljjhacjiukvc` only. The fake organization ID is `021cdbb8-af4d-412e-8ec7-e7bba08d1349`.
+- Test staff users are **not created**. They should be created using Supabase QA Auth admin UI/API with account-specific email verification, not via manual `auth.users` SQL or a copy of production identities.
+- New `107_canton_low_score_followup.sql` adds manager-review escalation when a visitor gives 1–2 stars or requests a follow-up, creating an open follow-up with due date. Applied in QA database only; transactional QA passed with fixtures rolled back.
+- **STILL BLOCKED:** Supabase branch reports `MIGRATIONS_FAILED` (unrelated to successful direct SQL QA tests). Need reconstruct complete staging schema, create Auth users, branch-only preview Supabase settings, test role separation; do not turn on feature gates in Vercel yet.
