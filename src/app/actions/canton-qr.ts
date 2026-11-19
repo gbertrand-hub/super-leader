@@ -15,7 +15,7 @@ async function staff(){
  if(!user)redirect("/login");
  const db=createAdminClient();
  const {data:m}=await db.from("organization_members").select("role,organization_id").eq("user_id",user.id).eq("is_active",true).limit(1).maybeSingle();
- if(!m)fail("Access denied");
+ if(!m) throw new Error("Access denied");
  const {data:assigned}=await db.from("canton_reception_staff").select("user_id").eq("organization_id",m.organization_id).eq("user_id",user.id).maybeSingle();
  return {db,user,org:m.organization_id as string,role:m.role as string,canReview:["owner","admin","manager"].includes(m.role)||!!assigned};
 }
@@ -43,6 +43,7 @@ export async function submitCantonQrIntake(f:FormData){
  const db=createAdminClient();
  const {data:qrSite}=await db.from("canton_qr_sites").select("id,organization_id,enabled").eq("id",site).eq("enabled",true).maybeSingle();
  if(!qrSite)redirect(back+"&error=unavailable");
+ const validatedSite=qrSite!;
  // Defense in depth; blocking check on the shared database, with a limited per-IP and per-contact time window.
  const h=await headers();
  const rawIp=(h.get("x-real-ip")||h.get("x-forwarded-for")?.split(",")[0]||"").trim();
@@ -58,7 +59,7 @@ export async function submitCantonQrIntake(f:FormData){
  const {count:duplicates,error:duplicateError}=await similar;
  if(duplicateError || (duplicates??0)>0)redirect(back+"&error=duplicate");
  const {error}=await db.from("canton_intake_requests").insert({
-  organization_id:qrSite.organization_id,site_id:qrSite.id,full_name:name,email:email||null,phone:phone||null,
+  organization_id:validatedSite.organization_id,site_id:validatedSite.id,full_name:name,email:email||null,phone:phone||null,
   department,purpose,ip_hash:hash,
  });
  if(error)redirect(back+"&error=unavailable");
@@ -72,7 +73,7 @@ export async function reviewCantonQrIntake(f:FormData){
  const {data:request}=await db.from("canton_intake_requests")
   .select("id,status,full_name,email,phone,department,purpose,organization_id")
   .eq("id",id).eq("organization_id",org).maybeSingle();
- if(!request || request.status!=="pending")fail("Request already processed");
+ if(!request || request.status!=="pending")throw new Error("Request already processed");
  // Keep QR self-registration as a request; approval never automatically creates a CRM sales lead.
  if(decision==="reject"){
   const {data:changed,error}=await db.from("canton_intake_requests").update({status:"rejected",reviewed_by:user.id,reviewed_at:new Date().toISOString()})
