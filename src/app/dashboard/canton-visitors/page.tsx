@@ -1,3 +1,4 @@
+import {assertCantonLive, cantonLiveEnabled} from "@/lib/canton/feature-gate";
 import Link from "next/link";
 import {headers} from "next/headers";
 import {createCantonQrSite,reviewCantonQrIntake} from "@/app/actions/canton-qr";
@@ -8,6 +9,7 @@ import {createCantonAppointment,updateCantonVisit,manageCantonReceptionStaff,ass
 export const dynamic="force-dynamic";
 export default async function CantonVisitorPage({searchParams}:{searchParams:Promise<{error?:string;success?:string}>}){
  const {error,success}=await searchParams;
+ if (!cantonLiveEnabled()) return <main className="mx-auto max-w-2xl p-8"><h1 className="text-2xl font-bold">Canton Visitor Center</h1><p className="mt-3 rounded-lg bg-amber-50 p-4 text-amber-900">Real operations are disabled in this preview until the separate QA database, authentication, and access controls pass end-to-end testing.</p><a href="/canton-demo" className="mt-4 inline-block underline">Open the simulation</a></main>;
  const host=(await headers()).get("host")||"";
  const origin=/^(localhost(:\d+)?|app\.ileadglobal\.org|[a-z0-9-]+\.vercel\.app)$/.test(host)?`${host.startsWith("localhost")?"http":"https"}://${host}`:"";
  const qrImage=(url:string)=>"https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=10&data="+encodeURIComponent(url);
