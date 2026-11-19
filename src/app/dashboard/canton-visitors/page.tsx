@@ -107,7 +107,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
       {v.follow_up_status==="open"&&<form action={completeCantonFollowUp} className="mt-2"><input type="hidden" name="id" value={v.id}/><button className="rounded bg-green-100 px-3 py-2 text-sm">Mark follow-up completed</button></form>}
     </div>
    )}</div>
-  </section>
+  </section>}
   <section className="overflow-auto rounded-xl border bg-white p-4"><h2 className="mb-3 text-lg font-semibold">Recent visits and appointments</h2><table className="w-full min-w-[850px] text-left text-sm"><thead><tr className="border-b text-slate-500">{["Visitor","Department","When (Canton)","Status","Host","Actions","Feedback"].map(h=><th className="p-2" key={h}>{h}</th>)}</tr></thead>
    <tbody>{(visits||[]).map(v=><tr className="border-b align-top" key={v.id}>
     <td className="p-2"><div className="font-medium">{map.get(v.visitor_id)?.full_name||"Visitor"}</div><div className="text-xs text-slate-500">{map.get(v.visitor_id)?.phone}</div></td>
