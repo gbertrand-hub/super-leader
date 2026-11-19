@@ -15,7 +15,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
  const qrImage=(url:string)=>"https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=10&data="+encodeURIComponent(url);
  const supabase=await createClient();
  const {data:{user}}=await supabase.auth.getUser();
- if(!user) redirect("/login");
+ if(!user) redirect("/canton-pilot/login");
  const db=createAdminClient();
  const {data:membership}=await db.from("organization_members").select("organization_id,role")
  .eq("user_id",user.id).eq("is_active",true).limit(1).maybeSingle();
@@ -57,7 +57,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
  const count=(p:(v:(typeof todayRows)[number])=>boolean)=>todayRows.filter(p).length;
  const input="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900";
  return <main className="space-y-6 p-4 md:p-8">
-  <div className="flex flex-wrap items-center justify-between gap-3"><div><h1 className="text-2xl font-bold">Canton Visitor Center</h1><p className="text-sm text-slate-500">Appointments, check-in, check-out and visitor experience · Canton, Texas (Central Time)</p></div><Link href="/dashboard/crm" className="text-sm underline">CRM</Link></div>
+  <div className="flex flex-wrap items-center justify-between gap-3"><div><h1 className="text-2xl font-bold">Canton Visitor Center</h1><p className="text-sm text-slate-500">Appointments, check-in, check-out and visitor experience · Canton, Texas (Central Time)</p></div><span className="text-sm text-slate-500">QA · données fictives</span></div>
   {error&&<p role="alert" className="rounded bg-red-100 p-3 text-red-800">{error}</p>}
   {success&&<p role="status" className="rounded bg-green-100 p-3 text-green-800">{success}</p>}
   {queryError&&<p role="alert" className="rounded bg-yellow-100 p-3">Database not initialized. Apply the Canton migration before using this module.</p>}
