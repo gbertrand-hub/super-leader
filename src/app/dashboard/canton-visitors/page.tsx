@@ -21,7 +21,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
  const isSenior=["owner","admin"].includes(membership.role);
  const {data:reception}=await db.from("canton_reception_staff").select("user_id").eq("organization_id",membership.organization_id).eq("user_id",user.id).maybeSingle();
  const isReception=!!reception;
- const {data:members}=isSenior?await db.from("organization_members").select("user_id,role").eq("organization_id",membership.organization_id).eq("is_active",true).limit(200):{data:[]};
+ const {data:members}=(isSenior||membership.role==="manager")?await db.from("organization_members").select("user_id,role").eq("organization_id",membership.organization_id).eq("is_active",true).limit(200):{data:[]};
  const {data:staffAssignments}=isSenior?await db.from("canton_reception_staff").select("user_id").eq("organization_id",membership.organization_id):{data:[]};
  const memberIds=(members||[]).map(m=>m.user_id);
  const {data:memberProfiles}=memberIds.length?await db.from("profiles").select("id,full_name,email").in("id",memberIds):{data:[]};
@@ -99,7 +99,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
       <p className="mb-2 font-semibold">{map.get(v.visitor_id)?.full_name||"Visitor"} · {v.department} · {v.follow_up_status==="open"?"Open":v.follow_up_status==="completed"?"Completed":"Not assigned"}</p>
       <form action={assignCantonFollowUp} className="flex flex-wrap items-end gap-2">
        <input type="hidden" name="id" value={v.id}/>
-       <label className="flex-1 text-sm">Owner (active employee ID)<input name="ownerId" required className={input} defaultValue={v.follow_up_owner_id||""} placeholder="Employee UUID"/></label>
+       <label className="flex-1 text-sm">Responsible employee<select name="ownerId" required className={input} defaultValue={v.follow_up_owner_id||""}><option value="">Choose team member</option>{(members||[]).map(m=><option value={m.user_id} key={m.user_id}>{profileMap.get(m.user_id)?.full_name||profileMap.get(m.user_id)?.email||m.user_id}</option>)}</select></label>
        <label className="text-sm">Due date<input name="dueDate" type="date" className={input} required defaultValue={v.follow_up_due_date||""}/></label>
        <label className="min-w-[150px] flex-1 text-sm">Next action<input name="note" className={input} maxLength={1000} defaultValue={v.follow_up_note||""} placeholder="Call visitor about next steps"/></label>
        <button className="rounded-lg bg-indigo-700 px-3 py-2 text-white">Assign</button>
