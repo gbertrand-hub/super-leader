@@ -4,7 +4,7 @@ import {createCantonQrSite,reviewCantonQrIntake} from "@/app/actions/canton-qr";
 import {redirect} from "next/navigation";
 import {createClient} from "@/lib/supabase/server";
 import {createAdminClient} from "@/lib/supabase/admin";
-import {createCantonAppointment,updateCantonVisit,manageCantonReceptionStaff} from "@/app/actions/canton-visitors";
+import {createCantonAppointment,updateCantonVisit,manageCantonReceptionStaff,assignCantonFollowUp,completeCantonFollowUp} from "@/app/actions/canton-visitors";
 export const dynamic="force-dynamic";
 export default async function CantonVisitorPage({searchParams}:{searchParams:Promise<{error?:string;success?:string}>}){
  const {error,success}=await searchParams;
@@ -30,7 +30,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
 
  const isManager=membership.role==="manager" || membership.role==="hr";
  let visitQuery=db.from("canton_appointments")
-  .select("id,visitor_id,department,purpose,status,scheduled_local,host_name,check_in_at,check_out_at,feedback_token,feedback_code,follow_up_required,created_at,announced_by")
+  .select("id,visitor_id,department,purpose,status,scheduled_local,host_name,check_in_at,check_out_at,feedback_token,feedback_code,follow_up_required,follow_up_owner_id,follow_up_status,follow_up_due_date,follow_up_note,created_at,announced_by")
   .eq("organization_id",membership.organization_id);
  if(!isSenior) {
   visitQuery = (isManager || isReception)
@@ -47,6 +47,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
  const {data:feedback}=visitIds.length?await db.from("canton_visit_feedback")
   .select("appointment_id,rating,contact_requested,submitted_at").in("appointment_id",visitIds):{data:[]};
  const pendingFeedback=(feedback||[]).filter(x=>x.rating<=2||x.contact_requested).length;
+ const pendingHandoffs=(visits||[]).filter(v=>v.follow_up_status==="open").length;
  const ratingAverage=(feedback||[]).length
   ? ((feedback||[]).reduce((total,f)=>total+f.rating,0)/(feedback||[]).length).toFixed(1):"—";
  const today=new Date().toLocaleDateString("en-CA",{timeZone:"America/Chicago"});
@@ -59,7 +60,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
   {success&&<p role="status" className="rounded bg-green-100 p-3 text-green-800">{success}</p>}
   {queryError&&<p role="alert" className="rounded bg-yellow-100 p-3">Database not initialized. Apply the Canton migration before using this module.</p>}
   <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">{[
-   ["Today",todayRows.length],["Expected",count(v=>v.status==="scheduled")],["On site",count(v=>["arrived","in_progress"].includes(v.status))],["Completed",count(v=>v.status==="completed")],["Feedback", (feedback||[]).length],["Avg. rating",ratingAverage],["Attention needed",pendingFeedback]
+   ["Today",todayRows.length],["Expected",count(v=>v.status==="scheduled")],["On site",count(v=>["arrived","in_progress"].includes(v.status))],["Completed",count(v=>v.status==="completed")],["Feedback", (feedback||[]).length],["Avg. rating",ratingAverage],["Attention needed",pendingFeedback],["Follow-ups open",pendingHandoffs]
   ].map(([label,value])=><div key={label} className="rounded-xl border bg-white p-4"><div className="text-sm text-slate-500">{label}</div><div className="text-2xl font-bold">{value}</div></div>)}</div>
   {isSenior&&<section className="rounded-xl border bg-white p-5"><h2 className="mb-2 text-lg font-semibold">Reception access</h2><p className="mb-3 text-sm text-slate-500">Assign staff to check in and check out standard visits. Confidential direction visits remain restricted.</p>
   <div className="space-y-2">{(members||[]).map(m=><div className="flex flex-wrap items-center justify-between gap-2 border-b py-2 text-sm" key={m.user_id}><span>{profileMap.get(m.user_id)?.full_name||profileMap.get(m.user_id)?.email||m.user_id} <span className="text-xs text-slate-500">({m.role})</span></span><form action={manageCantonReceptionStaff}><input type="hidden" name="userId" value={m.user_id}/><button name="operation" value={assignedIds.has(m.user_id)?"revoke":"grant"} className={assignedIds.has(m.user_id)?"rounded bg-red-100 px-3 py-1":"rounded bg-emerald-100 px-3 py-1"}>{assignedIds.has(m.user_id)?"Remove reception access":"Grant reception access"}</button></form></div>)}</div></section>}
@@ -89,6 +90,24 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
     <label className="text-sm md:col-span-2">Notes (optional)<input className={input} name="notes"/></label>
     <button className="rounded-lg bg-indigo-700 px-4 py-2 font-medium text-white md:col-span-3">Register visitor / appointment</button>
    </form></section>
+
+  {(isSenior||membership.role==="manager")&&<section className="rounded-xl border bg-white p-5">
+   <h2 className="text-lg font-semibold">Follow-up handoff / Suivi après visite</h2>
+   <p className="mb-3 text-sm text-slate-500">Assign a responsible employee and due date after each completed visit. Open tasks remain visible until closed.</p>
+   <div className="space-y-3">{(visits||[]).filter(v=>v.status==="completed" && (v.department!=="DIRECTION"||isSenior)).map(v=>
+    <div key={v.id} className="rounded-lg border p-3">
+      <p className="mb-2 font-semibold">{map.get(v.visitor_id)?.full_name||"Visitor"} · {v.department} · {v.follow_up_status==="open"?"Open":v.follow_up_status==="completed"?"Completed":"Not assigned"}</p>
+      <form action={assignCantonFollowUp} className="flex flex-wrap items-end gap-2">
+       <input type="hidden" name="id" value={v.id}/>
+       <label className="flex-1 text-sm">Owner (active employee ID)<input name="ownerId" required className={input} defaultValue={v.follow_up_owner_id||""} placeholder="Employee UUID"/></label>
+       <label className="text-sm">Due date<input name="dueDate" type="date" className={input} required defaultValue={v.follow_up_due_date||""}/></label>
+       <label className="min-w-[150px] flex-1 text-sm">Next action<input name="note" className={input} maxLength={1000} defaultValue={v.follow_up_note||""} placeholder="Call visitor about next steps"/></label>
+       <button className="rounded-lg bg-indigo-700 px-3 py-2 text-white">Assign</button>
+      </form>
+      {v.follow_up_status==="open"&&<form action={completeCantonFollowUp} className="mt-2"><input type="hidden" name="id" value={v.id}/><button className="rounded bg-green-100 px-3 py-2 text-sm">Mark follow-up completed</button></form>}
+    </div>
+   )}</div>
+  </section>
   <section className="overflow-auto rounded-xl border bg-white p-4"><h2 className="mb-3 text-lg font-semibold">Recent visits and appointments</h2><table className="w-full min-w-[850px] text-left text-sm"><thead><tr className="border-b text-slate-500">{["Visitor","Department","When (Canton)","Status","Host","Actions","Feedback"].map(h=><th className="p-2" key={h}>{h}</th>)}</tr></thead>
    <tbody>{(visits||[]).map(v=><tr className="border-b align-top" key={v.id}>
     <td className="p-2"><div className="font-medium">{map.get(v.visitor_id)?.full_name||"Visitor"}</div><div className="text-xs text-slate-500">{map.get(v.visitor_id)?.phone}</div></td>
