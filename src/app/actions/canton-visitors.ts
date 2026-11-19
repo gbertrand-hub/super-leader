@@ -18,7 +18,8 @@ async function context(){
  const {data:m,error}=await db.from("organization_members").select("organization_id,role")
  .eq("user_id",user.id).eq("is_active",true).limit(1).maybeSingle();
  if(error||!m||!roles.has(m.role)) throw new Error("No access to Canton Visitor Center");
- return {db,user,org:m.organization_id as string,role:m.role as string};
+ const {data:reception}=await db.from("canton_reception_staff").select("user_id").eq("organization_id",m.organization_id).eq("user_id",user.id).maybeSingle();
+ return {db,user,org:m.organization_id as string,role:m.role as string,isReception:!!reception};
 }
 export async function createCantonAppointment(f:FormData){
  const {db,user,org,role}=await context();
@@ -30,7 +31,7 @@ export async function createCantonAppointment(f:FormData){
  const purpose=field(f,"purpose",100)||"other";
  const scheduled=field(f,"scheduled");
  if(!name || (!phone&&!email) || !depts.has(department)) fail("Name, phone or email, and department are required");
- if(department==="DIRECTION" && !seniorRoles.has(role) && role!=="employee" && role!=="manager") fail("Not authorized for direction visits");
+ if(department==="DIRECTION" && !seniorRoles.has(role)) fail("Only the organization administration can schedule confidential direction visits");
  if(scheduled&&!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(scheduled)) fail("Invalid Canton appointment date");
  let matched: {id:string}|null=null;
  if(phone){
@@ -84,13 +85,18 @@ export async function createCantonAppointment(f:FormData){
  redirect(route+"?success="+encodeURIComponent("Visit registered"));
 }
 export async function updateCantonVisit(f:FormData){
- const {db,org,user,role}=await context(),id=field(f,"id"),action=field(f,"action");
+ const {db,org,user,role,isReception}=await context(),id=field(f,"id"),action=field(f,"action");
  if(!/^[0-9a-f-]{36}$/i.test(id)) fail("Invalid visit");
  const {data:row}=await db.from("canton_appointments").select("status,check_in_at,check_out_at,department,announced_by")
   .eq("id",id).eq("organization_id",org).maybeSingle();
  if(!row) fail("Visit not found");
  const visit = row!;
- if(!seniorRoles.has(role) && (visit.department==="DIRECTION" || role==="employee") && visit.announced_by!==user.id) fail("You cannot manage this private or unassigned visit");
+ const isSenior=seniorRoles.has(role);
+ const isCreator=visit.announced_by===user.id;
+ const canOperateStandardVisit=visit.department!=="DIRECTION" && (isReception || role==="manager" || role==="hr");
+ if(!isSenior && visit.department==="DIRECTION") fail("Confidential visit: administrator access required");
+ if(!isSenior && !isCreator && !canOperateStandardVisit) fail("Not authorized to manage this visit");
+ if(["reschedule","no_show","followup"].includes(action) && !isSenior && !isCreator && role!=="manager") fail("Only the organizer or a manager can change this visit");
  const now=new Date().toISOString();
  let patch:Record<string,unknown>={updated_at:now};
  if(action==="reschedule" && ["announced","scheduled","no_show"].includes(visit.status)){
