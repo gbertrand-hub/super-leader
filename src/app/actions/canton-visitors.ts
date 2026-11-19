@@ -7,6 +7,7 @@ import {createAdminClient} from "@/lib/supabase/admin";
 const depts = new Set(["DIG","TCF","DIRECTION","OTHER"]);
 const roles = new Set(["owner","admin","manager","employee","hr"]);
 const route = "/dashboard/canton-visitors";
+const seniorRoles = new Set(["owner","admin"]);
 const field=(f:FormData,k:string,n=180)=>String(f.get(k)??"").trim().slice(0,n);
 const fail=(message:string):never=>redirect(route+"?error="+encodeURIComponent(message));
 async function context(){
@@ -17,10 +18,10 @@ async function context(){
  const {data:m,error}=await db.from("organization_members").select("organization_id,role")
  .eq("user_id",user.id).eq("is_active",true).limit(1).maybeSingle();
  if(error||!m||!roles.has(m.role)) throw new Error("No access to Canton Visitor Center");
- return {db,user,org:m.organization_id as string};
+ return {db,user,org:m.organization_id as string,role:m.role as string};
 }
 export async function createCantonAppointment(f:FormData){
- const {db,user,org}=await context();
+ const {db,user,org,role}=await context();
  const name=field(f,"name"), rawPhone=field(f,"phone",35);
  const phone=rawPhone.replace(/[^+0-9]/g,"")||null;
  const email=field(f,"email",200).toLowerCase()||null;
@@ -29,6 +30,7 @@ export async function createCantonAppointment(f:FormData){
  const purpose=field(f,"purpose",100)||"other";
  const scheduled=field(f,"scheduled");
  if(!name || (!phone&&!email) || !depts.has(department)) fail("Name, phone or email, and department are required");
+ if(department==="DIRECTION" && !seniorRoles.has(role) && role!=="employee" && role!=="manager") fail("Not authorized for direction visits");
  if(scheduled&&!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(scheduled)) fail("Invalid Canton appointment date");
  let matched: {id:string}|null=null;
  if(phone){
@@ -80,11 +82,12 @@ export async function createCantonAppointment(f:FormData){
  redirect(route+"?success="+encodeURIComponent("Visit registered"));
 }
 export async function updateCantonVisit(f:FormData){
- const {db,org}=await context(),id=field(f,"id"),action=field(f,"action");
+ const {db,org,user,role}=await context(),id=field(f,"id"),action=field(f,"action");
  if(!/^[0-9a-f-]{36}$/i.test(id)) fail("Invalid visit");
- const {data:row}=await db.from("canton_appointments").select("status,check_in_at,check_out_at")
+ const {data:row}=await db.from("canton_appointments").select("status,check_in_at,check_out_at,department,announced_by")
   .eq("id",id).eq("organization_id",org).maybeSingle();
  if(!row) fail("Visit not found");
+ if(!seniorRoles.has(role) && (row.department==="DIRECTION" || role==="employee") && row.announced_by!==user.id) fail("You cannot manage this private or unassigned visit");
  const now=new Date().toISOString();
  let patch:Record<string,unknown>={updated_at:now};
  if(action==="reschedule" && ["announced","scheduled","no_show"].includes(row.status)){
