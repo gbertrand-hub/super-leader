@@ -7,14 +7,14 @@ import {createAdminClient} from "@/lib/supabase/admin";
 
 const depts = new Set(["DIG","TCF","DIRECTION","OTHER"]);
 const roles = new Set(["owner","admin","manager","employee","hr"]);
-const route = "/dashboard/canton-visitors";
+const route = "/canton-pilot";
 const seniorRoles = new Set(["owner","admin"]);
 const field=(f:FormData,k:string,n=180)=>String(f.get(k)??"").trim().slice(0,n);
 const fail=(message:string):never=>redirect(route+"?error="+encodeURIComponent(message));
 async function context(){
  const supabase=await createClient();
  const {data:{user}}=await supabase.auth.getUser();
- if(!user) redirect("/login");
+ if(!user) redirect("/canton-pilot/login");
  const db=createAdminClient();
  const {data:m,error}=await db.from("organization_members").select("organization_id,role")
  .eq("user_id",user.id).eq("is_active",true).limit(1).maybeSingle();
