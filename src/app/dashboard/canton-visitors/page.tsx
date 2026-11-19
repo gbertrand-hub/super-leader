@@ -9,7 +9,7 @@ export const dynamic="force-dynamic";
 export default async function CantonVisitorPage({searchParams}:{searchParams:Promise<{error?:string;success?:string}>}){
  const {error,success}=await searchParams;
  const host=(await headers()).get("host")||"";
- const origin=/^(localhost(:\\d+)?|app\\.ileadglobal\\.org|[a-z0-9-]+\\.vercel\\.app)$/.test(host)?`${host.startsWith("localhost")?"http":"https"}://${host}`:"";
+ const origin=/^(localhost(:\d+)?|app\.ileadglobal\.org|[a-z0-9-]+\.vercel\.app)$/.test(host)?`${host.startsWith("localhost")?"http":"https"}://${host}`:"";
  const qrImage=(url:string)=>"https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=10&data="+encodeURIComponent(url);
  const supabase=await createClient();
  const {data:{user}}=await supabase.auth.getUser();
@@ -38,7 +38,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
    : visitQuery.eq("announced_by",user.id).neq("department","DIRECTION");
  }
  const {data:visits,error:queryError}=await visitQuery.order("created_at",{ascending:false}).limit(150);
- const {data:sites}=isSenior?await db.from("canton_qr_sites").select("id,label,enabled").eq("organization_id",membership.organization_id).order("created_at",{ascending:false}):{data:[]};
+ const {data:sites}=(isSenior||isManager||isReception)?await db.from("canton_qr_sites").select("id,label,enabled").eq("organization_id",membership.organization_id).order("created_at",{ascending:false}):{data:[]};
  const {data:requests}=isSenior||isManager||isReception?await db.from("canton_intake_requests").select("id,full_name,department,purpose,email,phone,created_at").eq("organization_id",membership.organization_id).eq("status","pending").order("created_at",{ascending:true}).limit(100):{data:[]};
  const visitorIds=[...new Set((visits||[]).map(v=>v.visitor_id))];
  const {data:people}=visitorIds.length?await db.from("canton_visitors").select("id,full_name,phone").eq("organization_id",membership.organization_id).in("id",visitorIds):{data:[]};
