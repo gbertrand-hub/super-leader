@@ -60,3 +60,9 @@ These pilot routes are intentionally blocked until an isolated Supabase project 
 - **Remaining manual security step:** in Supabase staging project, open API Keys and provision/copy a server-only service role/secret through the provider's secure interface. Configure that value in Vercel project settings as an encrypted/sensitive **branch-specific Preview** variable (not All Preview / Production). Do not disclose the value in chat or logs.
 - Create four separate temporary staging users with the Supabase Authentication UI. Associate their user IDs with the fake Canton organization `021cdbb8-af4d-412e-8ec7-e7bba08d1349`; receptionist requires explicit `canton_reception_staff` assignment. No real credentials, email addresses or production customer identities.
 - Preserve release flags `false` until service key, test users, full schema compatibility and role tests are verified. Branch status `MIGRATIONS_FAILED` is still unresolved; do not reset/rebase or merge until the cause and impact are understood.
+
+## Isolated-QA grants verified (2026-11-19)
+- Owner ran QA-only backend grants in the `canton-visitor-v4-10-132-stage` PREVIEW project. Direct SQL checks confirmed 11/11 tables readable by service_role, 0/11 by authenticated clients, with RLS enabled.
+- A read-only Vercel QA server health test returned `serverKeyVerified=true`, `qaOrganizationFound=true`, `fourMembersReady=true`, `receptionAuthorized=true`.
+- A branch-specific `CANTON_INTAKE_RATE_SECRET` was created (encrypted), and should be validated only in a fresh build; no secret value should be stored in this file.
+- Both live release flags remain `false`. Real user testing must await appropriate authorization and isolated staging validation; do not promote or merge to production.
