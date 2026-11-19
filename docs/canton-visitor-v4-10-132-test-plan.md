@@ -1,6 +1,6 @@
 # Canton Visitor & Appointment Management — V4.10.132 (WIP)
 
-Status: development branch only. **Not deployed, not build-tested, do not apply to production.**
+Status: development branch only. **Vercel preview build READY for commit 41f5f3f, 2026-11-19. Schema not applied; no functional acceptance tests; do not promote to production.**
 
 ## Features implemented in code
 - Canton Visitor Center route: `/dashboard/canton-visitors` (signed-in members).
@@ -39,3 +39,9 @@ Status: development branch only. **Not deployed, not build-tested, do not apply 
 ## QA notes
 Migration file currently: `supabase/100_canton_visitor_v1.sql` (provisional filename; not applied).
 Existing CRM table verified in the Super Leader Supabase project: `public.crm_clients`.
+
+## Build verification (2026-11-19)
+- Deployment: `dpl_Eq2cQqMAifugfQvQvkS9mxdP8Pvi`
+- Next.js compilation: passed. TypeScript: passed. Vercel preview: READY.
+- Earlier builds failed type-checking at nullable identity and visit checks, corrected in branch.
+- **Important:** preview can still show missing database table message until an isolated test database is set up and a migration applied. Database/schema functional QA remains blocked.
