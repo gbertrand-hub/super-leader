@@ -6,14 +6,14 @@ import {redirect} from "next/navigation";
 import {revalidatePath} from "next/cache";
 import {createAdminClient} from "@/lib/supabase/admin";
 import {createClient} from "@/lib/supabase/server";
-const dash="/dashboard/canton-visitors";
+const dash="/canton-pilot";
 const value=(f:FormData,key:string,max=200)=>String(f.get(key)??"").trim().slice(0,max);
 const uuid=(v:string)=>/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
 const fail=(msg:string):never=>redirect(dash+"?error="+encodeURIComponent(msg));
 async function staff(){
  const sb=await createClient();
  const {data:{user}}=await sb.auth.getUser();
- if(!user)redirect("/login");
+ if(!user)redirect("/canton-pilot/login");
  const db=createAdminClient();
  const {data:m}=await db.from("organization_members").select("role,organization_id").eq("user_id",user.id).eq("is_active",true).limit(1).maybeSingle();
  if(!m) throw new Error("Access denied");
