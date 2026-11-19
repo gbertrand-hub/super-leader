@@ -56,3 +56,12 @@ Existing CRM table verified in the Super Leader Supabase project: `public.crm_cl
 - SQL transactional fixtures: fake organization, visitor, appointment and feedback; confirmed protection against duplicate appointments, cross-organization visitor association, rating outside 1–5, and second feedback for one visit. Test fixture writes rolled back; zero visitors, appointments and feedback remain in the QA branch.
 - **Not yet tested:** full Super Leader app login or navigation, data flows through server actions, role-scoped security, live CRM data compatibility, WhatsApp, mobile feedback. Preview Vercel is currently NOT connected to this QA branch. Do not point the general app preview at it because the foundation is intentionally incomplete.
 - To obtain genuine end-to-end tests without production data, restore a sanitized full schema into the QA branch or create a separate dedicated preview with an appropriate test-auth environment and a matching schema. Do not clone real customers.
+
+## Reception permission implementation — 2026-11-19
+- Explicit `canton_reception_staff` table, keyed by organization and authenticated user, installed in isolated QA branch with RLS and no anon/authenticated grants.
+- Owner/admin can assign and revoke reception access from Canton Visitor Center, selecting active organization members.
+- Reception-designated staff can see/check in/check out standard DIG/TCF visits announced by other employees. Confidential direction visits remain hidden from reception/non-admin roles. Manager and HR can see standard visits; ordinary employees see only their own non-direction visits.
+- Reception can check-in or check-out others' standard appointments but cannot independently reschedule, mark no-show, or designate follow-up unless they are also the creator/manager. Further role-matrix testing is required before production.
+- SQL access check: `anon` and `authenticated` cannot SELECT `canton_reception_staff` directly.
+- Current latest Vercel preview commit `a1744b5` was still building when checked; previous preview build `41f5f3f` was READY. Do not declare new changes validated without their build result.
+- **Explicit QA limitation**: current Supabase branch has only minimal scaffold, so real Super Leader UI/auth end-to-end tests are not yet possible. Do not merge the test scaffold.
