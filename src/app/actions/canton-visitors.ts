@@ -160,3 +160,39 @@ export async function manageCantonReceptionStaff(f:FormData) {
  revalidatePath(route);
  redirect(route+"?success="+encodeURIComponent("Reception access updated"));
 }
+
+export async function assignCantonFollowUp(f:FormData){
+ const {db,org,user,role}=await context();
+ if(!["owner","admin","manager"].includes(role)) fail("Only a manager can assign follow-up");
+ const id=field(f,"id",40),ownerId=field(f,"ownerId",40),note=field(f,"note",1000),dueDate=field(f,"dueDate",10);
+ if(!/^[0-9a-f-]{36}$/i.test(id)||!/^[0-9a-f-]{36}$/i.test(ownerId))fail("Invalid follow-up record");
+ if(!/^\d{4}-\d{2}-\d{2}$/.test(dueDate)||!Number.isFinite(Date.parse(dueDate+"T12:00:00Z")))fail("Invalid follow-up date");
+ const {data:member}=await db.from("organization_members").select("user_id")
+  .eq("organization_id",org).eq("user_id",ownerId).eq("is_active",true).maybeSingle();
+ if(!member)fail("Follow-up owner must be active in this organization");
+ const {data:visit}=await db.from("canton_appointments").select("status,department")
+  .eq("id",id).eq("organization_id",org).maybeSingle();
+ if(!visit||visit.status!=="completed")fail("Complete the visit before assigning follow-up");
+ if(visit.department==="DIRECTION" && role==="manager")fail("Confidential direction visits require admin");
+ const {data:changed,error}=await db.from("canton_appointments").update({
+  follow_up_required:true,follow_up_status:"open",follow_up_owner_id:ownerId,
+  follow_up_note:note||null,follow_up_due_date:dueDate,follow_up_completed_at:null,updated_at:new Date().toISOString()
+ }).eq("id",id).eq("organization_id",org).eq("status","completed").select("id");
+ if(error||!changed?.length)fail("Could not assign follow-up");
+ revalidatePath(route);redirect(route+"?success="+encodeURIComponent("Follow-up assigned"));
+}
+export async function completeCantonFollowUp(f:FormData){
+ const {db,org,user,role}=await context();
+ const id=field(f,"id",40);
+ if(!/^[0-9a-f-]{36}$/i.test(id))fail("Invalid follow-up");
+ const {data:row}=await db.from("canton_appointments").select("id,department,follow_up_owner_id,follow_up_status")
+  .eq("id",id).eq("organization_id",org).maybeSingle();
+ if(!row||row.follow_up_status!=="open")fail("Follow-up is not open");
+ if(row.department==="DIRECTION"&&!seniorRoles.has(role))fail("Confidential visit");
+ if(!seniorRoles.has(role)&&role!=="manager"&&row.follow_up_owner_id!==user.id)fail("Only the follow-up owner or a manager may close");
+ const {data:changed,error}=await db.from("canton_appointments").update({
+  follow_up_status:"completed",follow_up_completed_at:new Date().toISOString(),updated_at:new Date().toISOString()
+ }).eq("id",id).eq("organization_id",org).eq("follow_up_status","open").select("id");
+ if(error||!changed?.length)fail("Follow-up changed, refresh");
+ revalidatePath(route);redirect(route+"?success="+encodeURIComponent("Follow-up completed"));
+}
