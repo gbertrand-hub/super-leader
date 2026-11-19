@@ -64,8 +64,8 @@ export async function createCantonAppointment(f:FormData){
   }
   matched=data;
  }
- if(!matched) fail("Visitor identity could not be resolved");
- const visitorId=matched.id;
+ const visitorId=matched?.id ?? "";
+ if(!visitorId) fail("Visitor identity could not be resolved");
  const scheduledLocal=scheduled ? scheduled.replace("T"," ")+":00" : null;
  if(scheduledLocal){
   const {data:existing}=await db.from("canton_appointments").select("id")
