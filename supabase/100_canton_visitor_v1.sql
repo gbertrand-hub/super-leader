@@ -5,13 +5,15 @@ create table if not exists public.canton_visitors (
  full_name text not null check (length(trim(full_name)) > 0),
  phone text,
  email text,
+ crm_client_id uuid references public.crm_clients(id) on delete set null,
  created_at timestamptz not null default now(),
  created_by uuid references auth.users(id)
 );
 create unique index if not exists canton_visitors_org_phone_unique
  on public.canton_visitors (organization_id,phone) where phone is not null;
-create unique index if not exists canton_visitors_org_email_without_phone_unique
- on public.canton_visitors (organization_id,lower(email)) where phone is null and email is not null;
+create unique index if not exists canton_visitors_org_email_unique
+ on public.canton_visitors (organization_id,lower(email)) where email is not null;
+create index if not exists canton_visitors_crm_client_idx on public.canton_visitors(crm_client_id);
 create table if not exists public.canton_appointments (
  id uuid primary key default gen_random_uuid(),
  organization_id uuid not null references public.organizations(id) on delete cascade,
