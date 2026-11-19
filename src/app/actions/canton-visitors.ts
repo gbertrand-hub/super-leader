@@ -1,3 +1,4 @@
+import {assertCantonLive, cantonLiveEnabled} from "@/lib/canton/feature-gate";
 "use server";
 import {revalidatePath} from "next/cache";
 import {redirect} from "next/navigation";
@@ -22,6 +23,7 @@ async function context(){
  return {db,user,org:m.organization_id as string,role:m.role as string,isReception:!!reception};
 }
 export async function createCantonAppointment(f:FormData){
+ assertCantonLive();
  const {db,user,org,role}=await context();
  const name=field(f,"name"), rawPhone=field(f,"phone",35);
  const phone=rawPhone.replace(/[^+0-9]/g,"")||null;
@@ -85,6 +87,7 @@ export async function createCantonAppointment(f:FormData){
  redirect(route+"?success="+encodeURIComponent("Visit registered"));
 }
 export async function updateCantonVisit(f:FormData){
+ assertCantonLive();
  const {db,org,user,role,isReception}=await context(),id=field(f,"id"),action=field(f,"action");
  if(!/^[0-9a-f-]{36}$/i.test(id)) fail("Invalid visit");
  const {data:row}=await db.from("canton_appointments").select("status,check_in_at,check_out_at,department,announced_by")
@@ -121,6 +124,7 @@ export async function updateCantonVisit(f:FormData){
  redirect(route+"?success="+encodeURIComponent("Visit updated"));
 }
 export async function submitCantonFeedback(f:FormData){
+ assertCantonLive();
  const token=field(f,"token"),rating=Number(field(f,"rating"));
  if(!/^[0-9a-f-]{36}$/i.test(token)||!Number.isInteger(rating)||rating<1||rating>5)
   redirect("/canton-feedback?error=invalid");
@@ -162,6 +166,7 @@ export async function manageCantonReceptionStaff(f:FormData) {
 }
 
 export async function assignCantonFollowUp(f:FormData){
+ assertCantonLive();
  const {db,org,user,role}=await context();
  if(!["owner","admin","manager"].includes(role)) fail("Only a manager can assign follow-up");
  const id=field(f,"id",40),ownerId=field(f,"ownerId",40),note=field(f,"note",1000),dueDate=field(f,"dueDate",10);
@@ -182,6 +187,7 @@ export async function assignCantonFollowUp(f:FormData){
  revalidatePath(route);redirect(route+"?success="+encodeURIComponent("Follow-up assigned"));
 }
 export async function completeCantonFollowUp(f:FormData){
+ assertCantonLive();
  const {db,org,user,role}=await context();
  const id=field(f,"id",40);
  if(!/^[0-9a-f-]{36}$/i.test(id))fail("Invalid follow-up");
