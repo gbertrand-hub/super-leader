@@ -80,3 +80,10 @@ Existing CRM table verified in the Super Leader Supabase project: `public.crm_cl
 - SQL migration `105_canton_feedback_attempts.sql` applied **to isolated branch only**: private attempt log for per-IP QR feedback throttling. Public feedback form now rejects after 10 attempts within one hour; a server-only `CANTON_INTAKE_RATE_SECRET` is required, and **has not been configured by these commits**.
 - Vercel preview for commit `0c2a969`: deployment `dpl_61QX5g8R7zfuwakP32qh73hLFmVw` reached **READY**; compile/typecheck passed. This does not constitute mobile/browser E2E acceptance.
 - **Release gate:** need safe complete preview auth/database, rate-limiter concurrency and WAF review, UX mobile scan test, staff role matrix test and privacy policy. Do not merge QA scaffold or publish the public QR codes.
+
+## Post-visit accountability (2026-11-19)
+- Migration `106_canton_followup_handoff.sql` installed in **isolated QA branch only**. Adds follow-up owner, due date, next-action note, status and completion timestamp. No production database changes.
+- Managers/admins can assign follow-up to an active member of the same organization, set a due date and mark an open follow-up completed. The Canton control center displays an 'open follow-ups' KPI and assignment panel. Existing CRM task automation is not connected; this is Canton-specific handoff tracking.
+- Transactional QA passed: follow-up opened/completed and inconsistent completed state rejected; fixtures rolled back and 0 appointments remain.
+- Vercel preview for code commit `8a34ff4` reached **READY** (`dpl_CpEbcrXCgFmhBSUu2pi236F8rRDt`) after TypeScript/JSX fixes. Still not an end-to-end acceptance test.
+- Before release: full preview DB/auth compatibility, receptionist vs owner vs manager role test, follow-up task owner notification, privacy/data retention, date/time timezone accuracy, and no schema drift.
