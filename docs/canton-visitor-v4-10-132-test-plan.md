@@ -87,3 +87,14 @@ Existing CRM table verified in the Super Leader Supabase project: `public.crm_cl
 - Transactional QA passed: follow-up opened/completed and inconsistent completed state rejected; fixtures rolled back and 0 appointments remain.
 - Vercel preview for code commit `8a34ff4` reached **READY** (`dpl_CpEbcrXCgFmhBSUu2pi236F8rRDt`) after TypeScript/JSX fixes. Still not an end-to-end acceptance test.
 - Before release: full preview DB/auth compatibility, receptionist vs owner vs manager role test, follow-up task owner notification, privacy/data retention, date/time timezone accuracy, and no schema drift.
+
+## REAL-TEST READINESS CHECK — 2026-11-19
+- Desktop and phone visual simulation was confirmed by the product owner; **this is UX sign-off only, not production acceptance**.
+- Verified current GitHub Vercel preview had production/preview Supabase environment variables scoped generically (values intentionally NOT decrypted). **Do not connect production database to live Canton test routes.**
+- Supabase branch `xehstmnqljjhacjiukvc` contains all 7 Canton tables and migrations through follow-up handoff. However Supabase branch listing shows **MIGRATIONS_FAILED**, despite successful direct SQL tests. It also lacks the complete Super Leader authentication/application schema.
+- Added fail-closed gate on all Canton server actions and public Canton forms. Activation requires ALL of: `VERCEL_ENV=preview`, `CANTON_VISITOR_ENABLE_LIVE=true`, `CANTON_TEST_DATABASE_READY=true`, and `NEXT_PUBLIC_SUPABASE_URL` hostname equal to `xehstmnqljjhacjiukvc.supabase.co`.
+- A branch-specific preview environment must have **matching staging values** for `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, and private `CANTON_INTAKE_RATE_SECRET`, sourced securely from Supabase staging settings. Do not paste any secret into a chat, issue or repository.
+- First reconstruct the sanitized full Super Leader schema and create test accounts (one admin, one manager, one commercial, one receptionist) against the same staging Supabase auth. Never copy actual client records or credential material.
+- Verify who can approve QR, read visitor identities, assign owner, and submit feedback; confirm Vercel preview privacy and public form rate limits. **Only after all checks**, turn on the gate for the specific branch preview.
+- Latest available functional verification is SQL transaction-based only: scheduled visit -> QR intake -> check-in -> checkout -> low rating -> handoff -> completed, with fixtures rolled back and counts at zero.
+- QA cost branch: USD 0.01344/hour while it exists; review and delete after acceptance (owner reminder 2026-11-22). No automatic deletion.
