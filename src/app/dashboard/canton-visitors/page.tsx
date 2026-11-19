@@ -1,4 +1,6 @@
 import Link from "next/link";
+import {headers} from "next/headers";
+import {createCantonQrSite,reviewCantonQrIntake} from "@/app/actions/canton-qr";
 import {redirect} from "next/navigation";
 import {createClient} from "@/lib/supabase/server";
 import {createAdminClient} from "@/lib/supabase/admin";
@@ -6,6 +8,9 @@ import {createCantonAppointment,updateCantonVisit,manageCantonReceptionStaff} fr
 export const dynamic="force-dynamic";
 export default async function CantonVisitorPage({searchParams}:{searchParams:Promise<{error?:string;success?:string}>}){
  const {error,success}=await searchParams;
+ const host=(await headers()).get("host")||"";
+ const origin=/^(localhost(:\\d+)?|app\\.ileadglobal\\.org|[a-z0-9-]+\\.vercel\\.app)$/.test(host)?`${host.startsWith("localhost")?"http":"https"}://${host}`:"";
+ const qrImage=(url:string)=>"https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=10&data="+encodeURIComponent(url);
  const supabase=await createClient();
  const {data:{user}}=await supabase.auth.getUser();
  if(!user) redirect("/login");
@@ -25,7 +30,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
 
  const isManager=membership.role==="manager" || membership.role==="hr";
  let visitQuery=db.from("canton_appointments")
-  .select("id,visitor_id,department,purpose,status,scheduled_local,host_name,check_in_at,check_out_at,feedback_token,follow_up_required,created_at,announced_by")
+  .select("id,visitor_id,department,purpose,status,scheduled_local,host_name,check_in_at,check_out_at,feedback_token,feedback_code,follow_up_required,created_at,announced_by")
   .eq("organization_id",membership.organization_id);
  if(!isSenior) {
   visitQuery = (isManager || isReception)
@@ -33,6 +38,8 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
    : visitQuery.eq("announced_by",user.id).neq("department","DIRECTION");
  }
  const {data:visits,error:queryError}=await visitQuery.order("created_at",{ascending:false}).limit(150);
+ const {data:sites}=isSenior?await db.from("canton_qr_sites").select("id,label,enabled").eq("organization_id",membership.organization_id).order("created_at",{ascending:false}):{data:[]};
+ const {data:requests}=isSenior||isManager||isReception?await db.from("canton_intake_requests").select("id,full_name,department,purpose,email,phone,created_at").eq("organization_id",membership.organization_id).eq("status","pending").order("created_at",{ascending:true}).limit(100):{data:[]};
  const visitorIds=[...new Set((visits||[]).map(v=>v.visitor_id))];
  const {data:people}=visitorIds.length?await db.from("canton_visitors").select("id,full_name,phone").eq("organization_id",membership.organization_id).in("id",visitorIds):{data:[]};
  const map=new Map((people||[]).map(p=>[p.id,p]));
@@ -56,6 +63,19 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
   ].map(([label,value])=><div key={label} className="rounded-xl border bg-white p-4"><div className="text-sm text-slate-500">{label}</div><div className="text-2xl font-bold">{value}</div></div>)}</div>
   {isSenior&&<section className="rounded-xl border bg-white p-5"><h2 className="mb-2 text-lg font-semibold">Reception access</h2><p className="mb-3 text-sm text-slate-500">Assign staff to check in and check out standard visits. Confidential direction visits remain restricted.</p>
   <div className="space-y-2">{(members||[]).map(m=><div className="flex flex-wrap items-center justify-between gap-2 border-b py-2 text-sm" key={m.user_id}><span>{profileMap.get(m.user_id)?.full_name||profileMap.get(m.user_id)?.email||m.user_id} <span className="text-xs text-slate-500">({m.role})</span></span><form action={manageCantonReceptionStaff}><input type="hidden" name="userId" value={m.user_id}/><button name="operation" value={assignedIds.has(m.user_id)?"revoke":"grant"} className={assignedIds.has(m.user_id)?"rounded bg-red-100 px-3 py-1":"rounded bg-emerald-100 px-3 py-1"}>{assignedIds.has(m.user_id)?"Remove reception access":"Grant reception access"}</button></form></div>)}</div></section>}
+
+  <section className="rounded-xl border bg-white p-5">
+   <h2 className="text-lg font-semibold">Two QR codes / Deux QR codes</h2><p className="mb-4 text-sm text-slate-500">1. Visitor scans arrival QR to request check-in. Reception approves the request. 2. After checkout, visitor scans feedback QR and enters the code given by reception.</p>
+   {isSenior&&<form action={createCantonQrSite} className="mb-4 flex flex-wrap gap-2"><label className="min-w-[200px] flex-1 text-sm">New reception location<input required className="mt-1 w-full rounded border px-3 py-2" name="label" placeholder="Canton Main Reception"/></label><button className="self-end rounded bg-indigo-700 px-4 py-2 text-white">Create arrival QR</button></form>}
+   <div className="grid gap-4 md:grid-cols-2">{(sites||[]).filter(x=>x.enabled).map(site=>{
+     const url=origin+"/canton-checkin?site="+encodeURIComponent(site.id);
+     return <div className="rounded-lg border p-4" key={site.id}><h3 className="font-semibold">{site.label}</h3>{origin?<><img src={qrImage(url)} width={220} height={220} alt={"QR registration for "+site.label} className="mx-auto my-3"/><a href={url} target="_blank" rel="noreferrer" className="break-all text-sm text-indigo-700 underline">Open registration form</a></>:<p>QR unavailable on unknown host</p>}</div>;
+   })}
+   <div className="rounded-lg border p-4"><h3 className="font-semibold">Visitor feedback / Satisfaction</h3>{origin?<><img src={qrImage(origin+"/canton-feedback-qr")} width={220} height={220} alt="QR feedback for Canton visits" className="mx-auto my-3"/><a className="text-sm text-indigo-700 underline" href="/canton-feedback-qr" target="_blank">Open feedback form</a></>:<p>QR unavailable on unknown host</p>}<p className="mt-2 text-xs text-slate-500">Reception provides the one-time visit code after check-out. Only generic public form URLs are sent to the QR image provider.</p></div>
+   </div>
+  </section>
+  {(isSenior||isManager||isReception)&&<section className="rounded-xl border bg-white p-5"><h2 className="text-lg font-semibold">QR arrivals pending reception approval ({(requests||[]).length})</h2><p className="mb-3 text-xs text-slate-500">Confirm identity in person before approving. QR registration does not automatically check in a visitor.</p>
+   <div className="space-y-3">{(requests||[]).map(q=><div className="flex flex-wrap items-center justify-between gap-3 border-b py-3" key={q.id}><div><div className="font-semibold">{q.full_name} · {q.department}</div><div className="text-sm">{q.email||q.phone||""} · {q.purpose}</div></div><form action={reviewCantonQrIntake} className="flex gap-2"><input type="hidden" name="id" value={q.id}/><button className="rounded bg-green-100 px-3 py-2" name="decision" value="approve">Confirm arrival</button><button className="rounded bg-slate-100 px-3 py-2" name="decision" value="reject">Reject</button></form></div>)}{!requests?.length&&<p className="py-4 text-sm text-slate-500">No pending QR arrivals.</p>}</div></section>}
   <section className="rounded-xl border bg-white p-5"><h2 className="mb-3 text-lg font-semibold">Register or announce a visit</h2>
    <p className="mb-3 text-xs text-slate-500">A phone or email identifies returning visitors. Existing appointments with the same visitor, time, department and purpose are rejected. Date/time is Canton local time.</p>
    <form action={createCantonAppointment} className="grid gap-3 md:grid-cols-3">
@@ -82,7 +102,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
      {v.status==="scheduled"&&(isSenior||membership.role==="manager"||v.announced_by===user.id)&&<form action={updateCantonVisit}><input type="hidden" name="id" value={v.id}/><button name="action" value="no_show" className="rounded bg-slate-100 px-2 py-1">No show</button></form>}
      {v.status==="completed"&&v.follow_up_required===null&&(isSenior||membership.role==="manager"||v.announced_by===user.id)&&<form action={updateCantonVisit} className="flex gap-1"><input type="hidden" name="id" value={v.id}/><input type="hidden" name="action" value="followup"/><button name="required" value="yes" className="rounded bg-amber-100 px-2 py-1">Follow up</button><button name="required" value="no" className="rounded bg-slate-100 px-2 py-1">No follow up</button></form>}
     </div></td>
-    <td className="p-2">{v.status==="completed"?<Link className="text-indigo-700 underline" href={`/canton-feedback?token=${v.feedback_token}`} target="_blank">Feedback link</Link>:"After checkout"}</td>
+    <td className="p-2">{v.status==="completed"?<Link className="text-indigo-700 underline" href={`/canton-feedback?token=${v.feedback_token}`} target="_blank">Private feedback link</Link>: "After checkout"}{v.status==="completed"&&<div className="mt-1 text-xs font-semibold">QR visit code: {v.feedback_code}</div>}</td>
    </tr>)}</tbody></table>
   </section>
  </main>;
