@@ -148,6 +148,7 @@ export async function submitCantonFeedback(f:FormData){
 }
 
 export async function manageCantonReceptionStaff(f:FormData) {
+ assertCantonLive();
  const {db,org,user,role}=await context();
  if(!seniorRoles.has(role)) fail("Only administrators can manage reception staff");
  const memberId=field(f,"userId",40),operation=field(f,"operation");
