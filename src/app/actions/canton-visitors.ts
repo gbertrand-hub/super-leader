@@ -172,7 +172,7 @@ export async function assignCantonFollowUp(f:FormData){
  if(!member)fail("Follow-up owner must be active in this organization");
  const {data:visit}=await db.from("canton_appointments").select("status,department")
   .eq("id",id).eq("organization_id",org).maybeSingle();
- if(!visit||visit.status!=="completed")fail("Complete the visit before assigning follow-up");
+ if(!visit||visit.status!=="completed")throw new Error("Complete the visit before assigning follow-up");
  if(visit.department==="DIRECTION" && role==="manager")fail("Confidential direction visits require admin");
  const {data:changed,error}=await db.from("canton_appointments").update({
   follow_up_required:true,follow_up_status:"open",follow_up_owner_id:ownerId,
@@ -187,7 +187,7 @@ export async function completeCantonFollowUp(f:FormData){
  if(!/^[0-9a-f-]{36}$/i.test(id))fail("Invalid follow-up");
  const {data:row}=await db.from("canton_appointments").select("id,department,follow_up_owner_id,follow_up_status")
   .eq("id",id).eq("organization_id",org).maybeSingle();
- if(!row||row.follow_up_status!=="open")fail("Follow-up is not open");
+ if(!row||row.follow_up_status!=="open")throw new Error("Follow-up is not open");
  if(row.department==="DIRECTION"&&!seniorRoles.has(role))fail("Confidential visit");
  if(!seniorRoles.has(role)&&role!=="manager"&&row.follow_up_owner_id!==user.id)fail("Only the follow-up owner or a manager may close");
  const {data:changed,error}=await db.from("canton_appointments").update({
