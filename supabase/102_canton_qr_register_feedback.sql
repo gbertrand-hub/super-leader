@@ -31,7 +31,7 @@ create index if not exists canton_intake_queue_idx on public.canton_intake_reque
 create index if not exists canton_intake_ip_idx on public.canton_intake_requests(ip_hash,created_at) where ip_hash is not null;
 alter table public.canton_appointments
  add column if not exists feedback_code text generated always as
- (upper(substr(replace(feedback_token::text,'-',''),1,12))) stored;
+ (upper(substr(replace(feedback_token::text,'-',''),1,16))) stored;
 create unique index if not exists canton_feedback_code_unique_idx on public.canton_appointments(feedback_code);
 alter table public.canton_qr_sites enable row level security;
 alter table public.canton_intake_requests enable row level security;
