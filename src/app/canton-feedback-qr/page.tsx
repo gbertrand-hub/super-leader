@@ -1,7 +1,9 @@
+import {assertCantonLive, cantonLiveEnabled} from "@/lib/canton/feature-gate";
 import {submitCantonQrFeedback} from "@/app/actions/canton-qr";
 export const dynamic="force-dynamic";
 export default async function CantonFeedbackQr({searchParams}:{searchParams:Promise<{code?:string;error?:string;success?:string}>}){
  const {code="",error,success}=await searchParams;
+ if (!cantonLiveEnabled()) return <main className="mx-auto max-w-lg p-8">Canton QR forms are not available in this test environment.</main>;
  const input="w-full rounded-lg border border-slate-300 bg-white px-3 py-3 text-base text-slate-900";
  return <main className="mx-auto max-w-xl space-y-5 p-4 sm:p-6">
   <header className="rounded-xl bg-slate-900 p-6 text-white"><p className="text-xs uppercase tracking-widest text-amber-300">ILEAD Global · Canton</p><h1 className="mt-2 text-2xl font-bold">Votre avis / Your feedback</h1><p className="mt-2 text-sm">Thank you for your visit. It takes less than one minute.</p></header>
