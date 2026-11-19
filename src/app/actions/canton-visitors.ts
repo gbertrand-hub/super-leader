@@ -142,3 +142,21 @@ export async function submitCantonFeedback(f:FormData){
  if(error) redirect("/canton-feedback?error=already-submitted");
  redirect("/canton-feedback?success=1");
 }
+
+export async function manageCantonReceptionStaff(f:FormData) {
+ const {db,org,user,role}=await context();
+ if(!seniorRoles.has(role)) fail("Only administrators can manage reception staff");
+ const memberId=field(f,"userId",40),operation=field(f,"operation");
+ if(!/^[0-9a-f-]{36}$/i.test(memberId)) fail("Invalid staff member");
+ const {data:member}=await db.from("organization_members").select("user_id").eq("organization_id",org).eq("user_id",memberId).eq("is_active",true).maybeSingle();
+ if(!member) fail("Staff member is not active in this organization");
+ if(operation==="grant"){
+  const {error}=await db.from("canton_reception_staff").upsert({organization_id:org,user_id:memberId,granted_by:user.id},{onConflict:"organization_id,user_id"});
+  if(error) fail("Reception permission could not be granted");
+ } else if(operation==="revoke"){
+  const {error}=await db.from("canton_reception_staff").delete().eq("organization_id",org).eq("user_id",memberId);
+  if(error) fail("Reception permission could not be revoked");
+ } else fail("Invalid operation");
+ revalidatePath(route);
+ redirect(route+"?success="+encodeURIComponent("Reception access updated"));
+}
