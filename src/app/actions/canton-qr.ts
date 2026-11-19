@@ -79,45 +79,10 @@ export async function reviewCantonQrIntake(f:FormData){
    .eq("id",id).eq("organization_id",org).eq("status","pending").select("id");
   if(error||!changed?.length)fail("Request changed, refresh");
  }else{
-  // Multiple receptionists may be logged in. Serialize approval with a DB lock via a compare-and-set
-  // status before creating a visitor/appointment; rollback to pending on the rare insert failure.
-  const {data:claimed,error:claimError}=await db.from("canton_intake_requests")
-   .update({status:"approved",reviewed_by:user.id,reviewed_at:new Date().toISOString()})
-   .eq("id",id).eq("organization_id",org).eq("status","pending").select("id");
-  if(claimError||!claimed?.length)fail("Request already processed");
-  let visitorId:string|undefined;
-  if(request.email){
-   const {data}=await db.from("canton_visitors").select("id").eq("organization_id",org).eq("email",request.email).maybeSingle();
-   visitorId=data?.id;
-  }
-  if(request.phone){
-   const {data}=await db.from("canton_visitors").select("id").eq("organization_id",org).eq("phone",request.phone).maybeSingle();
-   if(visitorId&&data?.id&&data.id!==visitorId)fail("Phone and email match different visitor records; resolve identity manually");
-   visitorId=visitorId||data?.id;
-  }
-  if(!visitorId){
-   let crmId:string|null=null;
-   const matches=new Set<string>();
-   if(request.email){
-    const {data}=await db.from("crm_clients").select("id").eq("organization_id",org).eq("email",request.email).limit(3);
-    (data||[]).forEach(x=>matches.add(x.id));
-   }
-   if(request.phone){
-    const {data}=await db.from("crm_clients").select("id").eq("organization_id",org).eq("phone",request.phone).limit(3);
-    (data||[]).forEach(x=>matches.add(x.id));
-   }
-   if(matches.size>1)fail("Multiple matching CRM clients: manual review required");
-   crmId=[...matches][0]||null;
-   const {data,error}=await db.from("canton_visitors").insert({organization_id:org,full_name:request.full_name,email:request.email,phone:request.phone,crm_client_id:crmId,created_by:user.id}).select("id").single();
-   if(error||!data)fail("Could not create visitor; review request manually");
-   visitorId=data.id;
-  }
-  const {data:visit,error:visitError}=await db.from("canton_appointments").insert({
-   organization_id:org,visitor_id:visitorId,department:request.department,purpose:request.purpose,status:"arrived",
-   check_in_at:new Date().toISOString(),announced_by:user.id
-  }).select("id").single();
-  if(visitError||!visit)fail("Could not register arrival; review request manually");
-  await db.from("canton_intake_requests").update({appointment_id:visit.id}).eq("id",id).eq("organization_id",org);
+  const {data:visitId,error}=await db.rpc("canton_approve_qr_intake",{
+   p_request_id:id,p_organization_id:org,p_actor_id:user.id
+  });
+  if(error||!visitId)fail("QR registration needs review: "+(error?.message||"Unknown database error").slice(0,140));
  }
  revalidatePath(dash);
  redirect(dash+"?success="+encodeURIComponent("QR request "+(decision==="approve"?"approved":"rejected")));
