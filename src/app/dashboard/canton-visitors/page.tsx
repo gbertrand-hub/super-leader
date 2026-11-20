@@ -9,8 +9,8 @@ import {createClient} from "@/lib/supabase/server";
 import {createAdminClient} from "@/lib/supabase/admin";
 import {createCantonAppointment,updateCantonVisit,manageCantonReceptionStaff,assignCantonFollowUp,completeCantonFollowUp,createCantonNextAction,completeCantonNextAction,simulateCantonFeedbackInvitations,sendCantonQaEmailTest} from "@/app/actions/canton-visitors";
 export const dynamic="force-dynamic";
-export default async function CantonVisitorPage({searchParams}:{searchParams:Promise<{error?:string;success?:string}>}){
- const {error,success}=await searchParams;
+export default async function CantonVisitorPage({searchParams}:{searchParams:Promise<{error?:string;success?:string;q?:string}>}){
+ const {error,success,q=""}=await searchParams;
  const {locale}=await getI18n();const fr=locale==="fr";
  if (!cantonLiveEnabled()) return <main className="mx-auto max-w-2xl p-8"><h1 className="text-2xl font-bold">Canton Visitor Center</h1><p className="mt-3 rounded-lg bg-amber-50 p-4 text-amber-900">Real operations are disabled in this preview until the separate QA database, authentication, and access controls pass end-to-end testing.</p><a href="/canton-demo" className="mt-4 inline-block underline">Open the simulation</a></main>;
  const host=(await headers()).get("host")||"";
@@ -90,6 +90,15 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
   return cantonDay(v.created_at)===today;
  });
  const count=(p:(v:(typeof todayRows)[number])=>boolean)=>todayRows.filter(p).length;
+ const receptionSearch=q.trim().toLowerCase().slice(0,120);
+ const receptionRows=receptionSearch
+  ? todayRows.filter(v=>{
+    const person=map.get(v.visitor_id);
+    return [
+      person?.full_name,person?.phone,person?.email,v.host_name,v.department,v.purpose
+    ].some(x=>String(x||"").toLowerCase().includes(receptionSearch));
+   })
+  : todayRows;
  const input="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900";
  return <main className="space-y-6 p-4 md:p-8">
   <div className="flex justify-end"><CantonLanguageSwitch locale={locale} returnPath="/canton-pilot"/></div>
@@ -112,8 +121,15 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
      <span className="rounded-full bg-emerald-50 px-3 py-1 font-semibold text-emerald-800">{fr?"Sur place":"On site"}: {count(v=>["arrived","in_progress"].includes(v.status))}</span>
     </div>
    </div>
+   <form method="get" action="/canton-pilot" className="mt-4 flex flex-col gap-2 rounded-xl bg-slate-50 p-3 sm:flex-row">
+    <label className="sr-only" htmlFor="canton-reception-search">{fr?"Rechercher un visiteur":"Search for a visitor"}</label>
+    <input id="canton-reception-search" name="q" defaultValue={q} className="min-h-11 flex-1 rounded-lg border border-slate-300 bg-white px-4 text-base" placeholder={fr?"Rechercher : nom, téléphone, email ou responsable…":"Search: name, phone, email or host…"}/>
+    <button className="min-h-11 rounded-lg bg-slate-900 px-5 font-semibold text-white">{fr?"Rechercher":"Search"}</button>
+    {receptionSearch&&<Link href="/canton-pilot" className="min-h-11 rounded-lg border bg-white px-4 py-3 text-center text-sm font-medium">{fr?"Effacer":"Clear"}</Link>}
+   </form>
+   {receptionSearch&&<p className="mt-2 text-xs text-slate-600">{receptionRows.length} {fr?"résultat(s) aujourd’hui pour":"result(s) today for"} <strong>“{q}”</strong></p>}
    <div className="mt-4 grid gap-3">
-    {[...todayRows].sort((a,b)=>{
+    {[...receptionRows].sort((a,b)=>{
       const rank:Record<string,number>={arrived:0,in_progress:0,scheduled:1,announced:1,completed:2,no_show:3,cancelled:4};
       const ar=rank[a.status]??5,br=rank[b.status]??5;
       if(ar!==br)return ar-br;
@@ -140,7 +156,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
        </div>
       </article>;
     })}
-    {todayRows.length===0&&<div className="rounded-xl border border-dashed p-6 text-center text-sm text-slate-500">{fr?"Aucune visite prévue ou enregistrée aujourd’hui.":"No visits scheduled or recorded today."}</div>}
+    {receptionRows.length===0&&<div className="rounded-xl border border-dashed p-6 text-center text-sm text-slate-500">{receptionSearch?(fr?"Aucun visiteur du jour ne correspond à cette recherche.":"No visitor today matches this search."):(fr?"Aucune visite prévue ou enregistrée aujourd’hui.":"No visits scheduled or recorded today.")}</div>}
    </div>
   </section>}
   {isSenior&&<section className="rounded-xl border bg-white p-5"><h2 className="mb-2 text-lg font-semibold">{fr?"Accès réception":"Reception access"}</h2><p className="mb-3 text-sm text-slate-500">{fr?"Autorisez les employés à enregistrer les arrivées et départs. Les visites de direction restent confidentielles.":"Assign staff to check in and check out standard visits. Confidential direction visits remain restricted."}</p>
