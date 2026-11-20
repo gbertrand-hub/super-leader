@@ -12,9 +12,14 @@ export async function CantonFeedbackContent({token="",success,error,lang,returnP
  if (!cantonLiveEnabled()) return <main className="mx-auto max-w-lg p-8">Canton QR forms are not available in this test environment.</main>;
  const valid=/^[0-9a-f-]{36}$/i.test(token);
  let allowed=false;
+ let siteName="Visitor Experience";
  if(valid){
   const db=createAdminClient();
-  const {data:row}=await db.from("canton_appointments").select("id,status").eq("feedback_token",token).maybeSingle();
+  const {data:row}=await db.from("canton_appointments").select("id,status,site_id,organization_id").eq("feedback_token",token).maybeSingle();
+  if(row?.site_id){
+   const {data:site}=await db.from("visitor_sites").select("name").eq("id",row.site_id).eq("organization_id",row.organization_id).maybeSingle();
+   if(site?.name)siteName=site.name;
+  }
   if(row?.status==="completed"){
    const {data:response}=await db.from("canton_visit_feedback").select("id").eq("appointment_id",row.id).maybeSingle();
    allowed=!response;
@@ -23,7 +28,7 @@ export async function CantonFeedbackContent({token="",success,error,lang,returnP
  const input="w-full rounded-lg border border-slate-300 px-3 py-2";
  return <main className="mx-auto max-w-xl space-y-5 p-6">
   <div className="flex justify-end"><CantonLanguageSwitch locale={language} returnPath={returnPath||("/canton-feedback?token="+encodeURIComponent(token))}/></div>
-  <header className="rounded-2xl bg-slate-900 p-7 text-white"><p className="text-xs tracking-widest text-amber-300">ILEAD GLOBAL • CANTON</p><h1 className="mt-2 text-2xl font-bold">{fr?"Votre avis sur la visite":"Your visit feedback"}</h1><p className="mt-2 text-sm">{fr?"Merci de votre visite. Votre avis prend moins d’une minute.":"Thank you for visiting us. This takes less than a minute."}</p></header>
+  <header className="rounded-2xl bg-slate-900 p-7 text-white"><p className="text-xs tracking-widest text-amber-300">ILEAD GLOBAL • {siteName.toUpperCase()}</p><h1 className="mt-2 text-2xl font-bold">{fr?"Votre avis sur la visite":"Your visit feedback"}</h1><p className="mt-2 text-sm">{fr?"Merci de votre visite. Votre avis prend moins d’une minute.":"Thank you for visiting us. This takes less than a minute."}</p></header>
   {success?<p className="rounded bg-green-100 p-4">{fr?"Merci pour votre retour !":"Thank you for your feedback!"}</p>:
    !allowed?<p className="rounded bg-slate-100 p-4">{fr?"Ce lien n’est plus disponible ou a déjà été utilisé.":"This feedback link is unavailable or has already been used."}</p>:
    <form action={submitCantonFeedback} className="space-y-4 rounded-2xl border p-6">
