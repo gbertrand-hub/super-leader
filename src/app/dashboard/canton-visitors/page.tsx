@@ -48,6 +48,16 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
  const visitIds=(visits||[]).map(v=>v.id);
  const {data:feedback}=visitIds.length?await db.from("canton_visit_feedback")
   .select("appointment_id,rating,contact_requested,submitted_at").in("appointment_id",visitIds):{data:[]};
+ const {data:invitationQueue}=(isSenior||isManager)
+  ?await db.from("canton_feedback_invitation_outbox")
+   .select("id,appointment_id,channel,status,due_at,created_at,reason")
+   .eq("organization_id",membership.organization_id)
+   .order("created_at",{ascending:false}).limit(100)
+  :{data:[]};
+ const invitationPending=(invitationQueue||[]).filter(x=>x.status==="pending").length;
+ const invitationDue=(invitationQueue||[]).filter(x=>x.status==="pending"&&Date.parse(x.due_at)<=Date.now()).length;
+ const completedCount=(visits||[]).filter(v=>v.status==="completed").length;
+ const feedbackResponseRate=completedCount?Math.round(100*(feedback||[]).length/completedCount)+"%":"—";
  const pendingFeedback=(feedback||[]).filter(x=>x.rating<=2||x.contact_requested).length;
  const pendingHandoffs=(visits||[]).filter(v=>v.follow_up_status==="open").length;
  const ratingAverage=(feedback||[]).length
@@ -67,10 +77,26 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
   {success&&<p role="status" className="rounded bg-green-100 p-3 text-green-800">{success}</p>}
   {queryError&&<p role="alert" className="rounded bg-yellow-100 p-3">Database not initialized. Apply the Canton migration before using this module.</p>}
   <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">{[
-   ["Today",todayRows.length],["Expected",count(v=>v.status==="scheduled")],["On site",count(v=>["arrived","in_progress"].includes(v.status))],["Completed",count(v=>v.status==="completed")],["Feedback", (feedback||[]).length],["Avg. rating",ratingAverage],["Attention needed",pendingFeedback],["Follow-ups open",pendingHandoffs]
+   ["Today",todayRows.length],["Expected",count(v=>v.status==="scheduled")],["On site",count(v=>["arrived","in_progress"].includes(v.status))],["Completed",count(v=>v.status==="completed")],["Feedback", (feedback||[]).length],["Response rate",feedbackResponseRate],["Avg. rating",ratingAverage],["Attention needed",pendingFeedback],["Follow-ups open",pendingHandoffs]
   ].map(([label,value])=><div key={label} className="rounded-xl border bg-white p-4"><div className="text-sm text-slate-500">{label}</div><div className="text-2xl font-bold">{value}</div></div>)}</div>
   {isSenior&&<section className="rounded-xl border bg-white p-5"><h2 className="mb-2 text-lg font-semibold">Reception access</h2><p className="mb-3 text-sm text-slate-500">Assign staff to check in and check out standard visits. Confidential direction visits remain restricted.</p>
   <div className="space-y-2">{(members||[]).map(m=><div className="flex flex-wrap items-center justify-between gap-2 border-b py-2 text-sm" key={m.user_id}><span>{profileMap.get(m.user_id)?.full_name||profileMap.get(m.user_id)?.email||m.user_id} <span className="text-xs text-slate-500">({m.role})</span></span><form action={manageCantonReceptionStaff}><input type="hidden" name="userId" value={m.user_id}/><button name="operation" value={assignedIds.has(m.user_id)?"revoke":"grant"} className={assignedIds.has(m.user_id)?"rounded bg-red-100 px-3 py-1":"rounded bg-emerald-100 px-3 py-1"}>{assignedIds.has(m.user_id)?"Remove reception access":"Grant reception access"}</button></form></div>)}</div></section>}
+
+
+  {(isSenior||isManager)&&<section className="rounded-xl border border-indigo-200 bg-indigo-50 p-5">
+   <h2 className="text-lg font-semibold">Invitations après visite / Feedback invitation queue (QA)</h2>
+   <p className="mt-2 text-sm text-slate-700">Une invitation email est préparée 15 minutes après le départ uniquement si le visiteur a accepté explicitement. Une réponse enregistrée annule toute invitation en attente. <strong>Mode test : aucun email ni WhatsApp n&apos;est envoyé.</strong></p>
+   <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
+    <div className="rounded-lg bg-white p-3"><div className="text-xs text-slate-600">En attente / Pending</div><div className="text-xl font-bold">{invitationPending}</div></div>
+    <div className="rounded-lg bg-white p-3"><div className="text-xs text-slate-600">Prêtes à traiter / Due</div><div className="text-xl font-bold">{invitationDue}</div></div>
+    <div className="rounded-lg bg-white p-3"><div className="text-xs text-slate-600">Annulées / Cancelled</div><div className="text-xl font-bold">{(invitationQueue||[]).filter(x=>x.status==="cancelled").length}</div></div>
+   </div>
+   {(invitationQueue||[]).length>0&&<div className="mt-4 space-y-2">{(invitationQueue||[]).slice(0,10).map(x=><div key={x.id} className="rounded-lg border bg-white p-3 text-sm">
+    <span className="font-semibold">{x.channel==="email"?"Email":"WhatsApp"}</span> · {x.status} · {new Date(x.due_at).toLocaleString("en-US",{timeZone:"America/Chicago"})} Canton
+    <span className="ml-2 text-slate-500">({map.get((visits||[]).find(v=>v.id===x.appointment_id)?.visitor_id||"")?.full_name||"Visite"})</span>
+   </div>)}</div>}
+   {!invitationQueue?.length&&<p className="mt-4 text-sm text-slate-700">Aucune invitation programmée. Le feedback de Jean Test est déjà reçu.</p>}
+  </section>}
 
   <section className="rounded-xl border bg-white p-5">
    <h2 className="text-lg font-semibold">Two QR codes / Deux QR codes</h2><p className="mb-4 text-sm text-slate-500">1. Visitor scans arrival QR to request check-in; reception confirms. 2. After checkout, visitor scans feedback QR and gives their name + last four phone digits, or submits anonymous feedback. No reception-issued code.</p>
