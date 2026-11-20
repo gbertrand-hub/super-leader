@@ -4,6 +4,7 @@ import {sendNotificationEmail} from "@/lib/notifications/email";
 import {createNotification} from "@/lib/notifications/service";
 import {createAdminClient} from "@/lib/supabase/admin";
 import {normalizeTimeZone} from "@/lib/timezone";
+import {cantonLiveEnabled} from "@/lib/canton/feature-gate";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -335,6 +336,64 @@ async function generateCrmTaskReminders() {
   return created;
 }
 
+async function generateCantonCommercialReminders() {
+  if (!cantonLiveEnabled()) return 0;
+  const admin = createAdminClient();
+  const qaOrg = "021cdbb8-af4d-412e-8ec7-e7bba08d1349";
+  const today = zonedParts(new Date(), "America/Chicago").date;
+  const {data: actions, error} = await admin
+    .from("canton_next_actions")
+    .select("id,organization_id,appointment_id,assigned_to,action_text,due_date,status")
+    .eq("organization_id", qaOrg)
+    .eq("status", "open")
+    .lte("due_date", today)
+    .order("due_date", {ascending: true});
+  if (error) {
+    console.error("Canton reminder query failed", error.message);
+    return 0;
+  }
+  if (!actions?.length) return 0;
+
+  const appointmentIds = [...new Set(actions.map((row) => row.appointment_id))];
+  const {data: appointments} = await admin
+    .from("canton_appointments")
+    .select("id,visitor_id,department")
+    .eq("organization_id", qaOrg)
+    .in("id", appointmentIds);
+  const visitorIds = [...new Set((appointments ?? []).map((row) => row.visitor_id))];
+  const {data: visitors} = visitorIds.length
+    ? await admin.from("canton_visitors").select("id,full_name").eq("organization_id", qaOrg).in("id", visitorIds)
+    : {data: []};
+  const appointmentMap = new Map((appointments ?? []).map((row) => [row.id, row]));
+  const visitorMap = new Map((visitors ?? []).map((row) => [row.id, row.full_name]));
+
+  let created = 0;
+  for (const action of actions) {
+    const appointment = appointmentMap.get(action.appointment_id);
+    if (!appointment) continue;
+    const visitorName = visitorMap.get(appointment.visitor_id) || "Visiteur";
+    const overdue = action.due_date < today;
+    const id = await createNotification({
+      organizationId: qaOrg,
+      userId: action.assigned_to,
+      category: "crm",
+      eventType: overdue ? "canton_commercial_action_overdue" : "canton_commercial_action_due_today",
+      titleFr: overdue ? "Action commerciale Canton en retard" : "Action commerciale Canton à faire aujourd’hui",
+      titleEn: overdue ? "Canton commercial action overdue" : "Canton commercial action due today",
+      bodyFr: `${visitorName} · ${appointment.department} — ${action.action_text} (échéance : ${action.due_date}).`,
+      bodyEn: `${visitorName} · ${appointment.department} — ${action.action_text} (due: ${action.due_date}).`,
+      actionUrl: "/canton-pilot",
+      priority: overdue ? "urgent" : "warning",
+      requiresAction: true,
+      dedupeKey: `canton-next-action:${action.id}:${today}`,
+      metadata: {canton_next_action_id: action.id, appointment_id: action.appointment_id, due_date: action.due_date},
+      emailRequested: false,
+    });
+    if (id) created += 1;
+  }
+  return created;
+}
+
 async function deliverQueuedEmails() {
   const admin = createAdminClient();
   const now = new Date().toISOString();
@@ -420,17 +479,18 @@ export async function GET(request: Request) {
   }
 
   try {
-    const [reports, meetings, collections, crmTasks] = await Promise.all([
+    const [reports, meetings, collections, crmTasks, cantonCommercial] = await Promise.all([
       generateReportReminders(),
       generateMeetingReminders(),
       generateCollectionReminders(),
       generateCrmTaskReminders(),
+      generateCantonCommercialReminders(),
     ]);
     const emails = await deliverQueuedEmails();
 
     return NextResponse.json({
       ok: true,
-      generated: {reports, meetings, collections, crmTasks},
+      generated: {reports, meetings, collections, crmTasks, cantonCommercial},
       emails,
       processedAt: new Date().toISOString(),
     });
