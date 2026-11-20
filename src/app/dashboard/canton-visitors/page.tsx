@@ -7,7 +7,7 @@ import {createCantonQrSite,reviewCantonQrIntake,updateCantonQrSiteAddress} from 
 import {redirect} from "next/navigation";
 import {createClient} from "@/lib/supabase/server";
 import {createAdminClient} from "@/lib/supabase/admin";
-import {createCantonAppointment,updateCantonVisit,manageCantonReceptionStaff,assignCantonFollowUp,completeCantonFollowUp,createCantonNextAction,completeCantonNextAction,simulateCantonFeedbackInvitations,sendCantonQaEmailTest,markCantonArrivalAlertRead,saveCantonVisitDebrief} from "@/app/actions/canton-visitors";
+import {createCantonAppointment,updateCantonVisit,manageCantonReceptionStaff,assignCantonFollowUp,completeCantonFollowUp,createCantonNextAction,completeCantonNextAction,simulateCantonFeedbackInvitations,sendCantonQaEmailTest,markCantonArrivalAlertRead,saveCantonVisitDebrief,qualifyCantonLegacyProspect} from "@/app/actions/canton-visitors";
 export const dynamic="force-dynamic";
 export default async function CantonVisitorPage({searchParams}:{searchParams:Promise<{error?:string;success?:string;q?:string}>}){
  const {error,success,q=""}=await searchParams;
@@ -98,8 +98,10 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
  const prospectRows=(visits||[]).filter(v=>
   v.status==="completed" &&
   ["DIG","TCF"].includes(v.department) &&
-  !!v.debriefed_at &&
-  ["hot","warm","cold"].includes(v.commercial_interest||"")
+  (
+    ["hot","warm","cold"].includes(v.commercial_interest||"") ||
+    (!v.commercial_interest && (!!v.follow_up_outcome || v.follow_up_status==="completed"))
+  )
  ).map(v=>{
   const action=openActionByVisit.get(v.id)||null;
   const ownerId=action?.assigned_to||v.follow_up_owner_id||v.host_user_id||null;
@@ -123,7 +125,8 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
  const hotProspects=prospectRows.filter(x=>x.visit.commercial_interest==="hot");
  const warmProspects=prospectRows.filter(x=>x.visit.commercial_interest==="warm");
  const coldProspects=prospectRows.filter(x=>x.visit.commercial_interest==="cold");
- const atRiskProspects=prospectRows.filter(x=>x.overdue||x.missingAction);
+ const unqualifiedProspects=prospectRows.filter(x=>!x.visit.commercial_interest);
+ const atRiskProspects=prospectRows.filter(x=>x.overdue||x.missingAction||!x.visit.commercial_interest);
 
  const todayRows=(visits||[]).filter(v=>{
   if(v.check_in_at) return cantonDay(v.check_in_at)===today;
@@ -232,7 +235,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
    <p className="mt-2 text-sm text-slate-700">{fr?"Une invitation email est programmée 15 minutes après le départ uniquement avec l’accord du visiteur. Un avis reçu annule l’invitation en attente. ":"An email invitation is queued 15 minutes after checkout only with explicit consent. A submitted review cancels pending invitations. "}<strong>{fr?"La simulation n’envoie rien. Seul le test email autorisé par un administrateur peut expédier un vrai message à l’adresse QA. WhatsApp reste désactivé.":"Simulation sends nothing. Only an admin-approved email test may send a real message to the allowlisted QA address. WhatsApp remains disabled."}</strong></p>
    <form action={simulateCantonFeedbackInvitations} className="mt-3 flex flex-wrap items-center gap-2"><input type="hidden" name="limit" value="20"/><button className="rounded-lg bg-indigo-700 px-4 py-2 text-sm font-semibold text-white">{fr?"Simuler les invitations à envoyer":"Simulate due invitations"}</button><span className="text-xs text-slate-700">{fr?"Simulation sécurisée : aucun message n’est envoyé.":"Safe simulation: no messages are sent."}</span></form>
    {isSenior&&<p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">{fr?"Envoi email réel vers un destinataire QA explicitement autorisé uniquement. Désactivé tant que les paramètres QA ne sont pas configurés. Aucun envoi WhatsApp.":"Real email sending allowed only to one explicitly allowlisted QA recipient. Disabled until QA settings are configured. No WhatsApp sending."}</p>}
-   <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+   <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-5">
     <div className="rounded-lg bg-white p-3"><div className="text-xs text-slate-600">{fr?"En attente":"Pending"}</div><div className="text-xl font-bold">{invitationPending}</div></div>
     <div className="rounded-lg bg-white p-3"><div className="text-xs text-slate-600">{fr?"À traiter":"Due"}</div><div className="text-xl font-bold">{invitationDue}</div></div>
     <div className="rounded-lg bg-white p-3"><div className="text-xs text-slate-600">{fr?"Annulées":"Cancelled"}</div><div className="text-xl font-bold">{(invitationQueue||[]).filter(x=>x.status==="cancelled").length}</div></div>
@@ -382,6 +385,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
     <div className="rounded-xl bg-white p-4"><div className="text-xs font-semibold text-slate-500">🔥 Hot</div><div className="mt-1 text-2xl font-bold">{hotProspects.length}</div></div>
     <div className="rounded-xl bg-white p-4"><div className="text-xs font-semibold text-slate-500">🟠 Warm</div><div className="mt-1 text-2xl font-bold">{warmProspects.length}</div></div>
     <div className="rounded-xl bg-white p-4"><div className="text-xs font-semibold text-slate-500">🔵 Cold</div><div className="mt-1 text-2xl font-bold">{coldProspects.length}</div></div>
+    <div className="rounded-xl bg-white p-4"><div className="text-xs font-semibold text-slate-500">{fr?"⚪ À qualifier":"⚪ To qualify"}</div><div className="mt-1 text-2xl font-bold">{unqualifiedProspects.length}</div></div>
     <div className={"rounded-xl p-4 "+(atRiskProspects.length?"bg-rose-100":"bg-white")}><div className="text-xs font-semibold text-slate-500">{fr?"Sans action / en retard":"No action / overdue"}</div><div className="mt-1 text-2xl font-bold">{atRiskProspects.length}</div></div>
    </div>
    {atRiskProspects.length>0&&<p role="alert" className="mt-3 rounded-lg border border-rose-300 bg-rose-50 p-3 text-sm font-medium text-rose-900">{fr?"⚠️ Un prospect qualifié ne doit jamais rester sans prochaine action. Les dossiers signalés ci-dessous doivent être traités en priorité.":"⚠️ A qualified prospect should never remain without a next action. Flagged records below should be handled first."}</p>}
@@ -390,15 +394,21 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
      <thead><tr className="border-b bg-slate-50 text-slate-600">{[fr?"Prospect":"Prospect",fr?"Intérêt":"Interest",fr?"Résultat":"Outcome",fr?"Responsable":"Owner",fr?"Prochaine action":"Next action",fr?"Échéance":"Due",fr?"État":"State"].map(h=><th key={h} className="p-3">{h}</th>)}</tr></thead>
      <tbody>{prospectRows.map(row=>{
       const v=row.visit;
-      const interestLabel=v.commercial_interest==="hot"?"🔥 Hot":v.commercial_interest==="warm"?"🟠 Warm":"🔵 Cold";
-      const outcomeLabel=fr?({
-       information_only:"Information seulement",follow_up_requested:"Suivi demandé",proposal_requested:"Proposition demandée",next_appointment:"Prochain rendez-vous",ready_to_buy:"Prêt à acheter / avancer",not_interested:"Pas intéressé",other:"Autre"
-      } as Record<string,string>)[v.visit_outcome||""]||v.visit_outcome:({
-       information_only:"Information only",follow_up_requested:"Follow-up requested",proposal_requested:"Proposal requested",next_appointment:"Next appointment",ready_to_buy:"Ready to buy / proceed",not_interested:"Not interested",other:"Other"
-      } as Record<string,string>)[v.visit_outcome||""]||v.visit_outcome;
+      const interestLabel=v.commercial_interest==="hot"?"🔥 Hot":v.commercial_interest==="warm"?"🟠 Warm":v.commercial_interest==="cold"?"🔵 Cold":fr?"⚪ À qualifier":"⚪ To qualify";
+      const outcomeLabel=v.visit_outcome
+       ? (fr?({
+          information_only:"Information seulement",follow_up_requested:"Suivi demandé",proposal_requested:"Proposition demandée",next_appointment:"Prochain rendez-vous",ready_to_buy:"Prêt à acheter / avancer",not_interested:"Pas intéressé",other:"Autre"
+         } as Record<string,string>)[v.visit_outcome]||v.visit_outcome:({
+          information_only:"Information only",follow_up_requested:"Follow-up requested",proposal_requested:"Proposal requested",next_appointment:"Next appointment",ready_to_buy:"Ready to buy / proceed",not_interested:"Not interested",other:"Other"
+         } as Record<string,string>)[v.visit_outcome]||v.visit_outcome)
+       : (fr?({
+          contacted:"Contacté",appointment_scheduled:"Rendez-vous planifié",proposal_sent:"Proposition envoyée",sale_closed:"Vente conclue",no_response:"Pas de réponse",not_interested:"Pas intéressé",other:"Autre"
+         } as Record<string,string>)[v.follow_up_outcome||""]||v.follow_up_outcome:({
+          contacted:"Contacted",appointment_scheduled:"Appointment scheduled",proposal_sent:"Proposal sent",sale_closed:"Sale closed",no_response:"No response",not_interested:"Not interested",other:"Other"
+         } as Record<string,string>)[v.follow_up_outcome||""]||v.follow_up_outcome);
       return <tr key={v.id} className={"border-b align-top "+(row.overdue||row.missingAction?"bg-rose-50/60":"")}>
        <td className="p-3"><div className="font-semibold">{row.person?.full_name||(fr?"Visiteur":"Visitor")}</div><div className="text-xs text-slate-500">{v.department} · {v.purpose}</div></td>
-       <td className="p-3"><span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-semibold">{interestLabel}</span></td>
+       <td className="p-3">{v.commercial_interest?<span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-semibold">{interestLabel}</span>:<form action={qualifyCantonLegacyProspect} className="flex min-w-[180px] gap-2"><input type="hidden" name="id" value={v.id}/><select name="interest" required defaultValue="" className="rounded border border-slate-300 bg-white px-2 py-1 text-xs"><option value="" disabled>{fr?"À qualifier":"To qualify"}</option><option value="hot">🔥 Hot</option><option value="warm">🟠 Warm</option><option value="cold">🔵 Cold</option><option value="non_commercial">{fr?"Non commercial":"Non-commercial"}</option></select><button className="rounded bg-violet-700 px-2 py-1 text-xs font-semibold text-white">{fr?"Valider":"Save"}</button></form>}</td>
        <td className="p-3">{outcomeLabel||"—"}</td>
        <td className="p-3">{row.ownerId?(profileMap.get(row.ownerId)?.full_name||profileMap.get(row.ownerId)?.email||v.host_name||"—"):(v.host_name||"—")}</td>
        <td className="p-3">{row.action?.action_text||<strong className="text-rose-800">{fr?"Aucune prochaine action":"No next action"}</strong>}</td>
