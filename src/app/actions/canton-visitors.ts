@@ -323,8 +323,8 @@ export async function updateVisitorSite(f:FormData){
  const id=field(f,"siteId",40), operation=field(f,"operation",30);
  if(!/^[0-9a-f-]{36}$/i.test(id)) fail("Invalid visitor site");
  const {data:site}=await db.from("visitor_sites").select("id,is_hq,is_active").eq("id",id).eq("organization_id",org).maybeSingle();
- if(!site) fail("Visitor site not found");
- const currentSite={id:site.id,is_hq:!!site.is_hq,is_active:!!site.is_active};
+ const currentSite={id:site?.id||"",is_hq:!!site?.is_hq,is_active:!!site?.is_active};
+ if(!currentSite.id) fail("Visitor site not found");
  if(operation==="save"){
   const name=field(f,"name",180), city=field(f,"city",120)||null, countryCode=field(f,"countryCode",2).toUpperCase()||null;
   const timezone=field(f,"timezone",80), streetAddress=field(f,"streetAddress",300)||null;
