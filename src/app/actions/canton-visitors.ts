@@ -231,3 +231,17 @@ export async function completeCantonFollowUp(f:FormData){
  if(error||!changed?.length)fail("Follow-up changed, refresh");
  revalidatePath(route);redirect(route+"?success="+encodeURIComponent("Follow-up completed"));
 }
+
+/** QA ONLY: simulate due invitations; never call email or WhatsApp providers. */
+export async function simulateCantonFeedbackInvitations(f:FormData){
+ assertCantonLive();
+ const {db,org,role}=await context();
+ if(!["owner","admin","manager"].includes(role))fail("Manager permission required");
+ const limit=Math.max(1,Math.min(20,Number(field(f,"limit",3))||20));
+ const {data,error}=await db.rpc("canton_simulate_feedback_invitations",{p_organization_id:org,p_limit:limit});
+ if(error)fail("Invitation simulation could not run");
+ const item=Array.isArray(data)?data[0]:null;
+ if(!item)fail("No simulation result");
+ revalidatePath(route);
+ redirect(route+"?success="+encodeURIComponent("Simulation only — "+item.simulated+" prepared; "+item.cancelled+" cancelled; 0 external messages sent"));
+}
