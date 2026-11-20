@@ -25,8 +25,9 @@ export async function createCantonQrSite(f:FormData){
  const {db,user,org,role}=await staff();
  if(!["owner","admin"].includes(role))fail("Only administrators can create public QR sites");
  const label=value(f,"label",120);
+ const streetAddress=value(f,"streetAddress",300).replace(/\\s+/g," ").trim();
  if(label.length<3)fail("Site name is required");
- const {error}=await db.from("canton_qr_sites").insert({organization_id:org,label,created_by:user.id});
+ const {error}=await db.from("canton_qr_sites").insert({organization_id:org,label,street_address:streetAddress||null,created_by:user.id});
  if(error)fail("Could not create site");
  revalidatePath(dash);redirect(dash+"?success=QR%20site%20created");
 }
