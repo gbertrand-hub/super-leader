@@ -9,8 +9,8 @@ import {createClient} from "@/lib/supabase/server";
 import {createAdminClient} from "@/lib/supabase/admin";
 import {createCantonAppointment,createCantonCrmReferral,updateCantonVisit,manageCantonReceptionStaff,assignCantonFollowUp,completeCantonFollowUp,createCantonNextAction,completeCantonNextAction,simulateCantonFeedbackInvitations,sendCantonQaEmailTest,markCantonArrivalAlertRead,saveCantonVisitDebrief,qualifyCantonLegacyProspect,createCantonSlaRecovery,completeCantonSlaRecovery} from "@/app/actions/canton-visitors";
 export const dynamic="force-dynamic";
-export default async function CantonVisitorPage({searchParams}:{searchParams:Promise<{error?:string;success?:string;q?:string;view?:string}>}){
- const {error,success,q="",view=""}=await searchParams;
+export default async function CantonVisitorPage({searchParams}:{searchParams:Promise<{error?:string;success?:string;q?:string;view?:string;site?:string;filter?:string}>}){
+ const {error,success,q="",view="",site="",filter=""}=await searchParams;
  const {locale}=await getI18n();const fr=locale==="fr";
  if (!cantonLiveEnabled()) return <main className="mx-auto max-w-2xl p-8"><h1 className="text-2xl font-bold">Canton Visitor Center</h1><p className="mt-3 rounded-lg bg-amber-50 p-4 text-amber-900">Real operations are disabled in this preview until the separate QA database, authentication, and access controls pass end-to-end testing.</p><a href="/canton-demo" className="mt-4 inline-block underline">Open the simulation</a></main>;
  const host=(await headers()).get("host")||"";
@@ -31,6 +31,14 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
  const {data:crmProspects}=await db.from("crm_clients").select("id,reference,full_name,email,phone")
   .eq("organization_id",membership.organization_id).order("created_at",{ascending:false}).limit(100);
  const {data:staffAssignments}=isSenior?await db.from("canton_reception_staff").select("user_id").eq("organization_id",membership.organization_id):{data:[]};
+ const {data:visitorSites}=await db.from("visitor_sites")
+  .select("id,code,name,city,country_code,timezone,street_address,is_hq,is_active")
+  .eq("organization_id",membership.organization_id)
+  .eq("is_active",true)
+  .order("is_hq",{ascending:false}).order("name",{ascending:true});
+ const siteById=new Map((visitorSites||[]).map(s=>[s.id,s]));
+ const hqSite=(visitorSites||[]).find(s=>s.is_hq)||null;
+ const selectedSiteId=site==="all"&&isSenior?"all":siteById.has(site)?site:(isSenior?"all":hqSite?.id||"all");
  const memberIds=[...new Set([...(members||[]).map(m=>m.user_id),...(hostMembers||[]).map(m=>m.user_id)])];
  const {data:memberProfiles}=memberIds.length?await db.from("profiles").select("id,full_name,email").in("id",memberIds):{data:[]};
  const profileMap=new Map((memberProfiles||[]).map(p=>[p.id,p]));
@@ -58,8 +66,9 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
   {id:"admin" as CantonView,fr:"Administration",en:"Administration",show:isSenior}
  ].filter(x=>x.show);
  let visitQuery=db.from("canton_appointments")
-  .select("id,visitor_id,department,purpose,status,scheduled_local,host_name,host_user_id,check_in_at,visit_started_at,check_out_at,feedback_token,feedback_code,follow_up_required,follow_up_owner_id,follow_up_status,follow_up_due_date,follow_up_note,follow_up_outcome,follow_up_result_note,follow_up_completed_at,commercial_interest,commercial_qualified_at,commercial_qualified_by,visit_outcome,debrief_note,debriefed_by,debriefed_at,visit_origin,crm_referred_by,created_at,announced_by")
+  .select("id,visitor_id,site_id,department,purpose,status,scheduled_local,host_name,host_user_id,check_in_at,visit_started_at,check_out_at,feedback_token,feedback_code,follow_up_required,follow_up_owner_id,follow_up_status,follow_up_due_date,follow_up_note,follow_up_outcome,follow_up_result_note,follow_up_completed_at,commercial_interest,commercial_qualified_at,commercial_qualified_by,visit_outcome,debrief_note,debriefed_by,debriefed_at,visit_origin,crm_referred_by,created_at,announced_by")
   .eq("organization_id",membership.organization_id);
+ if(selectedSiteId!=="all") visitQuery=visitQuery.eq("site_id",selectedSiteId);
  if(!isSenior) {
   visitQuery = (isManager || isReception)
    ? visitQuery.neq("department","DIRECTION")
@@ -203,7 +212,18 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
     {navItems.map(item=><Link key={item.id} href={routeByView[item.id]} className={"rounded-xl px-4 py-2 text-sm font-semibold transition "+(activeView===item.id?"bg-slate-900 text-white":"bg-slate-50 text-slate-700 hover:bg-slate-100")}>{fr?item.fr:item.en}</Link>)}
    </div>
   </nav>
-  <div className="flex flex-wrap items-center justify-between gap-3"><div><h1 className="text-2xl font-bold">Canton Visitor Center</h1><p className="text-sm text-slate-500">{fr?"Rendez-vous, arrivées, départs et satisfaction · Canton, Texas (heure locale)":"Appointments, check-in, check-out and visitor experience · Canton, Texas (Central Time)"}</p></div><span className="text-sm text-slate-500">{fr?"TEST · données fictives":"QA · fictitious data"}</span></div>
+  <div className="flex flex-wrap items-center justify-between gap-3"><div><h1 className="text-2xl font-bold">{fr?"Gestion des Visiteurs & Rendez-vous":"Visitor & Appointment Management"}</h1><p className="text-sm text-slate-500">{fr?"Réseau multi-sites · Canton HQ comme point focal":"Multi-site network · Canton HQ as focal point"}</p></div><span className="text-sm text-slate-500">{fr?"TEST · données fictives":"QA · fictitious data"}</span></div>
+  <section className="rounded-2xl border bg-white p-4">
+   <div className="flex flex-wrap items-center gap-3">
+    <div className="text-sm font-semibold text-slate-700">{fr?"Site actif":"Active site"}</div>
+    <div className="flex flex-wrap gap-2">
+     {isSenior&&<Link href={routeByView[activeView]+"?site=all"} className={"rounded-full px-3 py-2 text-sm font-semibold "+(selectedSiteId==="all"?"bg-slate-900 text-white":"bg-slate-100 text-slate-700")}>{fr?"Tous les sites":"All sites"}</Link>}
+     {(visitorSites||[]).map(s=><Link key={s.id} href={routeByView[activeView]+"?site="+s.id} className={"rounded-full px-3 py-2 text-sm font-semibold "+(selectedSiteId===s.id?"bg-indigo-700 text-white":"bg-slate-100 text-slate-700")}>{s.name}{s.is_hq?" · HQ":""}</Link>)}
+    </div>
+   </div>
+   {selectedSiteId!=="all"&&siteById.get(selectedSiteId)&&<p className="mt-2 text-xs text-slate-500">{siteById.get(selectedSiteId)?.city} · {siteById.get(selectedSiteId)?.timezone}{siteById.get(selectedSiteId)?.street_address?" · "+siteById.get(selectedSiteId)?.street_address:""}</p>}
+   {selectedSiteId==="all"&&<p className="mt-2 text-xs text-slate-500">{fr?"Vue réseau consolidée sous la supervision du HQ de Canton.":"Consolidated network view under Canton HQ supervision."}</p>}
+  </section>
   {error&&<p role="alert" className="rounded bg-red-100 p-3 text-red-800">{error}</p>}
   {success&&<p role="status" className="rounded bg-green-100 p-3 text-green-800">{success}</p>}
   {queryError&&<p role="alert" className="rounded bg-yellow-100 p-3">{fr?"Base de données non initialisée. Appliquez les migrations Canton.":"Database not initialized. Apply the Canton migration before using this module."}</p>}
@@ -258,7 +278,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
     <span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-cyan-900">{fr?"Source : équipe commerciale":"Source: sales team"}</span>
    </div>
    <form action={createCantonCrmReferral} className="mt-4 grid gap-3 rounded-xl border border-cyan-200 bg-white p-4 lg:grid-cols-2 xl:grid-cols-3">
-    <label className="text-sm font-semibold text-slate-700">{fr?"Prospect CRM *":"CRM prospect *"}<select name="clientId" required defaultValue="" className={input}><option value="" disabled>{fr?"Sélectionner un prospect CRM":"Select a CRM prospect"}</option>{(crmProspects||[]).map(client=><option key={client.id} value={client.id}>{client.full_name+" · "+client.reference+(client.email?" · "+client.email:"")}</option>)}</select></label>
+    <input type="hidden" name="siteId" value={selectedSiteId==="all"?(hqSite?.id||""):selectedSiteId}/><label className="text-sm font-semibold text-slate-700">{fr?"Prospect CRM *":"CRM prospect *"}<select name="clientId" required defaultValue="" className={input}><option value="" disabled>{fr?"Sélectionner un prospect CRM":"Select a CRM prospect"}</option>{(crmProspects||[]).map(client=><option key={client.id} value={client.id}>{client.full_name+" · "+client.reference+(client.email?" · "+client.email:"")}</option>)}</select></label>
     <label className="text-sm font-semibold text-slate-700">{fr?"Visite / département *":"Visit / department *"}<select name="department" required defaultValue="DIG" className={input}><option value="DIG">DIG · {fr?"Visite terrain / immobilier":"Land / real-estate visit"}</option><option value="TCF">TCF · {fr?"Visite ferme":"Farm visit"}</option><option value="OTHER">{fr?"Autre visite commerciale":"Other commercial visit"}</option></select></label>
     <label className="text-sm font-semibold text-slate-700">{fr?"Date et heure Canton *":"Canton date & time *"}<input type="datetime-local" name="scheduled" required className={input}/></label>
     <label className="text-sm font-semibold text-slate-700">{fr?"Personne à rencontrer":"Canton host"}<select name="hostUserId" defaultValue="" className={input}><option value="">{fr?"À attribuer":"Unassigned"}</option>{(hostMembers||[]).map(m=><option key={m.user_id} value={m.user_id}>{profileMap.get(m.user_id)?.full_name||profileMap.get(m.user_id)?.email||m.user_id}</option>)}</select></label>
@@ -322,7 +342,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
       return <article key={v.id} className="grid gap-3 rounded-xl border bg-slate-50 p-4 md:grid-cols-[1.4fr_1fr_auto] md:items-center">
        <div>
         <div className="flex flex-wrap items-center gap-2"><strong className="text-base">{person?.full_name||(fr?"Visiteur":"Visitor")}</strong><span className={"rounded-full px-2 py-1 text-xs font-semibold "+statusClass}>{statusLabel}</span>{v.visit_origin==="crm_referral"&&<span className="rounded-full bg-cyan-100 px-2 py-1 text-[10px] font-bold uppercase text-cyan-900">{fr?"Envoyé par CRM":"CRM referral"}</span>}</div>
-        <p className="mt-1 text-sm text-slate-600">{v.department} · {v.purpose}</p>
+        <p className="mt-1 text-sm text-slate-600">{siteById.get(v.site_id||"")?.name||"Canton"} · {v.department} · {v.purpose}</p>
         {person?.phone&&<p className="mt-1 text-xs text-slate-500">{person.phone}</p>}
        </div>
        <div className="text-sm">
@@ -348,7 +368,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
      {receptionRows.filter(v=>v.status==="completed").map(v=>{
       const person=map.get(v.visitor_id);
       return <div key={v.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-white p-3 text-sm">
-       <div><strong>{person?.full_name||(fr?"Visiteur":"Visitor")}</strong><div className="text-xs text-slate-500">{v.department} · {v.purpose}</div></div>
+       <div><strong>{person?.full_name||(fr?"Visiteur":"Visitor")}</strong><div className="text-xs text-slate-500">{siteById.get(v.site_id||"")?.name||"Canton"} · {v.department} · {v.purpose}</div></div>
        <div className="text-xs text-slate-600">{v.check_out_at?new Date(v.check_out_at).toLocaleTimeString(fr?"fr-FR":"en-US",{timeZone:"America/Chicago",hour:"2-digit",minute:"2-digit"}):""}</div>
        <span className="rounded-lg bg-slate-200 px-3 py-2 text-xs font-medium text-slate-700">{fr?"Visite clôturée":"Visit closed"}</span>
       </div>;
@@ -419,7 +439,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
        </div>
       </div>;
    })}{!requests?.length&&<p className="py-4 text-sm text-slate-500">{fr?"Aucune arrivée QR en attente.":"No pending QR arrivals."}</p>}</div></section>}
-  <section data-canton-view="appointments" className="rounded-xl border bg-white p-5"><h2 className="mb-3 text-lg font-semibold">{fr?"Enregistrer ou annoncer une visite":"Register or announce a visit"}</h2>
+  <section data-canton-view="appointments" className="rounded-xl border bg-white p-5"><h2 className="mb-3 text-lg font-semibold">{fr?"Enregistrer ou annoncer une visite":"Register or announce a visit"}</h2><p className="mb-3 text-xs text-slate-500">{selectedSiteId==="all"?(fr?"Sélectionnez un site avant de créer une visite. Le HQ Canton est utilisé par défaut.":"Select a site before creating a visit. Canton HQ is used by default."):(fr?"Site : ":"Site: ")+(siteById.get(selectedSiteId)?.name||"—")}</p><input form="canton-appointment-form" type="hidden" name="siteId" value={selectedSiteId==="all"?(hqSite?.id||""):selectedSiteId}/>
    <p className="mb-3 text-xs text-slate-500">{fr?"Le téléphone ou l’email permet de retrouver le visiteur. Les doublons exacts sont bloqués. Deux rendez-vous rapprochés à moins de 60 minutes nécessitent une confirmation. Heure locale de Canton.":"Phone or email identifies an existing visitor. Exact duplicate appointments are blocked. Bookings for the same visitor, department and purpose within 60 minutes require explicit confirmation. Time is local to Canton."}</p>
    <form action={createCantonAppointment} className="grid gap-3 md:grid-cols-3">
     <label className="text-sm">{fr?"Nom complet *":"Full name *"}<input className={input} name="name" required maxLength={180}/></label>
@@ -537,7 +557,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
           contacted:"Contacted",appointment_scheduled:"Appointment scheduled",proposal_sent:"Proposal sent",sale_closed:"Sale closed",no_response:"No response",not_interested:"Not interested",other:"Other"
          } as Record<string,string>)[v.follow_up_outcome||""]||v.follow_up_outcome);
       return <tr key={v.id} className={"border-b align-top "+(row.slaLate||row.overdue||row.missingAction?"bg-rose-50/60":row.slaPlannedTooLate||row.slaApproaching?"bg-amber-50/60":"")}>
-       <td className="p-3"><div className="flex flex-wrap items-center gap-2"><span className="font-semibold">{row.person?.full_name||(fr?"Visiteur":"Visitor")}</span>{v.visit_origin==="crm_referral"&&<span className="rounded-full bg-cyan-100 px-2 py-1 text-[10px] font-bold uppercase text-cyan-900">CRM</span>}</div><div className="text-xs text-slate-500">{v.department} · {v.purpose}</div></td>
+       <td className="p-3"><div className="flex flex-wrap items-center gap-2"><span className="font-semibold">{row.person?.full_name||(fr?"Visiteur":"Visitor")}</span>{v.visit_origin==="crm_referral"&&<span className="rounded-full bg-cyan-100 px-2 py-1 text-[10px] font-bold uppercase text-cyan-900">CRM</span>}</div><div className="text-xs text-slate-500">{siteById.get(v.site_id||"")?.name||"Canton"} · {v.department} · {v.purpose}</div></td>
        <td className="p-3">{v.commercial_interest?<span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-semibold">{interestLabel}</span>:<form action={qualifyCantonLegacyProspect} className="flex min-w-[180px] gap-2"><input type="hidden" name="id" value={v.id}/><select name="interest" required defaultValue="" className="rounded border border-slate-300 bg-white px-2 py-1 text-xs"><option value="" disabled>{fr?"À qualifier":"To qualify"}</option><option value="hot">🔥 Hot</option><option value="warm">🟠 Warm</option><option value="cold">🔵 Cold</option><option value="non_commercial">{fr?"Non commercial":"Non-commercial"}</option></select><button className="rounded bg-violet-700 px-2 py-1 text-xs font-semibold text-white">{fr?"Valider":"Save"}</button></form>}</td>
        <td className="p-3">{outcomeLabel||"—"}</td>
        <td className="p-3">{row.ownerId?(profileMap.get(row.ownerId)?.full_name||profileMap.get(row.ownerId)?.email||v.host_name||"—"):(v.host_name||"—")}</td>
