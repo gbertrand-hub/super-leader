@@ -33,8 +33,8 @@ export async function createCantonCrmReferral(f:FormData){
  if(siteId){
   if(!/^[0-9a-f-]{36}$/i.test(siteId)) fail("Invalid visitor site");
   const {data:site}=await db.from("visitor_sites").select("id").eq("id",siteId).eq("organization_id",org).eq("is_active",true).maybeSingle();
-  if(!site) fail("Visitor site not found or inactive");
-  resolvedSiteId=site.id;
+  resolvedSiteId=site?.id||null;
+  if(!resolvedSiteId) fail("Visitor site not found or inactive");
  }else{
   const {data:hq}=await db.from("visitor_sites").select("id").eq("organization_id",org).eq("is_hq",true).eq("is_active",true).limit(1).maybeSingle();
   resolvedSiteId=hq?.id||null;
@@ -123,8 +123,8 @@ export async function createCantonAppointment(f:FormData){
  if(siteId){
   if(!/^[0-9a-f-]{36}$/i.test(siteId)) fail("Invalid visitor site");
   const {data:site}=await db.from("visitor_sites").select("id").eq("id",siteId).eq("organization_id",org).eq("is_active",true).maybeSingle();
-  if(!site) fail("Visitor site not found or inactive");
-  resolvedSiteId=site.id;
+  resolvedSiteId=site?.id||null;
+  if(!resolvedSiteId) fail("Visitor site not found or inactive");
  }else{
   const {data:hq}=await db.from("visitor_sites").select("id").eq("organization_id",org).eq("is_hq",true).eq("is_active",true).limit(1).maybeSingle();
   resolvedSiteId=hq?.id||null;
