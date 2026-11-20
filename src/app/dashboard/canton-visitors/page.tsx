@@ -100,6 +100,49 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
   <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">{[
    [fr?"Aujourd’hui":"Today",todayRows.length],[fr?"Attendus":"Expected",count(v=>v.status==="scheduled")],[fr?"Sur place":"On site",count(v=>["arrived","in_progress"].includes(v.status))],[fr?"Terminées":"Completed",count(v=>v.status==="completed")],[fr?"Avis":"Feedback", (feedback||[]).length],[fr?"Taux de réponse":"Response rate",feedbackResponseRate],[fr?"Note moyenne":"Avg. rating",ratingAverage],[fr?"Attention requise":"Attention needed",pendingFeedback],[fr?"Suivis ouverts":"Follow-ups open",pendingHandoffs],[fr?"Sans responsable":"Unassigned follow-ups",unassignedFollowUps.length],[fr?"Prochaines actions":"Next actions",openNextActions.length],[fr?"À faire aujourd’hui":"Due today",nextActionsToday.length],[fr?"En retard":"Overdue",overdueNextActions.length]
   ].map(([label,value])=><div key={label} className="rounded-xl border bg-white p-4"><div className="text-sm text-slate-500">{label}</div><div className="text-2xl font-bold">{value}</div></div>)}</div>
+  {(isSenior||isManager||isReception)&&<section className="rounded-2xl border-2 border-indigo-200 bg-white p-5 shadow-sm">
+   <div className="flex flex-wrap items-start justify-between gap-3">
+    <div>
+     <p className="text-xs font-bold uppercase tracking-wider text-indigo-700">{fr?"Poste réception":"Reception desk"}</p>
+     <h2 className="mt-1 text-xl font-bold">{fr?"Arrivées du jour":"Today’s arrivals"}</h2>
+     <p className="mt-1 text-sm text-slate-600">{fr?"Une vue rapide pour accueillir, enregistrer l’arrivée et clôturer la visite sans chercher dans l’historique.":"A fast view to welcome visitors, check them in, and close visits without searching the full history."}</p>
+    </div>
+    <div className="flex flex-wrap gap-2 text-xs">
+     <span className="rounded-full bg-indigo-50 px-3 py-1 font-semibold text-indigo-800">{fr?"QR à valider":"QR pending"}: {(requests||[]).length}</span>
+     <span className="rounded-full bg-emerald-50 px-3 py-1 font-semibold text-emerald-800">{fr?"Sur place":"On site"}: {count(v=>["arrived","in_progress"].includes(v.status))}</span>
+    </div>
+   </div>
+   <div className="mt-4 grid gap-3">
+    {[...todayRows].sort((a,b)=>{
+      const rank:Record<string,number>={arrived:0,in_progress:0,scheduled:1,announced:1,completed:2,no_show:3,cancelled:4};
+      const ar=rank[a.status]??5,br=rank[b.status]??5;
+      if(ar!==br)return ar-br;
+      return (a.scheduled_local||a.created_at).localeCompare(b.scheduled_local||b.created_at);
+    }).map(v=>{
+      const person=map.get(v.visitor_id);
+      const statusLabel=fr?({announced:"Annoncée",scheduled:"Attendue",arrived:"Arrivée",in_progress:"En visite",completed:"Terminée",cancelled:"Annulée",no_show:"Absente"} as Record<string,string>)[v.status]||v.status:({announced:"Announced",scheduled:"Expected",arrived:"Arrived",in_progress:"In visit",completed:"Completed",cancelled:"Cancelled",no_show:"No show"} as Record<string,string>)[v.status]||v.status;
+      const statusClass=["arrived","in_progress"].includes(v.status)?"bg-emerald-100 text-emerald-900":v.status==="scheduled"?"bg-indigo-100 text-indigo-900":v.status==="completed"?"bg-slate-100 text-slate-700":v.status==="no_show"?"bg-amber-100 text-amber-900":"bg-slate-100 text-slate-700";
+      return <article key={v.id} className="grid gap-3 rounded-xl border bg-slate-50 p-4 md:grid-cols-[1.4fr_1fr_auto] md:items-center">
+       <div>
+        <div className="flex flex-wrap items-center gap-2"><strong className="text-base">{person?.full_name||(fr?"Visiteur":"Visitor")}</strong><span className={"rounded-full px-2 py-1 text-xs font-semibold "+statusClass}>{statusLabel}</span></div>
+        <p className="mt-1 text-sm text-slate-600">{v.department} · {v.purpose}</p>
+        {person?.phone&&<p className="mt-1 text-xs text-slate-500">{person.phone}</p>}
+       </div>
+       <div className="text-sm">
+        <div><span className="text-slate-500">{fr?"Heure":"Time"}:</span> <strong>{v.scheduled_local?.slice(11,16)||(v.check_in_at?new Date(v.check_in_at).toLocaleTimeString(fr?"fr-FR":"en-US",{timeZone:"America/Chicago",hour:"2-digit",minute:"2-digit"}):fr?"Non programmée":"Unscheduled")}</strong></div>
+        <div className="mt-1"><span className="text-slate-500">{fr?"Responsable":"Host"}:</span> {v.host_name||"—"}</div>
+       </div>
+       <div className="flex flex-wrap gap-2 md:justify-end">
+        {["announced","scheduled"].includes(v.status)&&<form action={updateCantonVisit}><input type="hidden" name="id" value={v.id}/><button name="action" value="checkin" className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white">{fr?"✓ Enregistrer l’arrivée":"✓ Check in"}</button></form>}
+        {["arrived","in_progress"].includes(v.status)&&<form action={updateCantonVisit}><input type="hidden" name="id" value={v.id}/><button name="action" value="checkout" className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white">{fr?"Enregistrer le départ":"Check out"}</button></form>}
+        {v.status==="scheduled"&&(isSenior||membership.role==="manager")&&<form action={updateCantonVisit}><input type="hidden" name="id" value={v.id}/><button name="action" value="no_show" className="rounded-lg border bg-white px-3 py-2 text-sm">{fr?"Absent":"No show"}</button></form>}
+        {v.status==="completed"&&<span className="rounded-lg bg-slate-200 px-3 py-2 text-xs font-medium text-slate-700">{fr?"Visite clôturée":"Visit closed"}</span>}
+       </div>
+      </article>;
+    })}
+    {todayRows.length===0&&<div className="rounded-xl border border-dashed p-6 text-center text-sm text-slate-500">{fr?"Aucune visite prévue ou enregistrée aujourd’hui.":"No visits scheduled or recorded today."}</div>}
+   </div>
+  </section>}
   {isSenior&&<section className="rounded-xl border bg-white p-5"><h2 className="mb-2 text-lg font-semibold">{fr?"Accès réception":"Reception access"}</h2><p className="mb-3 text-sm text-slate-500">{fr?"Autorisez les employés à enregistrer les arrivées et départs. Les visites de direction restent confidentielles.":"Assign staff to check in and check out standard visits. Confidential direction visits remain restricted."}</p>
   <div className="space-y-2">{(members||[]).map(m=><div className="flex flex-wrap items-center justify-between gap-2 border-b py-2 text-sm" key={m.user_id}><span>{profileMap.get(m.user_id)?.full_name||profileMap.get(m.user_id)?.email||m.user_id} <span className="text-xs text-slate-500">({m.role})</span></span><form action={manageCantonReceptionStaff}><input type="hidden" name="userId" value={m.user_id}/><button name="operation" value={assignedIds.has(m.user_id)?"revoke":"grant"} className={assignedIds.has(m.user_id)?"rounded bg-red-100 px-3 py-1":"rounded bg-emerald-100 px-3 py-1"}>{assignedIds.has(m.user_id)?(fr?"Retirer l’accès réception":"Remove reception access"):(fr?"Autoriser la réception":"Grant reception access")}</button></form></div>)}</div></section>}
 
@@ -267,7 +310,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
      {v.status==="scheduled"&&(isSenior||membership.role==="manager"||v.announced_by===user.id)&&<form action={updateCantonVisit}><input type="hidden" name="id" value={v.id}/><button name="action" value="no_show" className="rounded bg-slate-100 px-2 py-1">{fr?"Absent":"No show"}</button></form>}
      {v.status==="completed"&&v.follow_up_required===null&&(isSenior||membership.role==="manager"||v.announced_by===user.id)&&<form action={updateCantonVisit} className="flex gap-1"><input type="hidden" name="id" value={v.id}/><input type="hidden" name="action" value="followup"/><button name="required" value="yes" className="rounded bg-amber-100 px-2 py-1">{fr?"Suivi nécessaire":"Follow up"}</button><button name="required" value="no" className="rounded bg-slate-100 px-2 py-1">{fr?"Aucun suivi":"No follow up"}</button></form>}
     </div></td>
-    <td className="p-2">{v.status==="completed"?<Link className="text-indigo-700 underline" href={`/canton-feedback?token=${v.feedback_token}`} target="_blank">{fr?"Lien privé d’avis":"Private feedback link"}</Link>: (fr?"Après le départ":"After checkout")}</td>
+    <td className="p-2">{v.status==="completed"?<Link className="text-indigo-700 underline" href={`/canton-feedback/${encodeURIComponent(v.feedback_token)}`} target="_blank">{fr?"Lien privé d’avis":"Private feedback link"}</Link>: (fr?"Après le départ":"After checkout")}</td>
    </tr>)}</tbody></table>
   </section>
  </main>;
