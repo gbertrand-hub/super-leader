@@ -136,8 +136,8 @@ export async function updateCantonVisit(f:FormData){
  if(!row) fail("Visit not found");
  const visit = row!;
  const isSenior=seniorRoles.has(role);
- const isCreator=visit.announced_by===user.id;
- const isHost=visit.host_user_id===user.id;
+ const isCreator=debriefVisit.announced_by===user.id;
+ const isHost=debriefVisit.host_user_id===user.id;
  const canOperateStandardVisit=visit.department!=="DIRECTION" && (isReception || role==="manager" || role==="hr" || isHost);
  if(!isSenior && visit.department==="DIRECTION") fail("Confidential visit: administrator access required");
  if(!isSenior && !isCreator && !canOperateStandardVisit) fail("Not authorized to manage this visit");
@@ -239,13 +239,15 @@ export async function saveCantonVisitDebrief(f:FormData){
  const {data:visit}=await db.from("canton_appointments")
   .select("id,status,department,host_user_id,announced_by,debriefed_at")
   .eq("id",id).eq("organization_id",org).maybeSingle();
- if(!visit||visit.status!=="completed") fail("Complete the visit before debriefing");
- if(!["DIG","TCF"].includes(visit.department)) fail("Commercial debrief is only required for DIG or TCF visits");
+ if(!visit) fail("Visit not found");
+ const debriefVisit=visit;
+ if(debriefVisit.status!=="completed") fail("Complete the visit before debriefing");
+ if(!["DIG","TCF"].includes(debriefVisit.department)) fail("Commercial debrief is only required for DIG or TCF visits");
  const isSenior=seniorRoles.has(role);
  const isHost=visit.host_user_id===user.id;
  const isCreator=visit.announced_by===user.id;
  if(!isSenior&&role!=="manager"&&!isHost&&!isCreator) fail("Only the visit owner, host or manager can submit the debrief");
- if(visit.debriefed_at) fail("This visit already has a debrief");
+ if(debriefVisit.debriefed_at) fail("This visit already has a debrief");
  const {data:changed,error}=await db.from("canton_appointments").update({
   commercial_interest:interest,
   visit_outcome:outcome,
@@ -258,7 +260,7 @@ export async function saveCantonVisitDebrief(f:FormData){
  if(error||!changed?.length) fail("Could not save the visit debrief");
  if(nextAction||dueDate){
   if(nextAction.length<5||!/^d{4}-d{2}-d{2}$/.test(dueDate)||!Number.isFinite(Date.parse(dueDate+"T12:00:00Z"))) fail("Next action and valid due date are both required");
-  const assignedTo=visit.host_user_id||user.id;
+  const assignedTo=debriefVisit.host_user_id||user.id;
   const {error:nextError}=await db.from("canton_next_actions").insert({
    organization_id:org,appointment_id:id,assigned_to:assignedTo,
    action_text:nextAction,due_date:dueDate,created_by:user.id
