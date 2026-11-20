@@ -160,20 +160,20 @@ export async function submitCantonFeedback(f:FormData){
  const db=createAdminClient();
  const {data:visit}=await db.from("canton_appointments").select("id,status")
   .eq("feedback_token",token).maybeSingle();
- if(!visit||visit.status!=="completed") redirect("/canton-feedback?error=unavailable");
+ if(!visit||visit.status!=="completed") redirect("/canton-feedback/"+encodeURIComponent(token)+"?error=unavailable");
  const welcome=field(f,"welcome"),expectations=field(f,"expectations");
  if(welcome&&!["very_satisfied","satisfied","neutral","dissatisfied"].includes(welcome))
-  redirect("/canton-feedback?error=invalid");
+  redirect("/canton-feedback/"+encodeURIComponent(token)+"?error=invalid");
  if(expectations&&!["yes","partially","no"].includes(expectations))
-  redirect("/canton-feedback?error=invalid");
+  redirect("/canton-feedback/"+encodeURIComponent(token)+"?error=invalid");
  const {error}=await db.from("canton_visit_feedback").insert({
   appointment_id:visit.id,rating,
   welcome_rating:welcome||null,expectations:expectations||null,
   contact_requested:field(f,"contact")==="yes",
   comment:field(f,"comment",1200)||null
  });
- if(error) redirect("/canton-feedback?error=already-submitted");
- redirect("/canton-feedback?success=1");
+ if(error) redirect("/canton-feedback/"+encodeURIComponent(token)+"?error=already-submitted");
+ redirect("/canton-feedback/"+encodeURIComponent(token)+"?success=1");
 }
 
 export async function manageCantonReceptionStaff(f:FormData) {
