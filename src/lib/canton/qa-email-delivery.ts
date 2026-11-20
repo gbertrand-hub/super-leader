@@ -109,3 +109,28 @@ export async function sendCantonQaFeedbackEmail(appointmentId:string):Promise<Ca
   ?{outcome:"sent",detail:"QA Resend accepted one message"}
   :{outcome:"failed",detail:"Provider failed or outcome uncertain; no automatic retry"};
 }
+
+/** A bounded worker for isolated Canton QA.
+ * Never invokes Resend unless every existing safety gate and exact-recipient allowlist passes.
+ * No automatic retries of uncertain provider requests: 'sending' stays locked for review.
+ */
+export async function processCantonQaEmailQueue(limit=10):Promise<{
+ enabled:boolean;eligible:number;sent:number;failed:number;skipped:number;
+}>{
+ if(!gate())return {enabled:false,eligible:0,sent:0,failed:0,skipped:0};
+ const db=createAdminClient();
+ const max=Math.max(1,Math.min(20,Math.trunc(limit)||10));
+ const {data:due,error}=await db.from("canton_feedback_invitation_outbox")
+   .select("appointment_id")
+   .eq("organization_id",QA_ORG).eq("channel","email").eq("status","pending")
+   .lte("due_at",new Date().toISOString()).order("due_at",{ascending:true}).limit(max);
+ if(error)throw new Error("Cannot read QA invitation queue");
+ let sent=0,failed=0,skipped=0;
+ for(const entry of due||[]){
+  const result=await sendCantonQaFeedbackEmail(entry.appointment_id);
+  if(result.outcome==="sent")sent++;
+  else if(result.outcome==="failed")failed++;
+  else skipped++;
+ }
+ return {enabled:true,eligible:due?.length||0,sent,failed,skipped};
+}
