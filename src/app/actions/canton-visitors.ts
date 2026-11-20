@@ -323,7 +323,8 @@ export async function updateVisitorSite(f:FormData){
  const id=field(f,"siteId",40), operation=field(f,"operation",30);
  if(!/^[0-9a-f-]{36}$/i.test(id)) fail("Invalid visitor site");
  const {data:site}=await db.from("visitor_sites").select("id,is_hq,is_active").eq("id",id).eq("organization_id",org).maybeSingle();
- if(!site) fail("Visitor site not found");
+ const currentSite=site;
+ if(!currentSite) fail("Visitor site not found");
  if(operation==="save"){
   const name=field(f,"name",180), city=field(f,"city",120)||null, countryCode=field(f,"countryCode",2).toUpperCase()||null;
   const timezone=field(f,"timezone",80), streetAddress=field(f,"streetAddress",300)||null;
@@ -331,11 +332,11 @@ export async function updateVisitorSite(f:FormData){
   const {error}=await db.from("visitor_sites").update({name,city,country_code:countryCode,timezone,street_address:streetAddress,updated_at:new Date().toISOString()}).eq("id",id).eq("organization_id",org);
   if(error) fail("Could not update visitor site");
  }else if(operation==="toggle"){
-  if(site.is_hq&&site.is_active) fail("The HQ cannot be disabled. Assign another HQ first");
-  const {error}=await db.from("visitor_sites").update({is_active:!site.is_active,updated_at:new Date().toISOString()}).eq("id",id).eq("organization_id",org);
+  if(currentSite.is_hq&&currentSite.is_active) fail("The HQ cannot be disabled. Assign another HQ first");
+  const {error}=await db.from("visitor_sites").update({is_active:!currentSite.is_active,updated_at:new Date().toISOString()}).eq("id",id).eq("organization_id",org);
   if(error) fail("Could not update visitor site status");
  }else if(operation==="make_hq"){
-  if(site.is_hq) redirect("/canton/admin?success="+encodeURIComponent("This site is already HQ"));
+  if(currentSite.is_hq) redirect("/canton/admin?success="+encodeURIComponent("This site is already HQ"));
   const {error:clearError}=await db.from("visitor_sites").update({is_hq:false,updated_at:new Date().toISOString()}).eq("organization_id",org).eq("is_hq",true);
   if(clearError) fail("Could not change HQ");
   const {error}=await db.from("visitor_sites").update({is_hq:true,is_active:true,updated_at:new Date().toISOString()}).eq("id",id).eq("organization_id",org);
