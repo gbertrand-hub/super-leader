@@ -35,7 +35,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
 
  const isManager=membership.role==="manager" || membership.role==="hr";
  let visitQuery=db.from("canton_appointments")
-  .select("id,visitor_id,department,purpose,status,scheduled_local,host_name,check_in_at,check_out_at,feedback_token,feedback_code,follow_up_required,follow_up_owner_id,follow_up_status,follow_up_due_date,follow_up_note,created_at,announced_by")
+  .select("id,visitor_id,department,purpose,status,scheduled_local,host_name,check_in_at,check_out_at,feedback_token,feedback_code,follow_up_required,follow_up_owner_id,follow_up_status,follow_up_due_date,follow_up_note,follow_up_outcome,follow_up_result_note,follow_up_completed_at,created_at,announced_by")
   .eq("organization_id",membership.organization_id);
  if(!isSenior) {
   visitQuery = (isManager || isReception)
@@ -148,8 +148,37 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
    <p className="mb-3 text-sm text-slate-600">{fr?"Les actions qui vous ont été confiées apparaissent ici, même si le rendez-vous a été annoncé par un autre collègue.":"Tasks assigned to you appear here, even if another colleague created the visit."}</p>
    <div className="space-y-3">{(visits||[]).filter(v=>v.follow_up_owner_id===user.id && v.follow_up_status==="open").map(v=><div key={v.id} className="flex flex-wrap items-start justify-between gap-3 rounded-lg border bg-white p-3">
     <div><div className="font-semibold">{map.get(v.visitor_id)?.full_name||(fr?"Visiteur":"Visitor")} · {v.department}</div><p className="text-sm">{v.follow_up_note||(fr?"Suivi à effectuer":"Follow-up needed")}</p><p className="text-xs text-slate-500">{fr?"Échéance : ":"Due: "}{v.follow_up_due_date||(fr?"Non précisée":"Unspecified")}</p></div>
-    <form action={completeCantonFollowUp}><input type="hidden" name="id" value={v.id}/><button className="rounded-lg bg-emerald-700 px-3 py-2 text-sm text-white">{fr?"Marquer terminé":"Mark completed"}</button></form>
+    <form action={completeCantonFollowUp} className="w-full space-y-2 rounded-lg border border-emerald-200 bg-emerald-50 p-3 md:max-w-lg">
+      <input type="hidden" name="id" value={v.id}/>
+      <label className="block text-sm font-medium">{fr?"Résultat du suivi *":"Follow-up outcome *"}
+       <select name="outcome" className={input} required defaultValue="">
+        <option value="" disabled>{fr?"Sélectionnez un résultat":"Select an outcome"}</option>
+        <option value="contacted">{fr?"Contact établi":"Contacted"}</option>
+        <option value="appointment_scheduled">{fr?"Rendez-vous fixé":"Appointment scheduled"}</option>
+        <option value="proposal_sent">{fr?"Proposition envoyée":"Proposal sent"}</option>
+        <option value="sale_closed">{fr?"Vente conclue":"Sale closed"}</option>
+        <option value="no_response">{fr?"Sans réponse":"No response"}</option>
+        <option value="not_interested">{fr?"Pas intéressé":"Not interested"}</option>
+        <option value="other">{fr?"Autre résultat":"Other outcome"}</option>
+       </select>
+      </label>
+      <label className="block text-sm font-medium">{fr?"Compte rendu de l’action *":"Action result notes *"}
+       <textarea name="resultNote" required minLength={5} maxLength={1000} rows={2} className={input} placeholder={fr?"Ex. Appel effectué, rendez-vous confirmé pour le 23 novembre.":"E.g. Called visitor; meeting confirmed for November 23."}/>
+      </label>
+      <p className="text-xs text-emerald-900">{fr?"Le suivi sera clôturé uniquement après enregistrement du résultat.":"The follow-up closes only after a result is recorded."}</p>
+      <button className="w-full rounded-lg bg-emerald-700 px-3 py-2 text-sm font-semibold text-white">{fr?"Enregistrer le résultat et clôturer":"Save outcome and close"}</button>
+     </form>
    </div>)}{!(visits||[]).some(v=>v.follow_up_owner_id===user.id&&v.follow_up_status==="open")&&<p className="text-sm text-slate-600">{fr?"Aucun suivi ouvert qui vous est attribué.":"No open follow-ups assigned to you."}</p>}</div>
+  </section>
+  <section className="rounded-xl border bg-white p-5">
+   <h2 className="text-lg font-semibold">{fr?"Résultats commerciaux enregistrés":"Recorded commercial outcomes"}</h2>
+   <p className="mt-1 text-sm text-slate-600">{fr?"Historique des suivis terminés, conservé avec le dossier de visite.":"History of completed follow-ups, linked to the visit."}</p>
+   <div className="mt-3 space-y-2">{(visits||[]).filter(v=>v.follow_up_status==="completed"&&v.follow_up_outcome&&(isSenior||v.department!=="DIRECTION")).slice(0,25).map(v=><div key={v.id} className="rounded-lg border bg-slate-50 p-3 text-sm">
+    <div className="font-semibold">{map.get(v.visitor_id)?.full_name||(fr?"Visiteur":"Visitor")} · {v.department}</div>
+    <div>{fr?"Résultat : ":"Outcome: "}{({contacted:fr?"Contact établi":"Contacted",appointment_scheduled:fr?"Rendez-vous fixé":"Appointment scheduled",proposal_sent:fr?"Proposition envoyée":"Proposal sent",sale_closed:fr?"Vente conclue":"Sale closed",no_response:fr?"Sans réponse":"No response",not_interested:fr?"Pas intéressé":"Not interested",other:fr?"Autre":"Other"} as Record<string,string>)[v.follow_up_outcome]||v.follow_up_outcome}</div>
+    <p className="mt-1 text-slate-700">{v.follow_up_result_note}</p>
+    <p className="mt-1 text-xs text-slate-500">{v.follow_up_completed_at?new Date(v.follow_up_completed_at).toLocaleString(fr?"fr-FR":"en-US",{timeZone:"America/Chicago"}):""}</p>
+   </div>)}{!(visits||[]).some(v=>v.follow_up_status==="completed"&&v.follow_up_outcome)&&<p className="text-sm text-slate-500">{fr?"Aucun résultat enregistré pour le moment.":"No completed outcomes recorded yet."}</p>}</div>
   </section>
   {(isSenior||membership.role==="manager")&&unassignedFollowUps.length>0&&<section role="status" className="rounded-xl border-2 border-amber-400 bg-amber-50 p-5">
    <h2 className="text-lg font-semibold text-amber-950">{fr?"⚠️ Suivis commerciaux sans responsable":"⚠️ Commercial follow-ups without owner"}</h2>
