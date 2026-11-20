@@ -45,7 +45,7 @@ export async function processCantonProductionFeedbackEmails(limit=20):Promise<Re
   if(!Array.isArray(claimed)||claimed.length!==1){skipped++;continue;}
 
   const {data:visit,error:visitError}=await db.from("canton_appointments")
-   .select("id,organization_id,visitor_id,department,status,check_out_at,feedback_token")
+   .select("id,organization_id,visitor_id,department,status,check_out_at,feedback_token,site_id")
    .eq("id",appointmentId).maybeSingle();
   if(visitError||!visit||visit.status!=="completed"||!visit.check_out_at||!visit.feedback_token){
    await cancel(db,appointmentId,"visit_not_eligible");cancelled++;continue;
@@ -64,13 +64,17 @@ export async function processCantonProductionFeedbackEmails(limit=20):Promise<Re
    await cancel(db,appointmentId,"missing_current_email_consent");cancelled++;continue;
   }
 
+  const {data:site}=visit.site_id
+   ? await db.from("visitor_sites").select("name").eq("id",visit.site_id).eq("organization_id",visit.organization_id).maybeSingle()
+   : {data:null};
   const language=person.feedback_preferred_locale==="fr"?"fr":"en";
   const base=getSiteUrl();
   const feedbackUrl=base+"/canton-feedback/"+encodeURIComponent(visit.feedback_token)+"?lang="+language;
   const payload=cantonFeedbackEmail({
    language,
    department:visit.department==="DIG"||visit.department==="TCF"?visit.department:"OTHER",
-   feedbackUrl
+   feedbackUrl,
+   siteName:site?.name||"ILEAD Global"
   });
 
   let providerMessageId:string|null=null;
