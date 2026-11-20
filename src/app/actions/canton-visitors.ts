@@ -28,6 +28,17 @@ export async function createCantonCrmReferral(f:FormData){
  const {db,user,org}=await context();
  const clientId=field(f,"clientId",40);
  const department=field(f,"department").toUpperCase();
+ const siteId=field(f,"siteId",40);
+ let resolvedSiteId:string|null=null;
+ if(siteId){
+  if(!/^[0-9a-f-]{36}$/i.test(siteId)) fail("Invalid visitor site");
+  const {data:site}=await db.from("visitor_sites").select("id").eq("id",siteId).eq("organization_id",org).eq("is_active",true).maybeSingle();
+  if(!site) fail("Visitor site not found or inactive");
+  resolvedSiteId=site.id;
+ }else{
+  const {data:hq}=await db.from("visitor_sites").select("id").eq("organization_id",org).eq("is_hq",true).eq("is_active",true).limit(1).maybeSingle();
+  resolvedSiteId=hq?.id||null;
+ }
  const purpose=field(f,"purpose",100)||"commercial_visit";
  const scheduled=field(f,"scheduled");
  const hostUserId=field(f,"hostUserId",40);
@@ -88,7 +99,7 @@ export async function createCantonCrmReferral(f:FormData){
   hostName=profile?.full_name||profile?.email||"Team member";
  }
  const {error}=await db.from("canton_appointments").insert({
-  organization_id:org,visitor_id:visitorId,department,purpose,scheduled_local:scheduledLocal,
+  organization_id:org,visitor_id:visitorId,site_id:resolvedSiteId,department,purpose,scheduled_local:scheduledLocal,
   status:"scheduled",host_name:hostName,host_user_id:resolvedHostUserId,notes,
   announced_by:user.id,visit_origin:"crm_referral",crm_referred_by:user.id
  });
@@ -107,6 +118,17 @@ export async function createCantonAppointment(f:FormData){
  const department=field(f,"department").toUpperCase();
  const purpose=field(f,"purpose",100)||"other";
  const scheduled=field(f,"scheduled");
+ const siteId=field(f,"siteId",40);
+ let resolvedSiteId:string|null=null;
+ if(siteId){
+  if(!/^[0-9a-f-]{36}$/i.test(siteId)) fail("Invalid visitor site");
+  const {data:site}=await db.from("visitor_sites").select("id").eq("id",siteId).eq("organization_id",org).eq("is_active",true).maybeSingle();
+  if(!site) fail("Visitor site not found or inactive");
+  resolvedSiteId=site.id;
+ }else{
+  const {data:hq}=await db.from("visitor_sites").select("id").eq("organization_id",org).eq("is_hq",true).eq("is_active",true).limit(1).maybeSingle();
+  resolvedSiteId=hq?.id||null;
+ }
  if(!name || (!phone&&!email) || !depts.has(department)) fail("Name, phone or email, and department are required");
  if(department==="DIRECTION" && !seniorRoles.has(role)) fail("Only the organization administration can schedule confidential direction visits");
  if(scheduled&&!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(scheduled)) fail("Invalid Canton appointment date");
@@ -193,7 +215,7 @@ export async function createCantonAppointment(f:FormData){
   hostName=hostProfile?.full_name||hostProfile?.email||hostName||"Team member";
  }
  const {error}=await db.from("canton_appointments").insert({
-  organization_id:org,visitor_id:visitorId,department,purpose,
+  organization_id:org,visitor_id:visitorId,site_id:resolvedSiteId,department,purpose,
   scheduled_local:scheduledLocal,status:scheduled?"scheduled":"announced",
   host_name:hostName,host_user_id:resolvedHostUserId,notes:field(f,"notes",1000)||null,announced_by:user.id
  });
