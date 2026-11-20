@@ -85,7 +85,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
   {(isSenior||isManager||isReception)&&<section className="rounded-xl border bg-white p-5"><h2 className="text-lg font-semibold">QR arrivals pending reception approval ({(requests||[]).length})</h2><p className="mb-3 text-xs text-slate-500">Confirm identity in person before approving. QR registration does not automatically check in a visitor.</p>
    <div className="space-y-3">{(requests||[]).map(q=><div className="flex flex-wrap items-center justify-between gap-3 border-b py-3" key={q.id}><div><div className="font-semibold">{q.full_name} · {q.department}</div><div className="text-sm">{q.email||q.phone||""} · {q.purpose}</div></div><form action={reviewCantonQrIntake} className="flex gap-2"><input type="hidden" name="id" value={q.id}/><button className="rounded bg-green-100 px-3 py-2" name="decision" value="approve">Confirm arrival</button><button className="rounded bg-slate-100 px-3 py-2" name="decision" value="reject">Reject</button></form></div>)}{!requests?.length&&<p className="py-4 text-sm text-slate-500">No pending QR arrivals.</p>}</div></section>}
   <section className="rounded-xl border bg-white p-5"><h2 className="mb-3 text-lg font-semibold">Register or announce a visit</h2>
-   <p className="mb-3 text-xs text-slate-500">A phone or email identifies returning visitors. Existing appointments with the same visitor, time, department and purpose are rejected. Date/time is Canton local time.</p>
+   <p className="mb-3 text-xs text-slate-500">Phone or email identifies an existing visitor. Exact duplicate appointments are blocked. Bookings for the same visitor, department and purpose within 60 minutes require explicit confirmation. Time is local to Canton, Texas.</p>
    <form action={createCantonAppointment} className="grid gap-3 md:grid-cols-3">
     <label className="text-sm">Full name *<input className={input} name="name" required maxLength={180}/></label>
     <label className="text-sm">Telephone<input className={input} name="phone" type="tel" placeholder="+1 555 123 4567"/></label>
@@ -95,6 +95,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
     <label className="text-sm">Scheduled arrival (Canton time)<input className={input} name="scheduled" type="datetime-local"/></label>
     <label className="text-sm">Host / team member<input className={input} name="host"/></label>
     <label className="text-sm md:col-span-2">Notes (optional)<input className={input} name="notes"/></label>
+    <label className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm md:col-span-3"><input type="checkbox" name="confirmNearby" value="yes" className="mt-1 h-4 w-4"/><span><strong>Rendez-vous distinct / Separate visit.</strong> À cocher uniquement si vous avez vérifié qu&apos;une réservation à moins de 60 minutes représente réellement une autre visite. / Check only after verifying a nearby booking is genuinely separate.</span></label>
     <button className="rounded-lg bg-indigo-700 px-4 py-2 font-medium text-white md:col-span-3">Register visitor / appointment</button>
    </form></section>
 
