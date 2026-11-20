@@ -242,6 +242,60 @@ export async function completeCantonFollowUp(f:FormData){
  revalidatePath(route);redirect(route+"?success="+encodeURIComponent("Follow-up result recorded and closed"));
 }
 
+
+/** Continue commercial action after an initial result (QA only). No outbound message is sent. */
+export async function createCantonNextAction(f:FormData){
+ assertCantonLive();
+ const {db,org,user,role}=await context();
+ const appointmentId=field(f,"appointmentId",40);
+ const actionText=field(f,"actionText",800);
+ const dueDate=field(f,"dueDate",10);
+ if(!/^[0-9a-f-]{36}$/i.test(appointmentId)||actionText.length<5||
+    !/^\d{4}-\d{2}-\d{2}$/.test(dueDate)||!Number.isFinite(Date.parse(dueDate+"T12:00:00Z")))
+  fail("Valid next action and due date required");
+ const {data:visit}=await db.from("canton_appointments")
+  .select("id,status,department,follow_up_owner_id,follow_up_status,follow_up_outcome")
+  .eq("id",appointmentId).eq("organization_id",org).maybeSingle();
+ if(!visit||visit.status!=="completed"||visit.follow_up_status!=="completed"||!visit.follow_up_outcome||!visit.follow_up_owner_id)
+  fail("Complete the initial commercial follow-up first");
+ if(!["DIG","TCF"].includes(visit.department))fail("Next actions available for DIG / TCF");
+ if(!seniorRoles.has(role)&&role!=="manager"&&visit.follow_up_owner_id!==user.id)
+  fail("Only the assigned commercial or manager may plan the next action");
+ const {count,error:countError}=await db.from("canton_next_actions")
+  .select("id",{head:true,count:"exact"}).eq("organization_id",org)
+  .eq("appointment_id",appointmentId).eq("status","open");
+ if(countError)fail("Could not check next action");
+ if((count??0)>0)fail("An open next action already exists for this visit");
+ const {error}=await db.from("canton_next_actions").insert({
+  organization_id:org,appointment_id:appointmentId,assigned_to:visit.follow_up_owner_id,
+  action_text:actionText,due_date:dueDate,created_by:user.id
+ });
+ if(error)fail("Could not save next action");
+ revalidatePath(route);redirect(route+"?success="+encodeURIComponent("Next commercial action scheduled"));
+}
+export async function completeCantonNextAction(f:FormData){
+ assertCantonLive();
+ const {db,org,user,role}=await context();
+ const id=field(f,"actionId",40);
+ const completionNote=field(f,"completionNote",1000);
+ if(!/^[0-9a-f-]{36}$/i.test(id)||completionNote.length<5)
+  fail("A completion note of at least 5 characters is required");
+ const {data:action}=await db.from("canton_next_actions")
+  .select("id,assigned_to,appointment_id,status").eq("id",id)
+  .eq("organization_id",org).maybeSingle();
+ if(!action||action.status!=="open")fail("Next action is not open");
+ if(!seniorRoles.has(role)&&role!=="manager"&&action.assigned_to!==user.id)
+  fail("Only the assigned employee or manager may close this action");
+ const {data:visit}=await db.from("canton_appointments").select("department")
+  .eq("organization_id",org).eq("id",action.appointment_id).maybeSingle();
+ if(!visit||!["DIG","TCF"].includes(visit.department))fail("Not a commercial action");
+ const {data:changed,error}=await db.from("canton_next_actions")
+  .update({status:"completed",completion_note:completionNote,completed_at:new Date().toISOString(),completed_by:user.id})
+  .eq("id",id).eq("organization_id",org).eq("status","open").select("id");
+ if(error||!changed?.length)fail("Action already updated, refresh");
+ revalidatePath(route);redirect(route+"?success="+encodeURIComponent("Next action completed"));
+}
+
 /** QA ONLY: simulate due invitations; never call email or WhatsApp providers. */
 export async function simulateCantonFeedbackInvitations(f:FormData){
  assertCantonLive();
