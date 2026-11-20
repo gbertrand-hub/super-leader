@@ -131,13 +131,14 @@ export async function updateCantonVisit(f:FormData){
  assertCantonLive();
  const {db,org,user,role,isReception}=await context(),id=field(f,"id"),action=field(f,"action");
  if(!/^[0-9a-f-]{36}$/i.test(id)) fail("Invalid visit");
- const {data:row}=await db.from("canton_appointments").select("status,check_in_at,check_out_at,department,announced_by")
+ const {data:row}=await db.from("canton_appointments").select("status,check_in_at,check_out_at,department,announced_by,host_user_id")
   .eq("id",id).eq("organization_id",org).maybeSingle();
  if(!row) fail("Visit not found");
  const visit = row!;
  const isSenior=seniorRoles.has(role);
  const isCreator=visit.announced_by===user.id;
- const canOperateStandardVisit=visit.department!=="DIRECTION" && (isReception || role==="manager" || role==="hr");
+ const isHost=visit.host_user_id===user.id;
+ const canOperateStandardVisit=visit.department!=="DIRECTION" && (isReception || role==="manager" || role==="hr" || isHost);
  if(!isSenior && visit.department==="DIRECTION") fail("Confidential visit: administrator access required");
  if(!isSenior && !isCreator && !canOperateStandardVisit) fail("Not authorized to manage this visit");
  if(["reschedule","no_show","followup"].includes(action) && !isSenior && !isCreator && role!=="manager") fail("Only the organizer or a manager can change this visit");
@@ -150,6 +151,8 @@ export async function updateCantonVisit(f:FormData){
  } else
  if(action==="checkin" && ["announced","scheduled"].includes(visit.status)){
   patch={...patch,status:"arrived",check_in_at:now};
+ } else if(action==="start" && visit.status==="arrived" && visit.check_in_at){
+  patch={...patch,status:"in_progress",visit_started_at:now};
  } else if(action==="checkout" && ["arrived","in_progress"].includes(visit.status)&&!visit.check_out_at){
   patch={...patch,status:"completed",check_out_at:now};
  } else if(action==="no_show" && visit.status==="scheduled"){
