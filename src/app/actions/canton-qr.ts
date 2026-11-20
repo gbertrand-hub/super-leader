@@ -109,37 +109,44 @@ export async function reviewCantonQrIntake(f:FormData){
 }
 export async function submitCantonQrFeedback(f:FormData){
  assertCantonLive();
- const back="/canton-feedback-qr";
- if(value(f,"website",100))redirect(back+"?success=1");
+ const site=value(f,"site",40);
+ const validSite=uuid(site);
+ const back="/canton-feedback-qr"+(validSite?"?site="+encodeURIComponent(site):"");
+ const join=back.includes("?")?"&":"?";
+ if(!validSite)redirect(back+join+"error=unavailable");
+ if(value(f,"website",100))redirect(back+join+"success=1");
  const mode=value(f,"mode",12);
  const rating=Number(value(f,"rating",2));
  if(!Number.isInteger(rating)||rating<1||rating>5||!["identified","anonymous"].includes(mode)){
-  redirect(back+"?error=invalid");
+  redirect(back+join+"error=invalid");
  }
  const secret=process.env.CANTON_INTAKE_RATE_SECRET;
  const hdr=await headers();
  const rawIp=(hdr.get("x-real-ip")||hdr.get("x-forwarded-for")?.split(",")[0]||"").trim();
- if(!secret||!rawIp)redirect(back+"?error=unavailable");
+ if(!secret||!rawIp)redirect(back+join+"error=unavailable");
  const db=createAdminClient();
  const ipHash=createHash("sha256").update(secret+"|feedback|"+rawIp).digest("hex");
  const {count:recent,error:rateError}=await db.from("canton_qr_feedback_attempts")
   .select("id",{count:"exact",head:true}).eq("ip_hash",ipHash)
   .gte("submitted_at",new Date(Date.now()-60*60*1000).toISOString());
- if(rateError||(recent??0)>=10)redirect(back+"?error=limit");
+ if(rateError||(recent??0)>=10)redirect(back+join+"error=limit");
  const {error:logError}=await db.from("canton_qr_feedback_attempts").insert({ip_hash:ipHash});
- if(logError)redirect(back+"?error=unavailable");
+ if(logError)redirect(back+join+"error=unavailable");
  const comment=value(f,"comment",1000)||null;
- const organizationId="021cdbb8-af4d-412e-8ec7-e7bba08d1349"; // QA-only; live production requires org-aware resolution.
+ const {data:qrSite,error:siteError}=await db.from("canton_qr_sites")
+  .select("id,organization_id,enabled").eq("id",site).eq("enabled",true).maybeSingle();
+ if(siteError||!qrSite?.organization_id)redirect(back+join+"error=unavailable");
+ const organizationId=qrSite.organization_id as string;
  if(mode==="anonymous"){
   const department=value(f,"department",20);
-  if(!["DIG","TCF","OTHER"].includes(department))redirect(back+"?error=invalid");
+  if(!["DIG","TCF","OTHER"].includes(department))redirect(back+join+"error=invalid");
   const {error}=await db.from("canton_anonymous_feedback").insert({organization_id:organizationId,department,rating,comment});
-  if(error)redirect(back+"?error=unavailable");
-  redirect(back+"?success=1");
+  if(error)redirect(back+join+"error=unavailable");
+  redirect(back+join+"success=1");
  }
  const name=value(f,"fullName",180).replace(/\\s+/g," ").toLowerCase();
  const last4=value(f,"last4",4);
- if(name.length<2||!/^[0-9]{4}$/.test(last4))redirect(back+"?error=unavailable");
+ if(name.length<2||!/^[0-9]{4}$/.test(last4))redirect(back+join+"error=unavailable");
  const {data:candidates,error:matchError}=await db.rpc("canton_find_feedback_visit",{
   p_organization_id:organizationId,p_name:name,p_last4:last4
  });
@@ -176,15 +183,15 @@ export async function submitCantonQrFeedback(f:FormData){
     && digits(person.phone).slice(-4)===last4;
   }).slice(0,2).map(v=>({appointment_id:v.id}));
  }
- if(resolvedCandidates.length!==1)redirect(back+"?error=unavailable");
+ if(resolvedCandidates.length!==1)redirect(back+join+"error=unavailable");
  const visitId=resolvedCandidates[0]?.appointment_id;
- if(!uuid(visitId||""))redirect(back+"?error=unavailable");
+ if(!uuid(visitId||""))redirect(back+join+"error=unavailable");
  const contactRequested=value(f,"contact",3)==="yes";
  const {data:feedback,error}=await db.from("canton_visit_feedback").insert({
   appointment_id:visitId,rating,
   contact_requested:contactRequested,comment
  }).select("id").single();
- if(error||!feedback?.id)redirect(back+"?error=unavailable");
+ if(error||!feedback?.id)redirect(back+join+"error=unavailable");
 
  await syncCantonFeedbackToCrm({
   appointmentId:visitId,
@@ -193,5 +200,5 @@ export async function submitCantonQrFeedback(f:FormData){
   contactRequested,
   comment
  });
- redirect(back+"?success=1");
+ redirect(back+join+"success=1");
 }
