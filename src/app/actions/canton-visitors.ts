@@ -234,11 +234,12 @@ export async function qualifyCantonLegacyProspect(f:FormData){
   .select("id,status,department,host_user_id,announced_by,follow_up_owner_id,follow_up_outcome,follow_up_status,commercial_interest")
   .eq("id",id).eq("organization_id",org).maybeSingle();
  if(!visit) fail("Visit not found");
- if(visit.status!=="completed"||!["DIG","TCF"].includes(visit.department)) fail("Only completed DIG/TCF visits can be qualified");
- if(!visit.follow_up_outcome&&visit.follow_up_status!=="completed") fail("This legacy visit has no commercial result to qualify");
- const canQualify=seniorRoles.has(role)||role==="manager"||visit.host_user_id===user.id||visit.follow_up_owner_id===user.id||visit.announced_by===user.id;
+ const legacyVisit=visit!;
+ if(legacyVisit.status!=="completed"||!["DIG","TCF"].includes(legacyVisit.department)) fail("Only completed DIG/TCF visits can be qualified");
+ if(!legacyVisit.follow_up_outcome&&legacyVisit.follow_up_status!=="completed") fail("This legacy visit has no commercial result to qualify");
+ const canQualify=seniorRoles.has(role)||role==="manager"||legacyVisit.host_user_id===user.id||legacyVisit.follow_up_owner_id===user.id||legacyVisit.announced_by===user.id;
  if(!canQualify) fail("Only the visit owner, commercial owner or manager can qualify this prospect");
- if(visit.commercial_interest) fail("This prospect is already qualified");
+ if(legacyVisit.commercial_interest) fail("This prospect is already qualified");
  const {data:changed,error}=await db.from("canton_appointments").update({
   commercial_interest:interest,
   updated_at:new Date().toISOString()
