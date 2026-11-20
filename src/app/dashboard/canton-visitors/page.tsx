@@ -41,7 +41,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
  if(!isSenior) {
   visitQuery = (isManager || isReception)
    ? visitQuery.neq("department","DIRECTION")
-   : visitQuery.or(`announced_by.eq.${user.id},follow_up_owner_id.eq.${user.id}`).neq("department","DIRECTION");
+   : visitQuery.or(`announced_by.eq.${user.id},follow_up_owner_id.eq.${user.id},host_user_id.eq.${user.id}`).neq("department","DIRECTION");
  }
  const {data:visits,error:queryError}=await visitQuery.order("created_at",{ascending:false}).limit(150);
  const {data:sites}=(isSenior||isManager||isReception)?await db.from("canton_qr_sites").select("id,label,enabled,street_address").eq("organization_id",membership.organization_id).order("created_at",{ascending:false}):{data:[]};
@@ -90,6 +90,40 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
  const nextActionsToday=openNextActions.filter(x=>x.due_date===today);
  const overdueNextActions=openNextActions.filter(x=>x.due_date<today);
  const upcomingNextActions=openNextActions.filter(x=>x.due_date>today);
+
+ const openActionByVisit=new Map<string,(typeof openNextActions)[number]>();
+ for(const action of [...openNextActions].sort((a,b)=>a.due_date.localeCompare(b.due_date))){
+  if(!openActionByVisit.has(action.appointment_id)) openActionByVisit.set(action.appointment_id,action);
+ }
+ const prospectRows=(visits||[]).filter(v=>
+  v.status==="completed" &&
+  ["DIG","TCF"].includes(v.department) &&
+  !!v.debriefed_at &&
+  ["hot","warm","cold"].includes(v.commercial_interest||"")
+ ).map(v=>{
+  const action=openActionByVisit.get(v.id)||null;
+  const ownerId=action?.assigned_to||v.follow_up_owner_id||v.host_user_id||null;
+  return {
+   visit:v,
+   person:map.get(v.visitor_id),
+   action,
+   ownerId,
+   overdue:!!action&&action.due_date<today,
+   dueToday:!!action&&action.due_date===today,
+   missingAction:!action
+  };
+ }).sort((a,b)=>{
+  const rank:Record<string,number>={hot:0,warm:1,cold:2};
+  const ar=rank[a.visit.commercial_interest||""]??3, br=rank[b.visit.commercial_interest||""]??3;
+  if(ar!==br)return ar-br;
+  if(a.overdue!==b.overdue)return a.overdue?-1:1;
+  if(a.missingAction!==b.missingAction)return a.missingAction?-1:1;
+  return (a.action?.due_date||"9999-12-31").localeCompare(b.action?.due_date||"9999-12-31");
+ });
+ const hotProspects=prospectRows.filter(x=>x.visit.commercial_interest==="hot");
+ const warmProspects=prospectRows.filter(x=>x.visit.commercial_interest==="warm");
+ const coldProspects=prospectRows.filter(x=>x.visit.commercial_interest==="cold");
+ const atRiskProspects=prospectRows.filter(x=>x.overdue||x.missingAction);
 
  const todayRows=(visits||[]).filter(v=>{
   if(v.check_in_at) return cantonDay(v.check_in_at)===today;
@@ -333,6 +367,48 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
 
     <p className="mt-1 text-xs text-slate-500">{v.follow_up_completed_at?new Date(v.follow_up_completed_at).toLocaleString(fr?"fr-FR":"en-US",{timeZone:"America/Chicago"}):""}</p>
    </div>)}{!(visits||[]).some(v=>v.follow_up_status==="completed"&&v.follow_up_outcome)&&<p className="text-sm text-slate-500">{fr?"Aucun résultat enregistré pour le moment.":"No completed outcomes recorded yet."}</p>}</div>
+  </section>
+
+  <section className="rounded-2xl border-2 border-violet-300 bg-violet-50 p-5">
+   <div className="flex flex-wrap items-start justify-between gap-3">
+    <div>
+     <p className="text-xs font-bold uppercase tracking-wider text-violet-800">{fr?"Prospects issus des visites":"Visit-generated prospects"}</p>
+     <h2 className="mt-1 text-xl font-bold text-violet-950">{fr?"Pipeline commercial Canton":"Canton commercial pipeline"}</h2>
+     <p className="mt-1 text-sm text-violet-900">{fr?"Les visiteurs qualifiés après leur debrief restent visibles jusqu’à leur prochaine action. Les dossiers sans action ou en retard remontent automatiquement en priorité.":"Visitors qualified after debrief stay visible until their next action. Records with no next action or overdue work automatically rise to the top."}</p>
+    </div>
+    <div className={"rounded-full px-3 py-1 text-sm font-bold "+(atRiskProspects.length?"bg-rose-100 text-rose-900":"bg-white text-violet-900")}>{fr?"À risque":"At risk"}: {atRiskProspects.length}</div>
+   </div>
+   <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+    <div className="rounded-xl bg-white p-4"><div className="text-xs font-semibold text-slate-500">🔥 Hot</div><div className="mt-1 text-2xl font-bold">{hotProspects.length}</div></div>
+    <div className="rounded-xl bg-white p-4"><div className="text-xs font-semibold text-slate-500">🟠 Warm</div><div className="mt-1 text-2xl font-bold">{warmProspects.length}</div></div>
+    <div className="rounded-xl bg-white p-4"><div className="text-xs font-semibold text-slate-500">🔵 Cold</div><div className="mt-1 text-2xl font-bold">{coldProspects.length}</div></div>
+    <div className={"rounded-xl p-4 "+(atRiskProspects.length?"bg-rose-100":"bg-white")}><div className="text-xs font-semibold text-slate-500">{fr?"Sans action / en retard":"No action / overdue"}</div><div className="mt-1 text-2xl font-bold">{atRiskProspects.length}</div></div>
+   </div>
+   {atRiskProspects.length>0&&<p role="alert" className="mt-3 rounded-lg border border-rose-300 bg-rose-50 p-3 text-sm font-medium text-rose-900">{fr?"⚠️ Un prospect qualifié ne doit jamais rester sans prochaine action. Les dossiers signalés ci-dessous doivent être traités en priorité.":"⚠️ A qualified prospect should never remain without a next action. Flagged records below should be handled first."}</p>}
+   <div className="mt-4 overflow-auto rounded-xl border bg-white">
+    <table className="w-full min-w-[900px] text-left text-sm">
+     <thead><tr className="border-b bg-slate-50 text-slate-600">{[fr?"Prospect":"Prospect",fr?"Intérêt":"Interest",fr?"Résultat":"Outcome",fr?"Responsable":"Owner",fr?"Prochaine action":"Next action",fr?"Échéance":"Due",fr?"État":"State"].map(h=><th key={h} className="p-3">{h}</th>)}</tr></thead>
+     <tbody>{prospectRows.map(row=>{
+      const v=row.visit;
+      const interestLabel=v.commercial_interest==="hot"?"🔥 Hot":v.commercial_interest==="warm"?"🟠 Warm":"🔵 Cold";
+      const outcomeLabel=fr?({
+       information_only:"Information seulement",follow_up_requested:"Suivi demandé",proposal_requested:"Proposition demandée",next_appointment:"Prochain rendez-vous",ready_to_buy:"Prêt à acheter / avancer",not_interested:"Pas intéressé",other:"Autre"
+      } as Record<string,string>)[v.visit_outcome||""]||v.visit_outcome:({
+       information_only:"Information only",follow_up_requested:"Follow-up requested",proposal_requested:"Proposal requested",next_appointment:"Next appointment",ready_to_buy:"Ready to buy / proceed",not_interested:"Not interested",other:"Other"
+      } as Record<string,string>)[v.visit_outcome||""]||v.visit_outcome;
+      return <tr key={v.id} className={"border-b align-top "+(row.overdue||row.missingAction?"bg-rose-50/60":"")}>
+       <td className="p-3"><div className="font-semibold">{row.person?.full_name||(fr?"Visiteur":"Visitor")}</div><div className="text-xs text-slate-500">{v.department} · {v.purpose}</div></td>
+       <td className="p-3"><span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-semibold">{interestLabel}</span></td>
+       <td className="p-3">{outcomeLabel||"—"}</td>
+       <td className="p-3">{row.ownerId?(profileMap.get(row.ownerId)?.full_name||profileMap.get(row.ownerId)?.email||v.host_name||"—"):(v.host_name||"—")}</td>
+       <td className="p-3">{row.action?.action_text||<strong className="text-rose-800">{fr?"Aucune prochaine action":"No next action"}</strong>}</td>
+       <td className="p-3">{row.action?.due_date||"—"}</td>
+       <td className="p-3">{row.overdue?<span className="rounded bg-rose-100 px-2 py-1 text-xs font-bold text-rose-900">{fr?"En retard":"Overdue"}</span>:row.dueToday?<span className="rounded bg-amber-100 px-2 py-1 text-xs font-bold text-amber-900">{fr?"Aujourd’hui":"Today"}</span>:row.missingAction?<span className="rounded bg-rose-100 px-2 py-1 text-xs font-bold text-rose-900">{fr?"À attribuer":"Needs action"}</span>:<span className="rounded bg-emerald-100 px-2 py-1 text-xs font-bold text-emerald-900">{fr?"Suivi planifié":"Planned"}</span>}</td>
+      </tr>;
+     })}</tbody>
+    </table>
+    {prospectRows.length===0&&<p className="p-5 text-sm text-slate-600">{fr?"Aucun prospect qualifié pour le moment. Les visiteurs apparaîtront ici après leur debrief DIG/TCF.":"No qualified prospects yet. Visitors will appear here after their DIG/TCF debrief."}</p>}
+   </div>
   </section>
 
   <section className="rounded-xl border border-indigo-200 bg-indigo-50 p-5">
