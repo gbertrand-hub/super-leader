@@ -7,7 +7,7 @@ import {createCantonQrSite,reviewCantonQrIntake,updateCantonQrSiteAddress} from 
 import {redirect} from "next/navigation";
 import {createClient} from "@/lib/supabase/server";
 import {createAdminClient} from "@/lib/supabase/admin";
-import {createCantonAppointment,updateCantonVisit,manageCantonReceptionStaff,assignCantonFollowUp,completeCantonFollowUp,createCantonNextAction,completeCantonNextAction,simulateCantonFeedbackInvitations,sendCantonQaEmailTest,markCantonArrivalAlertRead,saveCantonVisitDebrief,qualifyCantonLegacyProspect} from "@/app/actions/canton-visitors";
+import {createCantonAppointment,updateCantonVisit,manageCantonReceptionStaff,assignCantonFollowUp,completeCantonFollowUp,createCantonNextAction,completeCantonNextAction,simulateCantonFeedbackInvitations,sendCantonQaEmailTest,markCantonArrivalAlertRead,saveCantonVisitDebrief,qualifyCantonLegacyProspect,createCantonSlaRecovery,completeCantonSlaRecovery} from "@/app/actions/canton-visitors";
 export const dynamic="force-dynamic";
 export default async function CantonVisitorPage({searchParams}:{searchParams:Promise<{error?:string;success?:string;q?:string}>}){
  const {error,success,q=""}=await searchParams;
@@ -56,6 +56,13 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
   .select("id,appointment_id,assigned_to,action_text,due_date,status,created_at,completion_note,completed_at")
   .eq("organization_id",membership.organization_id)
   .order("created_at",{ascending:false}).limit(150);
+ let recoveryQuery=db.from("canton_sla_recoveries")
+  .select("id,appointment_id,assigned_to,created_by,action_text,due_date,status,created_at,completed_at,completed_by,completion_note")
+  .eq("organization_id",membership.organization_id);
+ if(!isSenior&&!isManager) recoveryQuery=recoveryQuery.eq("assigned_to",user.id);
+ const {data:slaRecoveries}=await recoveryQuery.order("created_at",{ascending:false}).limit(100);
+ const openRecoveryByVisit=new Map((slaRecoveries||[]).filter(x=>x.status==="open").map(x=>[x.appointment_id,x]));
+ const myOpenRecoveries=(slaRecoveries||[]).filter(x=>x.status==="open"&&x.assigned_to===user.id);
  const {data:arrivalAlerts}=await db.from("canton_arrival_alerts")
   .select("id,appointment_id,visitor_name,department,host_name,created_at,read_at")
   .eq("organization_id",membership.organization_id)
@@ -186,8 +193,25 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
     <div className="flex flex-wrap items-center justify-between gap-3"><div><div className="font-semibold">{row.person?.full_name||(fr?"Visiteur":"Visitor")} · {row.visit.department} · {row.visit.commercial_interest?.toUpperCase()}</div><div className="mt-1 text-sm text-slate-600">{fr?"Responsable":"Owner"}: {row.ownerId?(profileMap.get(row.ownerId)?.full_name||profileMap.get(row.ownerId)?.email||row.visit.host_name||"—"):(row.visit.host_name||"—")}</div></div><span className="rounded bg-rose-100 px-3 py-1 text-xs font-bold text-rose-900">{fr?"Escaladé":"Escalated"}</span></div>
     <div className="mt-2 text-sm">{row.action?.action_text||(fr?"Aucune prochaine action":"No next action")}</div>
     {row.slaDeadline&&<div className="mt-1 text-xs text-slate-500">{fr?"SLA dépassé depuis":"SLA breached since"} {row.slaDeadline.toLocaleString(fr?"fr-FR":"en-US",{timeZone:"America/Chicago"})}</div>}
+    {openRecoveryByVisit.has(row.visit.id)?<div className="mt-3 rounded-lg bg-sky-50 p-3 text-sm text-sky-900"><strong>{fr?"Plan de rattrapage actif":"Active recovery plan"}:</strong> {openRecoveryByVisit.get(row.visit.id)?.action_text} · {fr?"échéance":"due"} {openRecoveryByVisit.get(row.visit.id)?.due_date}</div>:<form action={createCantonSlaRecovery} className="mt-3 grid gap-2 rounded-lg border border-rose-200 bg-rose-50 p-3 md:grid-cols-3">
+     <input type="hidden" name="appointmentId" value={row.visit.id}/>
+     <label className="text-sm">{fr?"Responsable du rattrapage *":"Recovery owner *"}<select name="assignedTo" required className={input} defaultValue={row.ownerId||""}><option value="">{fr?"Choisir":"Select"}</option>{(members||[]).map(m=><option value={m.user_id} key={m.user_id}>{profileMap.get(m.user_id)?.full_name||profileMap.get(m.user_id)?.email||m.user_id}</option>)}</select></label>
+     <label className="text-sm">{fr?"Action corrective *":"Recovery action *"}<input name="actionText" required minLength={5} maxLength={800} className={input} placeholder={fr?"Ex. Appeler aujourd’hui et reprogrammer le suivi":"E.g. Call today and reset follow-up"}/></label>
+     <label className="text-sm">{fr?"Nouvelle échéance *":"Recovery due date *"}<input type="date" name="dueDate" required className={input}/></label>
+     <button className="rounded-lg bg-rose-800 px-4 py-2 text-sm font-semibold text-white md:col-span-3">{fr?"Attribuer le plan de rattrapage":"Assign recovery plan"}</button>
+    </form>}
    </article>)}</div>
   </section>}
+  {myOpenRecoveries.length>0&&<section className="rounded-2xl border-2 border-sky-300 bg-sky-50 p-5">
+   <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-wider text-sky-800">{fr?"Plan de rattrapage SLA":"SLA recovery plan"}</p><h2 className="mt-1 text-xl font-bold text-sky-950">{fr?"Actions correctives qui vous sont attribuées":"Recovery actions assigned to you"}</h2></div><span className="rounded-full bg-white px-3 py-1 text-sm font-bold text-sky-900">{myOpenRecoveries.length}</span></div>
+   <div className="mt-4 space-y-3">{myOpenRecoveries.map(rec=>{const visit=(visits||[]).find(v=>v.id===rec.appointment_id);return <article key={rec.id} className="rounded-xl border border-sky-200 bg-white p-4">
+    <div className="font-semibold">{map.get(visit?.visitor_id||"")?.full_name||(fr?"Visiteur":"Visitor")} · {visit?.department}</div>
+    <p className="mt-1 text-sm">{rec.action_text}</p>
+    <p className="mt-1 text-xs text-slate-600">{fr?"Échéance de rattrapage":"Recovery due"}: <strong>{rec.due_date}</strong></p>
+    <form action={completeCantonSlaRecovery} className="mt-3 flex flex-wrap items-end gap-2"><input type="hidden" name="recoveryId" value={rec.id}/><label className="min-w-[240px] flex-1 text-sm">{fr?"Compte rendu de résolution *":"Resolution note *"}<input name="completionNote" required minLength={5} maxLength={1000} className={input}/></label><button className="rounded-lg bg-sky-800 px-4 py-2 text-sm font-semibold text-white">{fr?"Clôturer le plan":"Close recovery plan"}</button></form>
+   </article>})}</div>
+  </section>}
+
   <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">{[
    [fr?"Aujourd’hui":"Today",todayRows.length],[fr?"Attendus":"Expected",count(v=>v.status==="scheduled")],[fr?"Sur place":"On site",count(v=>["arrived","in_progress"].includes(v.status))],[fr?"Terminées":"Completed",count(v=>v.status==="completed")],[fr?"Avis":"Feedback", (feedback||[]).length],[fr?"Taux de réponse":"Response rate",feedbackResponseRate],[fr?"Note moyenne":"Avg. rating",ratingAverage],[fr?"Attention requise":"Attention needed",pendingFeedback],[fr?"Suivis ouverts":"Follow-ups open",pendingHandoffs],[fr?"Sans responsable":"Unassigned follow-ups",unassignedFollowUps.length],[fr?"Prochaines actions":"Next actions",openNextActions.length],[fr?"À faire aujourd’hui":"Due today",nextActionsToday.length],[fr?"En retard":"Overdue",overdueNextActions.length]
   ].map(([label,value])=><div key={label} className="rounded-xl border bg-white p-4"><div className="text-sm text-slate-500">{label}</div><div className="text-2xl font-bold">{value}</div></div>)}</div>
