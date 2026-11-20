@@ -211,7 +211,9 @@ export async function assignCantonFollowUp(f:FormData){
  if(visit.department==="DIRECTION" && role==="manager")fail("Confidential direction visits require admin");
  const {data:changed,error}=await db.from("canton_appointments").update({
   follow_up_required:true,follow_up_status:"open",follow_up_owner_id:ownerId,
-  follow_up_note:note||null,follow_up_due_date:dueDate,follow_up_completed_at:null,updated_at:new Date().toISOString()
+  follow_up_note:note||null,follow_up_due_date:dueDate,follow_up_completed_at:null,
+  follow_up_outcome:null,follow_up_result_note:null,follow_up_completed_by:null,
+  updated_at:new Date().toISOString()
  }).eq("id",id).eq("organization_id",org).eq("status","completed").select("id");
  if(error||!changed?.length)fail("Could not assign follow-up");
  revalidatePath(route);redirect(route+"?success="+encodeURIComponent("Follow-up assigned"));
@@ -220,17 +222,24 @@ export async function completeCantonFollowUp(f:FormData){
  assertCantonLive();
  const {db,org,user,role}=await context();
  const id=field(f,"id",40);
+ const outcome=field(f,"outcome",40);
+ const resultNote=field(f,"resultNote",1000);
+ const allowed=["contacted","appointment_scheduled","proposal_sent","sale_closed","no_response","not_interested","other"];
  if(!/^[0-9a-f-]{36}$/i.test(id))fail("Invalid follow-up");
+ if(!allowed.includes(outcome))fail("Select a follow-up outcome before closing");
+ if(resultNote.length<5)fail("Describe the concrete result (at least 5 characters)");
  const {data:row}=await db.from("canton_appointments").select("id,department,follow_up_owner_id,follow_up_status")
   .eq("id",id).eq("organization_id",org).maybeSingle();
- if(!row||row.follow_up_status!=="open")throw new Error("Follow-up is not open");
+ if(!row||row.follow_up_status!=="open")fail("Follow-up is not open");
  if(row.department==="DIRECTION"&&!seniorRoles.has(role))fail("Confidential visit");
  if(!seniorRoles.has(role)&&role!=="manager"&&row.follow_up_owner_id!==user.id)fail("Only the follow-up owner or a manager may close");
  const {data:changed,error}=await db.from("canton_appointments").update({
-  follow_up_status:"completed",follow_up_completed_at:new Date().toISOString(),updated_at:new Date().toISOString()
+  follow_up_status:"completed",follow_up_completed_at:new Date().toISOString(),
+  follow_up_outcome:outcome,follow_up_result_note:resultNote,follow_up_completed_by:user.id,
+  updated_at:new Date().toISOString()
  }).eq("id",id).eq("organization_id",org).eq("follow_up_status","open").select("id");
  if(error||!changed?.length)fail("Follow-up changed, refresh");
- revalidatePath(route);redirect(route+"?success="+encodeURIComponent("Follow-up completed"));
+ revalidatePath(route);redirect(route+"?success="+encodeURIComponent("Follow-up result recorded and closed"));
 }
 
 /** QA ONLY: simulate due invitations; never call email or WhatsApp providers. */
