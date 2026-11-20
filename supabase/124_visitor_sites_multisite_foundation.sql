@@ -50,3 +50,8 @@ create index if not exists visitor_site_staff_user_idx
 
 -- Existing Canton data should be backfilled to the organization's Canton HQ
 -- during controlled deployment after the production organization is confirmed.
+
+
+create unique index if not exists visitor_sites_one_hq_per_org_idx
+ on public.visitor_sites(organization_id)
+ where is_hq=true;
