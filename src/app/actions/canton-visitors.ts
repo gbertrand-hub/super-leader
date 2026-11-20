@@ -69,6 +69,17 @@ export async function createCantonAppointment(f:FormData){
  }
  const visitorId=matched?.id ?? "";
  if(!visitorId) fail("Visitor identity could not be resolved");
+ // Staff must actively attest that the visitor agreed to one service-feedback email.
+ // No checkbox means no new consent; email address alone is never consent.
+ if(field(f,"feedbackEmailConsent",8)==="yes"){
+  if(!email)fail("An email address is required for the feedback invitation");
+  const {error:consentError}=await db.from("canton_visitors").update({
+   email,feedback_email_opt_in:true,feedback_opt_in_source:"staff_attested_at_booking",
+   feedback_opt_in_at:new Date().toISOString()
+  }).eq("id",visitorId).eq("organization_id",org);
+  if(consentError)fail("Could not record feedback email consent");
+ }
+
  const scheduledLocal=scheduled ? scheduled.replace("T"," ")+":00" : null;
  if(scheduledLocal){
   const {data:existing}=await db.from("canton_appointments").select("id")
