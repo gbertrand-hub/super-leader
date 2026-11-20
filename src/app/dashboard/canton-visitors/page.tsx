@@ -129,7 +129,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
    </form>
    {receptionSearch&&<p className="mt-2 text-xs text-slate-600">{receptionRows.length} {fr?"résultat(s) aujourd’hui pour":"result(s) today for"} <strong>“{q}”</strong></p>}
    <div className="mt-4 grid gap-3">
-    {[...receptionRows].sort((a,b)=>{
+    {[...receptionRows.filter(v=>v.status!=="completed")].sort((a,b)=>{
       const rank:Record<string,number>={arrived:0,in_progress:0,scheduled:1,announced:1,completed:2,no_show:3,cancelled:4};
       const ar=rank[a.status]??5,br=rank[b.status]??5;
       if(ar!==br)return ar-br;
@@ -156,8 +156,21 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
        </div>
       </article>;
     })}
-    {receptionRows.length===0&&<div className="rounded-xl border border-dashed p-6 text-center text-sm text-slate-500">{receptionSearch?(fr?"Aucun visiteur du jour ne correspond à cette recherche.":"No visitor today matches this search."):(fr?"Aucune visite prévue ou enregistrée aujourd’hui.":"No visits scheduled or recorded today.")}</div>}
+    {receptionRows.filter(v=>v.status!=="completed").length===0&&<div className="rounded-xl border border-dashed p-6 text-center text-sm text-slate-500">{receptionSearch?(fr?"Aucune visite active ne correspond à cette recherche.":"No active visit matches this search."):(fr?"Aucune visite active ou attendue aujourd’hui.":"No active or expected visits today.")}</div>}
    </div>
+   {receptionRows.some(v=>v.status==="completed")&&<details className="mt-4 rounded-xl border bg-slate-50">
+    <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-slate-800">{fr?"Visites terminées aujourd’hui":"Completed today"} ({receptionRows.filter(v=>v.status==="completed").length})</summary>
+    <div className="space-y-2 border-t p-3">
+     {receptionRows.filter(v=>v.status==="completed").map(v=>{
+      const person=map.get(v.visitor_id);
+      return <div key={v.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-white p-3 text-sm">
+       <div><strong>{person?.full_name||(fr?"Visiteur":"Visitor")}</strong><div className="text-xs text-slate-500">{v.department} · {v.purpose}</div></div>
+       <div className="text-xs text-slate-600">{v.check_out_at?new Date(v.check_out_at).toLocaleTimeString(fr?"fr-FR":"en-US",{timeZone:"America/Chicago",hour:"2-digit",minute:"2-digit"}):""}</div>
+       <span className="rounded-lg bg-slate-200 px-3 py-2 text-xs font-medium text-slate-700">{fr?"Visite clôturée":"Visit closed"}</span>
+      </div>;
+     })}
+    </div>
+   </details>}
   </section>}
   {isSenior&&<section className="rounded-xl border bg-white p-5"><h2 className="mb-2 text-lg font-semibold">{fr?"Accès réception":"Reception access"}</h2><p className="mb-3 text-sm text-slate-500">{fr?"Autorisez les employés à enregistrer les arrivées et départs. Les visites de direction restent confidentielles.":"Assign staff to check in and check out standard visits. Confidential direction visits remain restricted."}</p>
   <div className="space-y-2">{(members||[]).map(m=><div className="flex flex-wrap items-center justify-between gap-2 border-b py-2 text-sm" key={m.user_id}><span>{profileMap.get(m.user_id)?.full_name||profileMap.get(m.user_id)?.email||m.user_id} <span className="text-xs text-slate-500">({m.role})</span></span><form action={manageCantonReceptionStaff}><input type="hidden" name="userId" value={m.user_id}/><button name="operation" value={assignedIds.has(m.user_id)?"revoke":"grant"} className={assignedIds.has(m.user_id)?"rounded bg-red-100 px-3 py-1":"rounded bg-emerald-100 px-3 py-1"}>{assignedIds.has(m.user_id)?(fr?"Retirer l’accès réception":"Remove reception access"):(fr?"Autoriser la réception":"Grant reception access")}</button></form></div>)}</div></section>}
