@@ -94,31 +94,48 @@ export async function reviewCantonQrIntake(f:FormData){
 }
 export async function submitCantonQrFeedback(f:FormData){
  assertCantonLive();
- const code=value(f,"code",16).toUpperCase();
- const back="/canton-feedback-qr?code="+encodeURIComponent(code);
- if(value(f,"website",100))redirect("/canton-feedback-qr?success=1");
+ const back="/canton-feedback-qr";
+ if(value(f,"website",100))redirect(back+"?success=1");
+ const mode=value(f,"mode",12);
+ const rating=Number(value(f,"rating",2));
+ if(!Number.isInteger(rating)||rating<1||rating>5||!["identified","anonymous"].includes(mode)){
+  redirect(back+"?error=invalid");
+ }
  const secret=process.env.CANTON_INTAKE_RATE_SECRET;
  const hdr=await headers();
  const rawIp=(hdr.get("x-real-ip")||hdr.get("x-forwarded-for")?.split(",")[0]||"").trim();
- if(!secret||!rawIp)redirect("/canton-feedback-qr?error=unavailable");
+ if(!secret||!rawIp)redirect(back+"?error=unavailable");
  const db=createAdminClient();
  const ipHash=createHash("sha256").update(secret+"|feedback|"+rawIp).digest("hex");
  const {count:recent,error:rateError}=await db.from("canton_qr_feedback_attempts")
   .select("id",{count:"exact",head:true}).eq("ip_hash",ipHash)
   .gte("submitted_at",new Date(Date.now()-60*60*1000).toISOString());
- if(rateError||(recent??0)>=10)redirect("/canton-feedback-qr?error=limit");
+ if(rateError||(recent??0)>=10)redirect(back+"?error=limit");
  const {error:logError}=await db.from("canton_qr_feedback_attempts").insert({ip_hash:ipHash});
- if(logError)redirect("/canton-feedback-qr?error=unavailable");
- if(!/^[0-9A-F]{16}$/.test(code))redirect("/canton-feedback-qr?error=invalid");
- const rating=Number(value(f,"rating",1));
- if(!Number.isInteger(rating)||rating<1||rating>5)redirect(back+"&error=invalid");
- const {data:visit}=await db.from("canton_appointments").select("id,status,check_out_at")
-  .eq("feedback_code",code).maybeSingle();
- if(!visit || visit.status!=="completed" || !visit.check_out_at)redirect(back+"&error=unavailable");
- if(Date.now()-new Date(visit.check_out_at).getTime()>30*86400000)redirect(back+"&error=expired");
- const {error}=await db.from("canton_visit_feedback").insert({
-  appointment_id:visit.id,rating,contact_requested:value(f,"contact",3)==="yes",comment:value(f,"comment",1000)||null
+ if(logError)redirect(back+"?error=unavailable");
+ const comment=value(f,"comment",1000)||null;
+ const organizationId="021cdbb8-af4d-412e-8ec7-e7bba08d1349"; // QA-only; live production requires org-aware resolution.
+ if(mode==="anonymous"){
+  const department=value(f,"department",20);
+  if(!["DIG","TCF","OTHER"].includes(department))redirect(back+"?error=invalid");
+  const {error}=await db.from("canton_anonymous_feedback").insert({organization_id:organizationId,department,rating,comment});
+  if(error)redirect(back+"?error=unavailable");
+  redirect(back+"?success=1");
+ }
+ const name=value(f,"fullName",180).replace(/\\s+/g," ").toLowerCase();
+ const last4=value(f,"last4",4);
+ if(name.length<2||!/^[0-9]{4}$/.test(last4))redirect(back+"?error=unavailable");
+ const {data:candidates,error:matchError}=await db.rpc("canton_find_feedback_visit",{
+  p_organization_id:organizationId,p_name:name,p_last4:last4
  });
- if(error)redirect(back+"&error=already");
- redirect("/canton-feedback-qr?success=1");
+ // No data about candidate visits is returned to visitors. Ambiguity fails closed.
+ if(matchError||!Array.isArray(candidates)||candidates.length!==1)redirect(back+"?error=unavailable");
+ const visitId=candidates[0]?.appointment_id;
+ if(!uuid(visitId||""))redirect(back+"?error=unavailable");
+ const {error}=await db.from("canton_visit_feedback").insert({
+  appointment_id:visitId,rating,
+  contact_requested:value(f,"contact",3)==="yes",comment
+ });
+ if(error)redirect(back+"?error=unavailable");
+ redirect(back+"?success=1");
 }
