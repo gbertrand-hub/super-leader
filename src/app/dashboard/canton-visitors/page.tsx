@@ -109,8 +109,10 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
   const slaHours=v.commercial_interest==="hot"?24:v.commercial_interest==="warm"?72:v.commercial_interest==="cold"?168:null;
   const slaDeadline=slaHours?new Date(Date.parse(qualifiedAt)+slaHours*60*60*1000):null;
   const actionDueAt=action?new Date(action.due_date+"T23:59:59-06:00"):null;
-  const slaLate=!!slaDeadline&&Date.now()>slaDeadline.getTime()&&!action;
-  const slaPlannedTooLate=!!slaDeadline&&!!actionDueAt&&actionDueAt.getTime()>slaDeadline.getTime();
+  const remainingMs=slaDeadline?slaDeadline.getTime()-Date.now():null;
+  const slaLate=!!slaDeadline&&Date.now()>slaDeadline.getTime();
+  const slaPlannedTooLate=!!slaDeadline&&!!actionDueAt&&actionDueAt.getTime()>slaDeadline.getTime()&&!slaLate;
+  const slaApproaching=!!slaDeadline&&!!slaHours&&remainingMs!==null&&remainingMs>0&&remainingMs<=slaHours*60*60*1000*0.25;
   return {
    visit:v,
    person:map.get(v.visitor_id),
@@ -122,7 +124,8 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
    slaHours,
    slaDeadline,
    slaLate,
-   slaPlannedTooLate
+   slaPlannedTooLate,
+   slaApproaching
   };
  }).sort((a,b)=>{
   const rank:Record<string,number>={hot:0,warm:1,cold:2};
@@ -137,6 +140,8 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
  const coldProspects=prospectRows.filter(x=>x.visit.commercial_interest==="cold");
  const unqualifiedProspects=prospectRows.filter(x=>!x.visit.commercial_interest);
  const atRiskProspects=prospectRows.filter(x=>x.overdue||x.missingAction||!x.visit.commercial_interest||x.slaLate||x.slaPlannedTooLate);
+ const mySlaAlerts=prospectRows.filter(x=>x.ownerId===user.id&&x.visit.commercial_interest&&(x.slaApproaching||x.slaLate||x.slaPlannedTooLate));
+ const managerEscalations=(isSenior||isManager)?prospectRows.filter(x=>x.visit.commercial_interest&&x.slaLate):[];
 
  const todayRows=(visits||[]).filter(v=>{
   if(v.check_in_at) return cantonDay(v.check_in_at)===today;
@@ -165,6 +170,22 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
    <div className="mt-4 space-y-3">{unreadArrivalAlerts.map(alert=><article key={alert.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-white p-4">
     <div><div className="font-semibold">{alert.visitor_name}</div><div className="text-sm text-slate-600">{alert.department} · {fr?"arrivé à":"arrived at"} {new Date(alert.created_at).toLocaleTimeString(fr?"fr-FR":"en-US",{timeZone:"America/Chicago",hour:"2-digit",minute:"2-digit"})}</div></div>
     <form action={markCantonArrivalAlertRead}><input type="hidden" name="id" value={alert.id}/><button className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white">{fr?"J’ai vu":"Acknowledge"}</button></form>
+   </article>)}</div>
+  </section>}
+  {mySlaAlerts.length>0&&<section className="rounded-2xl border-2 border-amber-300 bg-amber-50 p-5">
+   <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-wider text-amber-800">{fr?"Alerte commerciale personnelle":"My commercial alert"}</p><h2 className="mt-1 text-xl font-bold text-amber-950">{fr?"Prospects à traiter avant dépassement SLA":"Prospects requiring action before SLA breach"}</h2></div><span className="rounded-full bg-white px-3 py-1 text-sm font-bold text-amber-900">{mySlaAlerts.length}</span></div>
+   <div className="mt-4 space-y-3">{mySlaAlerts.map(row=><article key={row.visit.id} className="rounded-xl border border-amber-200 bg-white p-4">
+    <div className="flex flex-wrap items-center justify-between gap-3"><div><div className="font-semibold">{row.person?.full_name||(fr?"Visiteur":"Visitor")} · {row.visit.department}</div><div className="mt-1 text-sm text-slate-600">{row.action?.action_text||(fr?"Aucune prochaine action planifiée":"No next action scheduled")}</div></div>
+    <span className={"rounded px-3 py-1 text-xs font-bold "+(row.slaLate?"bg-rose-100 text-rose-900":row.slaPlannedTooLate?"bg-orange-100 text-orange-900":"bg-amber-100 text-amber-900")}>{row.slaLate?(fr?"SLA dépassé":"SLA breached"):row.slaPlannedTooLate?(fr?"Action trop tardive":"Action too late"):(fr?"SLA approche":"SLA approaching")}</span></div>
+    {row.slaDeadline&&<div className="mt-2 text-xs text-slate-500">{fr?"Limite":"Deadline"}: {row.slaDeadline.toLocaleString(fr?"fr-FR":"en-US",{timeZone:"America/Chicago"})}</div>}
+   </article>)}</div>
+  </section>}
+  {managerEscalations.length>0&&<section className="rounded-2xl border-2 border-rose-400 bg-rose-50 p-5">
+   <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-wider text-rose-800">{fr?"Escalade manager":"Manager escalation"}</p><h2 className="mt-1 text-xl font-bold text-rose-950">{fr?"SLA commerciaux dépassés":"Commercial SLAs breached"}</h2><p className="mt-1 text-sm text-rose-900">{fr?"Ces dossiers ont dépassé leur délai de suivi et nécessitent une intervention managériale.":"These records exceeded their follow-up SLA and require managerial intervention."}</p></div><span className="rounded-full bg-white px-3 py-1 text-sm font-bold text-rose-900">{managerEscalations.length}</span></div>
+   <div className="mt-4 space-y-3">{managerEscalations.map(row=><article key={row.visit.id} className="rounded-xl border border-rose-200 bg-white p-4">
+    <div className="flex flex-wrap items-center justify-between gap-3"><div><div className="font-semibold">{row.person?.full_name||(fr?"Visiteur":"Visitor")} · {row.visit.department} · {row.visit.commercial_interest?.toUpperCase()}</div><div className="mt-1 text-sm text-slate-600">{fr?"Responsable":"Owner"}: {row.ownerId?(profileMap.get(row.ownerId)?.full_name||profileMap.get(row.ownerId)?.email||row.visit.host_name||"—"):(row.visit.host_name||"—")}</div></div><span className="rounded bg-rose-100 px-3 py-1 text-xs font-bold text-rose-900">{fr?"Escaladé":"Escalated"}</span></div>
+    <div className="mt-2 text-sm">{row.action?.action_text||(fr?"Aucune prochaine action":"No next action")}</div>
+    {row.slaDeadline&&<div className="mt-1 text-xs text-slate-500">{fr?"SLA dépassé depuis":"SLA breached since"} {row.slaDeadline.toLocaleString(fr?"fr-FR":"en-US",{timeZone:"America/Chicago"})}</div>}
    </article>)}</div>
   </section>}
   <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">{[
@@ -416,7 +437,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
          } as Record<string,string>)[v.follow_up_outcome||""]||v.follow_up_outcome:({
           contacted:"Contacted",appointment_scheduled:"Appointment scheduled",proposal_sent:"Proposal sent",sale_closed:"Sale closed",no_response:"No response",not_interested:"Not interested",other:"Other"
          } as Record<string,string>)[v.follow_up_outcome||""]||v.follow_up_outcome);
-      return <tr key={v.id} className={"border-b align-top "+(row.overdue||row.missingAction?"bg-rose-50/60":"")}>
+      return <tr key={v.id} className={"border-b align-top "+(row.slaLate||row.overdue||row.missingAction?"bg-rose-50/60":row.slaPlannedTooLate||row.slaApproaching?"bg-amber-50/60":"")}>
        <td className="p-3"><div className="font-semibold">{row.person?.full_name||(fr?"Visiteur":"Visitor")}</div><div className="text-xs text-slate-500">{v.department} · {v.purpose}</div></td>
        <td className="p-3">{v.commercial_interest?<span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-semibold">{interestLabel}</span>:<form action={qualifyCantonLegacyProspect} className="flex min-w-[180px] gap-2"><input type="hidden" name="id" value={v.id}/><select name="interest" required defaultValue="" className="rounded border border-slate-300 bg-white px-2 py-1 text-xs"><option value="" disabled>{fr?"À qualifier":"To qualify"}</option><option value="hot">🔥 Hot</option><option value="warm">🟠 Warm</option><option value="cold">🔵 Cold</option><option value="non_commercial">{fr?"Non commercial":"Non-commercial"}</option></select><button className="rounded bg-violet-700 px-2 py-1 text-xs font-semibold text-white">{fr?"Valider":"Save"}</button></form>}</td>
        <td className="p-3">{outcomeLabel||"—"}</td>
