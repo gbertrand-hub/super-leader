@@ -7,7 +7,7 @@ import {createCantonQrSite,reviewCantonQrIntake,updateCantonQrSiteAddress} from 
 import {redirect} from "next/navigation";
 import {createClient} from "@/lib/supabase/server";
 import {createAdminClient} from "@/lib/supabase/admin";
-import {createCantonAppointment,updateCantonVisit,manageCantonReceptionStaff,assignCantonFollowUp,completeCantonFollowUp,createCantonNextAction,completeCantonNextAction,simulateCantonFeedbackInvitations,sendCantonQaEmailTest,markCantonArrivalAlertRead} from "@/app/actions/canton-visitors";
+import {createCantonAppointment,updateCantonVisit,manageCantonReceptionStaff,assignCantonFollowUp,completeCantonFollowUp,createCantonNextAction,completeCantonNextAction,simulateCantonFeedbackInvitations,sendCantonQaEmailTest,markCantonArrivalAlertRead,saveCantonVisitDebrief} from "@/app/actions/canton-visitors";
 export const dynamic="force-dynamic";
 export default async function CantonVisitorPage({searchParams}:{searchParams:Promise<{error?:string;success?:string;q?:string}>}){
  const {error,success,q=""}=await searchParams;
@@ -36,7 +36,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
 
  const isManager=membership.role==="manager" || membership.role==="hr";
  let visitQuery=db.from("canton_appointments")
-  .select("id,visitor_id,department,purpose,status,scheduled_local,host_name,host_user_id,check_in_at,visit_started_at,check_out_at,feedback_token,feedback_code,follow_up_required,follow_up_owner_id,follow_up_status,follow_up_due_date,follow_up_note,follow_up_outcome,follow_up_result_note,follow_up_completed_at,created_at,announced_by")
+  .select("id,visitor_id,department,purpose,status,scheduled_local,host_name,host_user_id,check_in_at,visit_started_at,check_out_at,feedback_token,feedback_code,follow_up_required,follow_up_owner_id,follow_up_status,follow_up_due_date,follow_up_note,follow_up_outcome,follow_up_result_note,follow_up_completed_at,commercial_interest,visit_outcome,debrief_note,debriefed_by,debriefed_at,created_at,announced_by")
   .eq("organization_id",membership.organization_id);
  if(!isSenior) {
   visitQuery = (isManager || isReception)
@@ -269,6 +269,27 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
     <button className="rounded-lg bg-indigo-700 px-4 py-2 font-medium text-white md:col-span-3">{fr?"Enregistrer la visite":"Register visitor / appointment"}</button>
    </form></section>
 
+  <section className="rounded-xl border-2 border-amber-300 bg-amber-50 p-5">
+   <div className="flex flex-wrap items-start justify-between gap-3">
+    <div><p className="text-xs font-bold uppercase tracking-wider text-amber-800">{fr?"Encadrement des prospects":"Prospect handoff"}</p><h2 className="mt-1 text-xl font-bold text-amber-950">{fr?"Debrief des visites commerciales":"Commercial visit debrief"}</h2><p className="mt-1 text-sm text-amber-900">{fr?"Après chaque visite DIG ou TCF, qualifiez immédiatement l’intérêt du visiteur et programmez la prochaine action.":"After each DIG or TCF visit, immediately qualify the visitor’s interest and schedule the next action."}</p></div>
+    <span className="rounded-full bg-white px-3 py-1 text-sm font-bold text-amber-900">{(visits||[]).filter(v=>v.status==="completed"&&["DIG","TCF"].includes(v.department)&&!v.debriefed_at).length} {fr?"à traiter":"pending"}</span>
+   </div>
+   <div className="mt-4 space-y-4">
+    {(visits||[]).filter(v=>v.status==="completed"&&["DIG","TCF"].includes(v.department)&&!v.debriefed_at&&(isSenior||isManager||v.host_user_id===user.id||v.announced_by===user.id)).map(v=><article key={v.id} className="rounded-xl border bg-white p-4">
+     <div className="mb-3"><div className="font-semibold">{map.get(v.visitor_id)?.full_name||(fr?"Visiteur":"Visitor")} · {v.department}</div><div className="text-sm text-slate-600">{v.purpose} · {v.host_name||"—"}</div></div>
+     <form action={saveCantonVisitDebrief} className="grid gap-3 md:grid-cols-2">
+      <input type="hidden" name="id" value={v.id}/>
+      <label className="text-sm font-medium">{fr?"Niveau d’intérêt *":"Interest level *"}<select name="interest" required defaultValue="" className={input}><option value="" disabled>{fr?"Sélectionner":"Select"}</option><option value="hot">🔥 Hot</option><option value="warm">🟠 Warm</option><option value="cold">🔵 Cold</option><option value="non_commercial">{fr?"Non commercial":"Non-commercial"}</option></select></label>
+      <label className="text-sm font-medium">{fr?"Résultat de la visite *":"Visit outcome *"}<select name="outcome" required defaultValue="" className={input}><option value="" disabled>{fr?"Sélectionner":"Select"}</option><option value="information_only">{fr?"Information seulement":"Information only"}</option><option value="follow_up_requested">{fr?"Suivi demandé":"Follow-up requested"}</option><option value="proposal_requested">{fr?"Proposition demandée":"Proposal requested"}</option><option value="next_appointment">{fr?"Prochain rendez-vous":"Next appointment"}</option><option value="ready_to_buy">{fr?"Prêt à acheter / avancer":"Ready to buy / proceed"}</option><option value="not_interested">{fr?"Pas intéressé":"Not interested"}</option><option value="other">{fr?"Autre":"Other"}</option></select></label>
+      <label className="text-sm font-medium md:col-span-2">{fr?"Note de debrief *":"Debrief note *"}<textarea name="note" required minLength={5} maxLength={1200} rows={3} className={input} placeholder={fr?"Ce qui a été discuté, intérêt réel, objections, décision du visiteur…":"What was discussed, real interest, objections, visitor decision…"}/></label>
+      <label className="text-sm font-medium">{fr?"Prochaine action":"Next action"}<input name="nextAction" minLength={5} maxLength={800} className={input} placeholder={fr?"Ex. Envoyer le contrat et rappeler lundi":"E.g. Send contract and call Monday"}/></label>
+      <label className="text-sm font-medium">{fr?"Échéance":"Due date"}<input type="date" name="dueDate" className={input}/></label>
+      <button className="rounded-lg bg-amber-900 px-4 py-3 font-semibold text-white md:col-span-2">{fr?"Enregistrer le debrief et la prochaine action":"Save debrief and next action"}</button>
+     </form>
+    </article>)}
+    {!(visits||[]).some(v=>v.status==="completed"&&["DIG","TCF"].includes(v.department)&&!v.debriefed_at&&(isSenior||isManager||v.host_user_id===user.id||v.announced_by===user.id))&&<p className="rounded-lg bg-white p-4 text-sm text-slate-600">{fr?"Aucun debrief commercial en attente pour vous.":"No commercial visit debrief is pending for you."}</p>}
+   </div>
+  </section>
   <section className="rounded-xl border border-indigo-200 bg-indigo-50 p-5">
    <h2 className="text-lg font-semibold">{fr?"Mes suivis attribués":"My assigned follow-ups"}</h2>
    <p className="mb-3 text-sm text-slate-600">{fr?"Les actions qui vous ont été confiées apparaissent ici, même si le rendez-vous a été annoncé par un autre collègue.":"Tasks assigned to you appear here, even if another colleague created the visit."}</p>
