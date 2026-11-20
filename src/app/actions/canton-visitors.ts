@@ -23,6 +23,78 @@ async function context(){
  const {data:reception}=await db.from("canton_reception_staff").select("user_id").eq("organization_id",m.organization_id).eq("user_id",user.id).maybeSingle();
  return {db,user,org:m.organization_id as string,role:m.role as string,isReception:!!reception};
 }
+export async function createCantonCrmReferral(f:FormData){
+ assertCantonLive();
+ const {db,user,org}=await context();
+ const clientId=field(f,"clientId",40);
+ const department=field(f,"department").toUpperCase();
+ const purpose=field(f,"purpose",100)||"commercial_visit";
+ const scheduled=field(f,"scheduled");
+ const hostUserId=field(f,"hostUserId",40);
+ const notes=field(f,"notes",1000)||null;
+ if(!/^[0-9a-f-]{36}$/i.test(clientId)||!["DIG","TCF","OTHER"].includes(department)) fail("Select a valid CRM prospect and department");
+ if(!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(scheduled)) fail("A Canton appointment date is required");
+ const {data:client}=await db.from("crm_clients").select("id,full_name,email,phone")
+  .eq("id",clientId).eq("organization_id",org).maybeSingle();
+ if(!client) fail("CRM prospect not found");
+ let visitor:{id:string;crm_client_id:string|null}|null=null;
+ const {data:linked}=await db.from("canton_visitors").select("id,crm_client_id")
+  .eq("organization_id",org).eq("crm_client_id",clientId).limit(1).maybeSingle();
+ visitor=linked;
+ if(!visitor&&client.email){
+  const {data}=await db.from("canton_visitors").select("id,crm_client_id")
+   .eq("organization_id",org).eq("email",String(client.email).toLowerCase()).limit(1).maybeSingle();
+  visitor=data;
+ }
+ if(!visitor&&client.phone){
+  const normalizedPhone=String(client.phone).replace(/[^+0-9]/g,"");
+  const {data}=await db.from("canton_visitors").select("id,crm_client_id")
+   .eq("organization_id",org).eq("phone",normalizedPhone).limit(1).maybeSingle();
+  visitor=data;
+ }
+ let visitorId=visitor?.id||"";
+ if(visitor){
+  if(visitor.crm_client_id&&visitor.crm_client_id!==clientId) fail("This Canton visitor is already linked to another CRM record");
+  if(!visitor.crm_client_id){
+   const {error}=await db.from("canton_visitors").update({crm_client_id:clientId})
+    .eq("id",visitor.id).eq("organization_id",org);
+   if(error) fail("Could not link visitor to CRM");
+  }
+ }else{
+  const phone=client.phone?String(client.phone).replace(/[^+0-9]/g,"")||null:null;
+  const email=client.email?String(client.email).toLowerCase():null;
+  const {data,error}=await db.from("canton_visitors").insert({
+   organization_id:org,full_name:client.full_name,phone,email,crm_client_id:clientId,created_by:user.id
+  }).select("id").single();
+  if(error||!data) fail("Could not create Canton visitor link");
+  visitorId=data.id;
+ }
+ if(!visitorId) visitorId=visitor!.id;
+ const scheduledLocal=scheduled.replace("T"," ")+":00";
+ const {data:duplicate}=await db.from("canton_appointments").select("id")
+  .eq("organization_id",org).eq("visitor_id",visitorId).eq("scheduled_local",scheduledLocal)
+  .not("status","in","(cancelled,no_show)").limit(1).maybeSingle();
+ if(duplicate) fail("This CRM prospect already has a Canton visit at that time");
+ let hostName:string|null=null,resolvedHostUserId:string|null=null;
+ if(hostUserId){
+  if(!/^[0-9a-f-]{36}$/i.test(hostUserId)) fail("Invalid Canton host");
+  const {data:member}=await db.from("organization_members").select("user_id")
+   .eq("organization_id",org).eq("user_id",hostUserId).eq("is_active",true).maybeSingle();
+  if(!member) fail("Canton host must be an active organization member");
+  const {data:profile}=await db.from("profiles").select("full_name,email").eq("id",hostUserId).maybeSingle();
+  resolvedHostUserId=hostUserId;
+  hostName=profile?.full_name||profile?.email||"Team member";
+ }
+ const {error}=await db.from("canton_appointments").insert({
+  organization_id:org,visitor_id:visitorId,department,purpose,scheduled_local:scheduledLocal,
+  status:"scheduled",host_name:hostName,host_user_id:resolvedHostUserId,notes,
+  announced_by:user.id,visit_origin:"crm_referral",crm_referred_by:user.id
+ });
+ if(error) fail("Could not schedule CRM referral visit");
+ revalidatePath(route);
+ redirect(route+"?success="+encodeURIComponent("CRM prospect referred to Canton"));
+}
+
 export async function createCantonAppointment(f:FormData){
  assertCantonLive();
  const {db,user,org,role}=await context();
