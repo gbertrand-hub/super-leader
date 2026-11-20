@@ -106,10 +106,22 @@ export async function createCantonAppointment(f:FormData){
    fail("Nearby appointment already exists (within 60 min). Check the distinct-visit confirmation box before registering another visit");
   }
  }
+ const hostUserId=field(f,"hostUserId",40);
+ let hostName=field(f,"host",140)||null;
+ let resolvedHostUserId:string|null=null;
+ if(hostUserId){
+  if(!/^[0-9a-f-]{36}$/i.test(hostUserId)) fail("Invalid host");
+  const {data:hostMember}=await db.from("organization_members").select("user_id")
+   .eq("organization_id",org).eq("user_id",hostUserId).eq("is_active",true).maybeSingle();
+  if(!hostMember) fail("Host must be an active organization member");
+  const {data:hostProfile}=await db.from("profiles").select("full_name,email").eq("id",hostUserId).maybeSingle();
+  resolvedHostUserId=hostUserId;
+  hostName=hostProfile?.full_name||hostProfile?.email||hostName||"Team member";
+ }
  const {error}=await db.from("canton_appointments").insert({
   organization_id:org,visitor_id:visitorId,department,purpose,
   scheduled_local:scheduledLocal,status:scheduled?"scheduled":"announced",
-  host_name:field(f,"host",140)||null,notes:field(f,"notes",1000)||null,announced_by:user.id
+  host_name:hostName,host_user_id:resolvedHostUserId,notes:field(f,"notes",1000)||null,announced_by:user.id
  });
  if(error) fail(error.code==="23505"?"Duplicate appointment detected":"Unable to schedule visit");
  revalidatePath(route);
@@ -152,6 +164,19 @@ export async function updateCantonVisit(f:FormData){
  revalidatePath(route);
  redirect(route+"?success="+encodeURIComponent("Visit updated"));
 }
+export async function markCantonArrivalAlertRead(f:FormData){
+ assertCantonLive();
+ const {db,org,user}=await context();
+ const id=field(f,"id",40);
+ if(!/^[0-9a-f-]{36}$/i.test(id)) fail("Invalid alert");
+ const {data,error}=await db.from("canton_arrival_alerts").update({read_at:new Date().toISOString()})
+  .eq("id",id).eq("organization_id",org).eq("recipient_user_id",user.id).is("read_at",null).select("id");
+ if(error) fail("Unable to mark alert as read");
+ if(!data?.length) fail("Alert already handled or unavailable");
+ revalidatePath(route);
+ redirect(route+"?success="+encodeURIComponent("Arrival notification acknowledged"));
+}
+
 export async function submitCantonFeedback(f:FormData){
  assertCantonLive();
  const token=field(f,"token"),rating=Number(field(f,"rating"));
