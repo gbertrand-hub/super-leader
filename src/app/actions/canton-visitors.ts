@@ -4,6 +4,7 @@ import {revalidatePath} from "next/cache";
 import {redirect} from "next/navigation";
 import {createClient} from "@/lib/supabase/server";
 import {createAdminClient} from "@/lib/supabase/admin";
+import {sendCantonQaFeedbackEmail} from "@/lib/canton/qa-email-delivery";
 
 const depts = new Set(["DIG","TCF","DIRECTION","OTHER"]);
 const roles = new Set(["owner","admin","manager","employee","hr"]);
@@ -244,4 +245,17 @@ export async function simulateCantonFeedbackInvitations(f:FormData){
  if(!item)fail("No simulation result");
  revalidatePath(route);
  redirect(route+"?success="+encodeURIComponent("Simulation only — "+item.simulated+" prepared; "+item.cancelled+" cancelled; 0 external messages sent"));
+}
+
+/** Admin-only manual QA email dispatch. Real sending remains disabled unless explicit
+ * QA allowlist + CANTON_QA_EMAIL_TEST_ENABLED are configured on the isolated preview. */
+export async function sendCantonQaEmailTest(f:FormData){
+ assertCantonLive();
+ const {role}=await context();
+ if(!seniorRoles.has(role))fail("Administrator permission required for email test");
+ const id=field(f,"id",40);
+ if(!/^[0-9a-f-]{36}$/i.test(id))fail("Invalid visit");
+ const result=await sendCantonQaFeedbackEmail(id);
+ revalidatePath(route);
+ redirect(route+"?success="+encodeURIComponent("QA email: "+result.outcome+" — "+result.detail));
 }
