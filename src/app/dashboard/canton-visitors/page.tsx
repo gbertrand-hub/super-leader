@@ -79,6 +79,11 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
   ? ((feedback||[]).reduce((total,f)=>total+f.rating,0)/(feedback||[]).length).toFixed(1):"—";
  const cantonDay=(stamp:string)=>{const parts=new Intl.DateTimeFormat("en-US",{timeZone:"America/Chicago",year:"numeric",month:"2-digit",day:"2-digit"}).formatToParts(new Date(stamp));const val=(type:string)=>parts.find(p=>p.type===type)?.value||"";return val("year")+"-"+val("month")+"-"+val("day");};
  const today=cantonDay(new Date().toISOString());
+ const openNextActions=visibleNextActions.filter(x=>x.status==="open");
+ const nextActionsToday=openNextActions.filter(x=>x.due_date===today);
+ const overdueNextActions=openNextActions.filter(x=>x.due_date<today);
+ const upcomingNextActions=openNextActions.filter(x=>x.due_date>today);
+
  const todayRows=(visits||[]).filter(v=>{
   if(v.check_in_at) return cantonDay(v.check_in_at)===today;
   if(v.scheduled_local) return v.scheduled_local.slice(0,10)===today;
@@ -93,7 +98,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
   {success&&<p role="status" className="rounded bg-green-100 p-3 text-green-800">{success}</p>}
   {queryError&&<p role="alert" className="rounded bg-yellow-100 p-3">{fr?"Base de données non initialisée. Appliquez les migrations Canton.":"Database not initialized. Apply the Canton migration before using this module."}</p>}
   <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">{[
-   [fr?"Aujourd’hui":"Today",todayRows.length],[fr?"Attendus":"Expected",count(v=>v.status==="scheduled")],[fr?"Sur place":"On site",count(v=>["arrived","in_progress"].includes(v.status))],[fr?"Terminées":"Completed",count(v=>v.status==="completed")],[fr?"Avis":"Feedback", (feedback||[]).length],[fr?"Taux de réponse":"Response rate",feedbackResponseRate],[fr?"Note moyenne":"Avg. rating",ratingAverage],[fr?"Attention requise":"Attention needed",pendingFeedback],[fr?"Suivis ouverts":"Follow-ups open",pendingHandoffs],[fr?"Sans responsable":"Unassigned follow-ups",unassignedFollowUps.length],[fr?"Prochaines actions":"Next actions",visibleNextActions.filter(x=>x.status==="open").length]
+   [fr?"Aujourd’hui":"Today",todayRows.length],[fr?"Attendus":"Expected",count(v=>v.status==="scheduled")],[fr?"Sur place":"On site",count(v=>["arrived","in_progress"].includes(v.status))],[fr?"Terminées":"Completed",count(v=>v.status==="completed")],[fr?"Avis":"Feedback", (feedback||[]).length],[fr?"Taux de réponse":"Response rate",feedbackResponseRate],[fr?"Note moyenne":"Avg. rating",ratingAverage],[fr?"Attention requise":"Attention needed",pendingFeedback],[fr?"Suivis ouverts":"Follow-ups open",pendingHandoffs],[fr?"Sans responsable":"Unassigned follow-ups",unassignedFollowUps.length],[fr?"Prochaines actions":"Next actions",openNextActions.length],[fr?"À faire aujourd’hui":"Due today",nextActionsToday.length],[fr?"En retard":"Overdue",overdueNextActions.length]
   ].map(([label,value])=><div key={label} className="rounded-xl border bg-white p-4"><div className="text-sm text-slate-500">{label}</div><div className="text-2xl font-bold">{value}</div></div>)}</div>
   {isSenior&&<section className="rounded-xl border bg-white p-5"><h2 className="mb-2 text-lg font-semibold">{fr?"Accès réception":"Reception access"}</h2><p className="mb-3 text-sm text-slate-500">{fr?"Autorisez les employés à enregistrer les arrivées et départs. Les visites de direction restent confidentielles.":"Assign staff to check in and check out standard visits. Confidential direction visits remain restricted."}</p>
   <div className="space-y-2">{(members||[]).map(m=><div className="flex flex-wrap items-center justify-between gap-2 border-b py-2 text-sm" key={m.user_id}><span>{profileMap.get(m.user_id)?.full_name||profileMap.get(m.user_id)?.email||m.user_id} <span className="text-xs text-slate-500">({m.role})</span></span><form action={manageCantonReceptionStaff}><input type="hidden" name="userId" value={m.user_id}/><button name="operation" value={assignedIds.has(m.user_id)?"revoke":"grant"} className={assignedIds.has(m.user_id)?"rounded bg-red-100 px-3 py-1":"rounded bg-emerald-100 px-3 py-1"}>{assignedIds.has(m.user_id)?(fr?"Retirer l’accès réception":"Remove reception access"):(fr?"Autoriser la réception":"Grant reception access")}</button></form></div>)}</div></section>}
@@ -199,20 +204,30 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
   <section className="rounded-xl border border-indigo-200 bg-indigo-50 p-5">
    <h2 className="text-lg font-semibold">{fr?"Prochaines actions commerciales":"Next commercial actions"}</h2>
    <p className="mt-2 text-sm text-slate-700">{fr?"Une proposition envoyée ne signifie pas que la vente est conclue. Planifiez l’étape suivante et gardez le dossier actif jusqu’à la prochaine décision.":"A proposal sent is not a closed sale. Schedule the next step and keep the opportunity visible until the next decision."}</p>
+   <div className="mt-4 grid grid-cols-3 gap-2">
+    <div className="rounded-lg bg-white p-3"><div className="text-xs text-slate-600">{fr?"Aujourd’hui":"Today"}</div><div className="text-xl font-bold">{nextActionsToday.length}</div></div>
+    <div className={"rounded-lg p-3 "+(overdueNextActions.length?"bg-rose-100":"bg-white")}><div className="text-xs text-slate-600">{fr?"En retard":"Overdue"}</div><div className="text-xl font-bold">{overdueNextActions.length}</div></div>
+    <div className="rounded-lg bg-white p-3"><div className="text-xs text-slate-600">{fr?"À venir":"Upcoming"}</div><div className="text-xl font-bold">{upcomingNextActions.length}</div></div>
+   </div>
+   {overdueNextActions.length>0&&<p role="alert" className="mt-3 rounded-lg border border-rose-300 bg-rose-50 p-3 text-sm font-medium text-rose-900">{fr?"⚠️ Certaines actions commerciales sont en retard. Elles doivent être traitées en priorité.":"⚠️ Some commercial actions are overdue and should be handled first."}</p>}
    <div className="mt-4 space-y-3">
-    {visibleNextActions.filter(x=>x.status==="open").map(action=>{
+    {[...openNextActions].sort((a,b)=>a.due_date.localeCompare(b.due_date)).map(action=>{
      const visit=(visits||[]).find(v=>v.id===action.appointment_id);
      return <article key={action.id} className="rounded-lg border bg-white p-4">
       <div className="font-semibold">{map.get(visit?.visitor_id||"")?.full_name||(fr?"Visiteur":"Visitor")} · {visit?.department}</div>
       <p className="mt-1 text-sm">{action.action_text}</p>
-      <p className="mt-1 text-xs text-slate-700">{fr?"Échéance":"Due"}: {action.due_date} {action.due_date<cantonDay(new Date().toISOString())?"⚠️":""}</p>
+      <p className="mt-1 text-xs text-slate-700">{fr?"Échéance":"Due"}: {action.due_date} {action.due_date<today?"⚠️":""}
+       {action.due_date===today&&<span className="ml-2 rounded bg-amber-100 px-2 py-1 font-semibold text-amber-900">{fr?"À faire aujourd’hui":"Due today"}</span>}
+       {action.due_date<today&&<span className="ml-2 rounded bg-rose-100 px-2 py-1 font-semibold text-rose-900">{fr?"En retard":"Overdue"}</span>}
+       {action.due_date>today&&<span className="ml-2 rounded bg-slate-100 px-2 py-1 font-semibold text-slate-700">{fr?"À venir":"Upcoming"}</span>}
+      </p>
       {(isSenior||isManager||action.assigned_to===user.id)&&<form action={completeCantonNextAction} className="mt-3 flex flex-wrap items-end gap-2"><input type="hidden" name="actionId" value={action.id}/>
        <label className="min-w-[240px] flex-1 text-sm">{fr?"Compte rendu de la nouvelle action *":"Next action completion note *"}<input required minLength={5} maxLength={1000} name="completionNote" className={input}/></label>
        <button className="rounded-lg bg-emerald-700 px-3 py-2 text-sm font-semibold text-white">{fr?"Enregistrer et terminer":"Save and complete"}</button>
       </form>}
      </article>;
     })}
-    {!visibleNextActions.some(x=>x.status==="open")&&<p className="text-sm text-slate-700">{fr?"Aucune prochaine action ouverte.":"No open next actions."}</p>}
+    {openNextActions.length===0&&<p className="text-sm text-slate-700">{fr?"Aucune prochaine action ouverte.":"No open next actions."}</p>}
    </div>
   </section>
   {(isSenior||membership.role==="manager")&&unassignedFollowUps.length>0&&<section role="status" className="rounded-xl border-2 border-amber-400 bg-amber-50 p-5">
