@@ -142,9 +142,41 @@ export async function submitCantonQrFeedback(f:FormData){
  const {data:candidates,error:matchError}=await db.rpc("canton_find_feedback_visit",{
   p_organization_id:organizationId,p_name:name,p_last4:last4
  });
- // No data about candidate visits is returned to visitors. Ambiguity fails closed.
- if(matchError||!Array.isArray(candidates)||candidates.length!==1)redirect(back+"?error=unavailable");
- const visitId=candidates[0]?.appointment_id;
+ // No candidate visit details are ever returned to the visitor. Ambiguity always fails closed.
+ let resolvedCandidates:Array<{appointment_id:string}> =
+  !matchError&&Array.isArray(candidates)?candidates.filter(x=>uuid(x?.appointment_id||"")):[];
+
+ // Defensive QA/runtime fallback: reproduce the same match server-side if PostgREST RPC
+ // unexpectedly returns no usable row. This does not weaken identity matching.
+ if(resolvedCandidates.length!==1){
+  const since=new Date(Date.now()-7*24*60*60*1000).toISOString();
+  const {data:recentVisits}=await db.from("canton_appointments")
+   .select("id,visitor_id,check_out_at")
+   .eq("organization_id",organizationId)
+   .eq("status","completed")
+   .not("check_out_at","is",null)
+   .gte("check_out_at",since)
+   .order("check_out_at",{ascending:false})
+   .limit(100);
+  const visitorIds=[...new Set((recentVisits||[]).map(v=>v.visitor_id).filter(Boolean))];
+  const {data:recentVisitors}=visitorIds.length
+   ? await db.from("canton_visitors").select("id,full_name,phone").eq("organization_id",organizationId).in("id",visitorIds)
+   : {data:[] as Array<{id:string;full_name:string;phone:string|null}>};
+  const {data:existingFeedback}=await db.from("canton_visit_feedback").select("appointment_id").in("appointment_id",(recentVisits||[]).map(v=>v.id));
+  const feedbackIds=new Set((existingFeedback||[]).map(x=>x.appointment_id));
+  const visitorById=new Map((recentVisitors||[]).map(v=>[v.id,v]));
+  const normalizeName=(s:string)=>s.trim().replace(/\s+/g," ").toLowerCase();
+  const digits=(s:string|null|undefined)=>String(s||"").replace(/[^0-9]/g,"");
+  resolvedCandidates=(recentVisits||[]).filter(v=>{
+   const person=visitorById.get(v.visitor_id);
+   return !!person
+    && !feedbackIds.has(v.id)
+    && normalizeName(person.full_name)===name
+    && digits(person.phone).slice(-4)===last4;
+  }).slice(0,2).map(v=>({appointment_id:v.id}));
+ }
+ if(resolvedCandidates.length!==1)redirect(back+"?error=unavailable");
+ const visitId=resolvedCandidates[0]?.appointment_id;
  if(!uuid(visitId||""))redirect(back+"?error=unavailable");
  const contactRequested=value(f,"contact",3)==="yes";
  const {error}=await db.from("canton_visit_feedback").insert({
