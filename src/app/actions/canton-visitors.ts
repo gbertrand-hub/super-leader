@@ -136,8 +136,8 @@ export async function updateCantonVisit(f:FormData){
  if(!row) fail("Visit not found");
  const visit = row!;
  const isSenior=seniorRoles.has(role);
- const isCreator=debriefVisit.announced_by===user.id;
- const isHost=debriefVisit.host_user_id===user.id;
+ const isCreator=visit.announced_by===user.id;
+ const isHost=visit.host_user_id===user.id;
  const canOperateStandardVisit=visit.department!=="DIRECTION" && (isReception || role==="manager" || role==="hr" || isHost);
  if(!isSenior && visit.department==="DIRECTION") fail("Confidential visit: administrator access required");
  if(!isSenior && !isCreator && !canOperateStandardVisit) fail("Not authorized to manage this visit");
