@@ -76,6 +76,22 @@ export async function createCantonAppointment(f:FormData){
    .eq("purpose",purpose).eq("scheduled_local",scheduledLocal)
    .not("status","in","(cancelled,no_show)").limit(1).maybeSingle();
   if(existing) fail("An appointment already exists for this visitor, purpose and time");
+  // A nearby booking is suspicious but may represent a genuine separate appointment.
+  // Keep this check server-side: staff must explicitly acknowledge distinct bookings.
+  const scheduledAsUtc = Date.parse(scheduled+":00Z");
+  if(!Number.isFinite(scheduledAsUtc)) fail("Invalid appointment date");
+  const cantonWallTime=(ms:number)=>new Date(ms).toISOString().slice(0,19).replace("T"," ");
+  const from=cantonWallTime(scheduledAsUtc-60*60*1000);
+  const to=cantonWallTime(scheduledAsUtc+60*60*1000);
+  const {data:nearby,error:nearbyError}=await db.from("canton_appointments").select("id,scheduled_local")
+   .eq("organization_id",org).eq("visitor_id",visitorId)
+   .eq("department",department).eq("purpose",purpose)
+   .in("status",["scheduled","announced","arrived","in_progress"])
+   .gte("scheduled_local",from).lte("scheduled_local",to).limit(3);
+  if(nearbyError) fail("Could not check for nearby appointments. Please retry");
+  if(nearby?.length && field(f,"confirmNearby",8)!=="yes"){
+   fail("Nearby appointment already exists (within 60 min). Check the distinct-visit confirmation box before registering another visit");
+  }
  }
  const {error}=await db.from("canton_appointments").insert({
   organization_id:org,visitor_id:visitorId,department,purpose,
