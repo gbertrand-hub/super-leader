@@ -68,7 +68,8 @@ export async function createCantonCrmReferral(f:FormData){
    organization_id:org,full_name:crmClient.full_name,phone,email,crm_client_id:clientId,created_by:user.id
   }).select("id").single();
   if(error||!data) fail("Could not create Canton visitor link");
-  visitorId=data.id;
+  const createdVisitor=data!;
+  visitorId=createdVisitor.id;
  }
  if(!visitorId) visitorId=visitor!.id;
  const scheduledLocal=scheduled.replace("T"," ")+":00";
