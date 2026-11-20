@@ -146,10 +146,47 @@ export async function submitCantonQrFeedback(f:FormData){
  if(matchError||!Array.isArray(candidates)||candidates.length!==1)redirect(back+"?error=unavailable");
  const visitId=candidates[0]?.appointment_id;
  if(!uuid(visitId||""))redirect(back+"?error=unavailable");
+ const contactRequested=value(f,"contact",3)==="yes";
  const {error}=await db.from("canton_visit_feedback").insert({
   appointment_id:visitId,rating,
-  contact_requested:value(f,"contact",3)==="yes",comment
+  contact_requested:contactRequested,comment
  });
  if(error)redirect(back+"?error=unavailable");
+
+ // CRM sync: preserve visitor voice as a separate interaction.
+ // This never overwrites internal commercial qualification (Hot/Warm/Cold).
+ const {data:visit}=await db.from("canton_appointments")
+  .select("id,organization_id,visitor_id,department,purpose,commercial_interest,visit_outcome,crm_referred_by,announced_by,host_user_id,site_id")
+  .eq("id",visitId).maybeSingle();
+ if(visit){
+  const {data:visitor}=await db.from("canton_visitors").select("crm_client_id,full_name").eq("id",visit.visitor_id).maybeSingle();
+  const crmClientId=visitor?.crm_client_id||null;
+  const actorId=visit.crm_referred_by||visit.announced_by||visit.host_user_id||null;
+  if(crmClientId&&actorId){
+   const experience=rating>=4?"positive":rating===3?"neutral":"alert";
+   const summary=[
+    "Visitor Feedback · Canton visit",
+    "Experience: "+experience,
+    "Rating: "+rating+"/5",
+    "Contact requested: "+(contactRequested?"yes":"no"),
+    visit.commercial_interest?"Internal commercial assessment: "+visit.commercial_interest:null,
+    visit.visit_outcome?"Internal visit outcome: "+visit.visit_outcome:null,
+    comment?"Visitor comment: "+comment:null
+   ].filter(Boolean).join(" | ").slice(0,5000);
+   await db.from("crm_interactions").insert({
+    organization_id:visit.organization_id,
+    client_id:crmClientId,
+    employee_id:actorId,
+    channel:"other",
+    direction:"inbound",
+    interaction_type:rating<=2?"complaint":"information",
+    outcome:(rating<=2||contactRequested)?"follow_up":"resolved",
+    summary,
+    occurred_at:new Date().toISOString(),
+    feedback_requested:false,
+    created_by:actorId
+   });
+  }
+ }
  redirect(back+"?success=1");
 }
