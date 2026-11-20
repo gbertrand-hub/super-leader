@@ -300,6 +300,73 @@ export async function submitCantonFeedback(f:FormData){
  redirect("/canton-feedback/"+encodeURIComponent(token)+"?success=1");
 }
 
+export async function createVisitorSite(f:FormData){
+ assertCantonLive();
+ const {db,org,role}=await context();
+ if(!seniorRoles.has(role)) fail("Only administrators can manage visitor sites");
+ const name=field(f,"name",180), code=field(f,"code",40).toUpperCase().replace(/[^A-Z0-9_]/g,"_");
+ const city=field(f,"city",120)||null, countryCode=field(f,"countryCode",2).toUpperCase()||null;
+ const timezone=field(f,"timezone",80), streetAddress=field(f,"streetAddress",300)||null;
+ if(name.length<2||code.length<2||!timezone) fail("Name, code and timezone are required");
+ const {error}=await db.from("visitor_sites").insert({
+  organization_id:org,code,name,city,country_code:countryCode,timezone,street_address:streetAddress,is_hq:false,is_active:true
+ });
+ if(error) fail(error.code==="23505"?"A visitor site with this code already exists":"Could not create visitor site");
+ revalidatePath("/canton/admin");
+ redirect("/canton/admin?success="+encodeURIComponent("Visitor site created"));
+}
+
+export async function updateVisitorSite(f:FormData){
+ assertCantonLive();
+ const {db,org,role}=await context();
+ if(!seniorRoles.has(role)) fail("Only administrators can manage visitor sites");
+ const id=field(f,"siteId",40), operation=field(f,"operation",30);
+ if(!/^[0-9a-f-]{36}$/i.test(id)) fail("Invalid visitor site");
+ const {data:site}=await db.from("visitor_sites").select("id,is_hq,is_active").eq("id",id).eq("organization_id",org).maybeSingle();
+ if(!site) fail("Visitor site not found");
+ if(operation==="save"){
+  const name=field(f,"name",180), city=field(f,"city",120)||null, countryCode=field(f,"countryCode",2).toUpperCase()||null;
+  const timezone=field(f,"timezone",80), streetAddress=field(f,"streetAddress",300)||null;
+  if(name.length<2||!timezone) fail("Name and timezone are required");
+  const {error}=await db.from("visitor_sites").update({name,city,country_code:countryCode,timezone,street_address:streetAddress,updated_at:new Date().toISOString()}).eq("id",id).eq("organization_id",org);
+  if(error) fail("Could not update visitor site");
+ }else if(operation==="toggle"){
+  if(site.is_hq&&site.is_active) fail("The HQ cannot be disabled. Assign another HQ first");
+  const {error}=await db.from("visitor_sites").update({is_active:!site.is_active,updated_at:new Date().toISOString()}).eq("id",id).eq("organization_id",org);
+  if(error) fail("Could not update visitor site status");
+ }else if(operation==="make_hq"){
+  if(site.is_hq) redirect("/canton/admin?success="+encodeURIComponent("This site is already HQ"));
+  const {error:clearError}=await db.from("visitor_sites").update({is_hq:false,updated_at:new Date().toISOString()}).eq("organization_id",org).eq("is_hq",true);
+  if(clearError) fail("Could not change HQ");
+  const {error}=await db.from("visitor_sites").update({is_hq:true,is_active:true,updated_at:new Date().toISOString()}).eq("id",id).eq("organization_id",org);
+  if(error) fail("Could not assign new HQ");
+ }else fail("Invalid site operation");
+ revalidatePath("/canton/admin");
+ revalidatePath("/canton");
+ redirect("/canton/admin?success="+encodeURIComponent("Visitor site updated"));
+}
+
+export async function manageVisitorSiteStaff(f:FormData){
+ assertCantonLive();
+ const {db,org,role}=await context();
+ if(!seniorRoles.has(role)) fail("Only administrators can manage site staff");
+ const siteId=field(f,"siteId",40), userId=field(f,"userId",40), accessRole=field(f,"accessRole",20), operation=field(f,"operation",20);
+ if(!/^[0-9a-f-]{36}$/i.test(siteId)||!/^[0-9a-f-]{36}$/i.test(userId)) fail("Invalid site or staff member");
+ if(!["reception","host","manager"].includes(accessRole)) fail("Invalid site access role");
+ const {data:site}=await db.from("visitor_sites").select("id").eq("id",siteId).eq("organization_id",org).eq("is_active",true).maybeSingle();
+ const {data:member}=await db.from("organization_members").select("user_id").eq("organization_id",org).eq("user_id",userId).eq("is_active",true).maybeSingle();
+ if(!site||!member) fail("Site or staff member is not active");
+ if(operation==="grant"){
+  const {error}=await db.from("visitor_site_staff").upsert({site_id:siteId,user_id:userId,access_role:accessRole,is_active:true},{onConflict:"site_id,user_id"});
+  if(error) fail("Could not assign site staff");
+ }else if(operation==="revoke"){
+  const {error}=await db.from("visitor_site_staff").delete().eq("site_id",siteId).eq("user_id",userId);
+  if(error) fail("Could not remove site staff");
+ }else fail("Invalid operation");
+ revalidatePath("/canton/admin");
+ redirect("/canton/admin?success="+encodeURIComponent("Site staff updated"));
+}
+
 export async function manageCantonReceptionStaff(f:FormData) {
  assertCantonLive();
  const {db,org,user,role}=await context();
