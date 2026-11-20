@@ -43,6 +43,9 @@ Fail closed. Do not enable the module in production until:
 123_canton_production_readiness_v4_10_132.sql
 124_visitor_sites_multisite_foundation.sql
 
+Then run:
+125_canton_production_bootstrap.sql
+
 ### Do NOT apply directly
 109_canton_qa_backend_grants.sql
 114_canton_outbox_dry_run.sql
