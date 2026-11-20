@@ -242,6 +242,8 @@ export async function qualifyCantonLegacyProspect(f:FormData){
  if(legacyVisit.commercial_interest) fail("This prospect is already qualified");
  const {data:changed,error}=await db.from("canton_appointments").update({
   commercial_interest:interest,
+  commercial_qualified_at:new Date().toISOString(),
+  commercial_qualified_by:user.id,
   updated_at:new Date().toISOString()
  }).eq("id",id).eq("organization_id",org).is("commercial_interest",null).select("id");
  if(error||!changed?.length) fail("Could not save prospect qualification");
@@ -276,6 +278,8 @@ export async function saveCantonVisitDebrief(f:FormData){
  if(debriefVisit.debriefed_at) fail("This visit already has a debrief");
  const {data:changed,error}=await db.from("canton_appointments").update({
   commercial_interest:interest,
+  commercial_qualified_at:new Date().toISOString(),
+  commercial_qualified_by:user.id,
   visit_outcome:outcome,
   debrief_note:note,
   debriefed_by:user.id,
