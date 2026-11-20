@@ -230,7 +230,7 @@ export async function completeCantonFollowUp(f:FormData){
  if(resultNote.length<5)fail("Describe the concrete result (at least 5 characters)");
  const {data:row}=await db.from("canton_appointments").select("id,department,follow_up_owner_id,follow_up_status")
   .eq("id",id).eq("organization_id",org).maybeSingle();
- if(!row||row.follow_up_status!=="open")fail("Follow-up is not open");
+ if(!row||row.follow_up_status!=="open")throw new Error("Follow-up is not open");
  if(row.department==="DIRECTION"&&!seniorRoles.has(role))fail("Confidential visit");
  if(!seniorRoles.has(role)&&role!=="manager"&&row.follow_up_owner_id!==user.id)fail("Only the follow-up owner or a manager may close");
  const {data:changed,error}=await db.from("canton_appointments").update({
