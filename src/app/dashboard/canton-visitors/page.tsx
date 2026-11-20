@@ -7,7 +7,7 @@ import {createCantonQrSite,reviewCantonQrIntake} from "@/app/actions/canton-qr";
 import {redirect} from "next/navigation";
 import {createClient} from "@/lib/supabase/server";
 import {createAdminClient} from "@/lib/supabase/admin";
-import {createCantonAppointment,updateCantonVisit,manageCantonReceptionStaff,assignCantonFollowUp,completeCantonFollowUp,simulateCantonFeedbackInvitations} from "@/app/actions/canton-visitors";
+import {createCantonAppointment,updateCantonVisit,manageCantonReceptionStaff,assignCantonFollowUp,completeCantonFollowUp,simulateCantonFeedbackInvitations,sendCantonQaEmailTest} from "@/app/actions/canton-visitors";
 export const dynamic="force-dynamic";
 export default async function CantonVisitorPage({searchParams}:{searchParams:Promise<{error?:string;success?:string}>}){
  const {error,success}=await searchParams;
@@ -53,7 +53,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
   .select("appointment_id,rating,contact_requested,submitted_at").in("appointment_id",visitIds):{data:[]};
  const {data:invitationQueue}=(isSenior||isManager)
   ?await db.from("canton_feedback_invitation_outbox")
-   .select("id,appointment_id,channel,status,due_at,created_at,reason")
+   .select("id,appointment_id,channel,status,due_at,created_at,reason,attempt_count,provider_error_code,provider_message_id")
    .eq("organization_id",membership.organization_id)
    .order("created_at",{ascending:false}).limit(100)
   :{data:[]};
@@ -91,6 +91,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
    <h2 className="text-lg font-semibold">{fr?"Invitations de satisfaction (TEST)":"Feedback invitation queue (QA)"}</h2>
    <p className="mt-2 text-sm text-slate-700">{fr?"Une invitation email est programmée 15 minutes après le départ uniquement avec l’accord du visiteur. Un avis reçu annule l’invitation en attente. ":"An email invitation is queued 15 minutes after checkout only with explicit consent. A submitted review cancels pending invitations. "}<strong>{fr?"Mode test : aucun email ni WhatsApp n’est envoyé.":"Test mode: no email or WhatsApp is sent."}</strong></p>
    <form action={simulateCantonFeedbackInvitations} className="mt-3 flex flex-wrap items-center gap-2"><input type="hidden" name="limit" value="20"/><button className="rounded-lg bg-indigo-700 px-4 py-2 text-sm font-semibold text-white">{fr?"Simuler les invitations à envoyer":"Simulate due invitations"}</button><span className="text-xs text-slate-700">{fr?"Simulation sécurisée : aucun message n’est envoyé.":"Safe simulation: no messages are sent."}</span></form>
+   {isSenior&&<p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">{fr?"Envoi email réel vers un destinataire QA explicitement autorisé uniquement. Désactivé tant que les paramètres QA ne sont pas configurés. Aucun envoi WhatsApp.":"Real email sending allowed only to one explicitly allowlisted QA recipient. Disabled until QA settings are configured. No WhatsApp sending."}</p>}
    <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
     <div className="rounded-lg bg-white p-3"><div className="text-xs text-slate-600">{fr?"En attente":"Pending"}</div><div className="text-xl font-bold">{invitationPending}</div></div>
     <div className="rounded-lg bg-white p-3"><div className="text-xs text-slate-600">{fr?"À traiter":"Due"}</div><div className="text-xl font-bold">{invitationDue}</div></div>
@@ -100,6 +101,9 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
    {(invitationQueue||[]).length>0&&<div className="mt-4 space-y-2">{(invitationQueue||[]).slice(0,10).map(x=><div key={x.id} className="rounded-lg border bg-white p-3 text-sm">
     <span className="font-semibold">{x.channel==="email"?"Email":"WhatsApp"}</span> · {x.status} · {new Date(x.due_at).toLocaleString("en-US",{timeZone:"America/Chicago"})} Canton
     <span className="ml-2 text-slate-500">({map.get((visits||[]).find(v=>v.id===x.appointment_id)?.visitor_id||"")?.full_name||"Visite"})</span>
+    {isSenior&&x.channel==="email"&&x.status==="pending"&&Date.parse(x.due_at)<=Date.now()&&<form action={sendCantonQaEmailTest} className="mt-2"><input type="hidden" name="id" value={x.appointment_id}/><button className="rounded border border-indigo-700 px-3 py-2 text-xs text-indigo-800">{fr?"Tester un email QA (destinataire autorisé)":"Test QA email (allowlisted recipient)"}</button></form>}
+    {x.provider_error_code&&<span className="mt-1 block text-xs text-rose-800">{fr?"Erreur fournisseur":"Provider error"}: {x.provider_error_code}</span>}
+
    </div>)}</div>}
    {!invitationQueue?.length&&<p className="mt-4 text-sm text-slate-700">{fr?"Aucune invitation programmée.":"No invitations scheduled."}</p>}
   </section>}
