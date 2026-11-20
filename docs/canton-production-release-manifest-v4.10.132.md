@@ -45,6 +45,7 @@ Fail closed. Do not enable the module in production until:
 
 Then run:
 125_canton_production_bootstrap.sql
+126_canton_production_email_delivery.sql
 
 ### Do NOT apply directly
 109_canton_qa_backend_grants.sql
