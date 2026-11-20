@@ -7,7 +7,7 @@ import {createCantonQrSite,reviewCantonQrIntake,updateCantonQrSiteAddress} from 
 import {redirect} from "next/navigation";
 import {createClient} from "@/lib/supabase/server";
 import {createAdminClient} from "@/lib/supabase/admin";
-import {createCantonAppointment,updateCantonVisit,manageCantonReceptionStaff,assignCantonFollowUp,completeCantonFollowUp,simulateCantonFeedbackInvitations,sendCantonQaEmailTest} from "@/app/actions/canton-visitors";
+import {createCantonAppointment,updateCantonVisit,manageCantonReceptionStaff,assignCantonFollowUp,completeCantonFollowUp,createCantonNextAction,completeCantonNextAction,simulateCantonFeedbackInvitations,sendCantonQaEmailTest} from "@/app/actions/canton-visitors";
 export const dynamic="force-dynamic";
 export default async function CantonVisitorPage({searchParams}:{searchParams:Promise<{error?:string;success?:string}>}){
  const {error,success}=await searchParams;
@@ -51,6 +51,14 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
  const visitIds=(visits||[]).map(v=>v.id);
  const {data:feedback}=visitIds.length?await db.from("canton_visit_feedback")
   .select("appointment_id,rating,contact_requested,submitted_at").in("appointment_id",visitIds):{data:[]};
+ const {data:nextActions}=await db.from("canton_next_actions")
+  .select("id,appointment_id,assigned_to,action_text,due_date,status,created_at,completion_note,completed_at")
+  .eq("organization_id",membership.organization_id)
+  .order("created_at",{ascending:false}).limit(150);
+ const visibleNextActions=(nextActions||[]).filter(action=>{
+  const visit=(visits||[]).find(v=>v.id===action.appointment_id);
+  return !!visit&&(isSenior||visit.department!=="DIRECTION")&&(isSenior||isManager||action.assigned_to===user.id);
+ });
  const {data:invitationQueue}=(isSenior||isManager)
   ?await db.from("canton_feedback_invitation_outbox")
    .select("id,appointment_id,channel,status,due_at,created_at,reason,attempt_count,provider_error_code,provider_message_id")
@@ -85,7 +93,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
   {success&&<p role="status" className="rounded bg-green-100 p-3 text-green-800">{success}</p>}
   {queryError&&<p role="alert" className="rounded bg-yellow-100 p-3">{fr?"Base de données non initialisée. Appliquez les migrations Canton.":"Database not initialized. Apply the Canton migration before using this module."}</p>}
   <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">{[
-   [fr?"Aujourd’hui":"Today",todayRows.length],[fr?"Attendus":"Expected",count(v=>v.status==="scheduled")],[fr?"Sur place":"On site",count(v=>["arrived","in_progress"].includes(v.status))],[fr?"Terminées":"Completed",count(v=>v.status==="completed")],[fr?"Avis":"Feedback", (feedback||[]).length],[fr?"Taux de réponse":"Response rate",feedbackResponseRate],[fr?"Note moyenne":"Avg. rating",ratingAverage],[fr?"Attention requise":"Attention needed",pendingFeedback],[fr?"Suivis ouverts":"Follow-ups open",pendingHandoffs],[fr?"Sans responsable":"Unassigned follow-ups",unassignedFollowUps.length]
+   [fr?"Aujourd’hui":"Today",todayRows.length],[fr?"Attendus":"Expected",count(v=>v.status==="scheduled")],[fr?"Sur place":"On site",count(v=>["arrived","in_progress"].includes(v.status))],[fr?"Terminées":"Completed",count(v=>v.status==="completed")],[fr?"Avis":"Feedback", (feedback||[]).length],[fr?"Taux de réponse":"Response rate",feedbackResponseRate],[fr?"Note moyenne":"Avg. rating",ratingAverage],[fr?"Attention requise":"Attention needed",pendingFeedback],[fr?"Suivis ouverts":"Follow-ups open",pendingHandoffs],[fr?"Sans responsable":"Unassigned follow-ups",unassignedFollowUps.length],[fr?"Prochaines actions":"Next actions",visibleNextActions.filter(x=>x.status==="open").length]
   ].map(([label,value])=><div key={label} className="rounded-xl border bg-white p-4"><div className="text-sm text-slate-500">{label}</div><div className="text-2xl font-bold">{value}</div></div>)}</div>
   {isSenior&&<section className="rounded-xl border bg-white p-5"><h2 className="mb-2 text-lg font-semibold">{fr?"Accès réception":"Reception access"}</h2><p className="mb-3 text-sm text-slate-500">{fr?"Autorisez les employés à enregistrer les arrivées et départs. Les visites de direction restent confidentielles.":"Assign staff to check in and check out standard visits. Confidential direction visits remain restricted."}</p>
   <div className="space-y-2">{(members||[]).map(m=><div className="flex flex-wrap items-center justify-between gap-2 border-b py-2 text-sm" key={m.user_id}><span>{profileMap.get(m.user_id)?.full_name||profileMap.get(m.user_id)?.email||m.user_id} <span className="text-xs text-slate-500">({m.role})</span></span><form action={manageCantonReceptionStaff}><input type="hidden" name="userId" value={m.user_id}/><button name="operation" value={assignedIds.has(m.user_id)?"revoke":"grant"} className={assignedIds.has(m.user_id)?"rounded bg-red-100 px-3 py-1":"rounded bg-emerald-100 px-3 py-1"}>{assignedIds.has(m.user_id)?(fr?"Retirer l’accès réception":"Remove reception access"):(fr?"Autoriser la réception":"Grant reception access")}</button></form></div>)}</div></section>}
@@ -177,8 +185,35 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
     <div className="font-semibold">{map.get(v.visitor_id)?.full_name||(fr?"Visiteur":"Visitor")} · {v.department}</div>
     <div>{fr?"Résultat : ":"Outcome: "}{({contacted:fr?"Contact établi":"Contacted",appointment_scheduled:fr?"Rendez-vous fixé":"Appointment scheduled",proposal_sent:fr?"Proposition envoyée":"Proposal sent",sale_closed:fr?"Vente conclue":"Sale closed",no_response:fr?"Sans réponse":"No response",not_interested:fr?"Pas intéressé":"Not interested",other:fr?"Autre":"Other"} as Record<string,string>)[v.follow_up_outcome]||v.follow_up_outcome}</div>
     <p className="mt-1 text-slate-700">{v.follow_up_result_note}</p>
+    {(v.department==="DIG"||v.department==="TCF")&&(isSenior||isManager||v.follow_up_owner_id===user.id)&&!visibleNextActions.some(x=>x.appointment_id===v.id&&x.status==="open")&&<form action={createCantonNextAction} className="mt-3 flex flex-wrap items-end gap-2 rounded-lg border border-indigo-200 bg-white p-3">
+      <input type="hidden" name="appointmentId" value={v.id}/>
+      <label className="min-w-[200px] flex-1 text-sm">{fr?"Prochaine action *":"Next action *"}<input name="actionText" required minLength={5} maxLength={800} className={input} placeholder={fr?"Ex. Relancer après lecture du contrat":"E.g. Follow up after contract review"}/></label>
+      <label className="text-sm">{fr?"Date de rappel *":"Follow-up date *"}<input type="date" name="dueDate" required className={input}/></label>
+      <button className="rounded-lg bg-indigo-700 px-3 py-2 text-sm font-semibold text-white">{fr?"Planifier":"Schedule"}</button>
+    </form>}
+
     <p className="mt-1 text-xs text-slate-500">{v.follow_up_completed_at?new Date(v.follow_up_completed_at).toLocaleString(fr?"fr-FR":"en-US",{timeZone:"America/Chicago"}):""}</p>
    </div>)}{!(visits||[]).some(v=>v.follow_up_status==="completed"&&v.follow_up_outcome)&&<p className="text-sm text-slate-500">{fr?"Aucun résultat enregistré pour le moment.":"No completed outcomes recorded yet."}</p>}</div>
+  </section>
+
+  <section className="rounded-xl border border-indigo-200 bg-indigo-50 p-5">
+   <h2 className="text-lg font-semibold">{fr?"Prochaines actions commerciales":"Next commercial actions"}</h2>
+   <p className="mt-2 text-sm text-slate-700">{fr?"Une proposition envoyée ne signifie pas que la vente est conclue. Planifiez l’étape suivante et gardez le dossier actif jusqu’à la prochaine décision.":"A proposal sent is not a closed sale. Schedule the next step and keep the opportunity visible until the next decision."}</p>
+   <div className="mt-4 space-y-3">
+    {visibleNextActions.filter(x=>x.status==="open").map(action=>{
+     const visit=(visits||[]).find(v=>v.id===action.appointment_id);
+     return <article key={action.id} className="rounded-lg border bg-white p-4">
+      <div className="font-semibold">{map.get(visit?.visitor_id||"")?.full_name||(fr?"Visiteur":"Visitor")} · {visit?.department}</div>
+      <p className="mt-1 text-sm">{action.action_text}</p>
+      <p className="mt-1 text-xs text-slate-700">{fr?"Échéance":"Due"}: {action.due_date} {action.due_date<cantonDay(new Date().toISOString())?"⚠️":""}</p>
+      {(isSenior||isManager||action.assigned_to===user.id)&&<form action={completeCantonNextAction} className="mt-3 flex flex-wrap items-end gap-2"><input type="hidden" name="actionId" value={action.id}/>
+       <label className="min-w-[240px] flex-1 text-sm">{fr?"Compte rendu de la nouvelle action *":"Next action completion note *"}<input required minLength={5} maxLength={1000} name="completionNote" className={input}/></label>
+       <button className="rounded-lg bg-emerald-700 px-3 py-2 text-sm font-semibold text-white">{fr?"Enregistrer et terminer":"Save and complete"}</button>
+      </form>}
+     </article>;
+    })}
+    {!visibleNextActions.some(x=>x.status==="open")&&<p className="text-sm text-slate-700">{fr?"Aucune prochaine action ouverte.":"No open next actions."}</p>}
+   </div>
   </section>
   {(isSenior||membership.role==="manager")&&unassignedFollowUps.length>0&&<section role="status" className="rounded-xl border-2 border-amber-400 bg-amber-50 p-5">
    <h2 className="text-lg font-semibold text-amber-950">{fr?"⚠️ Suivis commerciaux sans responsable":"⚠️ Commercial follow-ups without owner"}</h2>
