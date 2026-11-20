@@ -402,6 +402,56 @@ export async function completeCantonNextAction(f:FormData){
  revalidatePath(route);redirect(route+"?success="+encodeURIComponent("Next action completed"));
 }
 
+export async function createCantonSlaRecovery(f:FormData){
+ assertCantonLive();
+ const {db,org,user,role}=await context();
+ if(!["owner","admin","manager"].includes(role)) fail("Manager permission required");
+ const appointmentId=field(f,"appointmentId",40);
+ const assignedTo=field(f,"assignedTo",40);
+ const actionText=field(f,"actionText",800);
+ const dueDate=field(f,"dueDate",10);
+ if(!/^[0-9a-f-]{36}$/i.test(appointmentId)||!/^[0-9a-f-]{36}$/i.test(assignedTo)||actionText.length<5||!/^d{4}-d{2}-d{2}$/.test(dueDate))
+  fail("Valid recovery action, owner and due date required");
+ const {data:member}=await db.from("organization_members").select("user_id")
+  .eq("organization_id",org).eq("user_id",assignedTo).eq("is_active",true).maybeSingle();
+ if(!member) fail("Recovery owner must be an active organization member");
+ const {data:visit}=await db.from("canton_appointments")
+  .select("id,status,department,commercial_interest,commercial_qualified_at")
+  .eq("id",appointmentId).eq("organization_id",org).maybeSingle();
+ if(!visit||visit.status!=="completed"||!["DIG","TCF"].includes(visit.department)||!["hot","warm","cold"].includes(visit.commercial_interest||""))
+  fail("Only qualified completed DIG/TCF visits can receive a recovery plan");
+ const qualifiedAt=visit.commercial_qualified_at;
+ if(!qualifiedAt) fail("Commercial qualification timestamp missing");
+ const slaHours=visit.commercial_interest==="hot"?24:visit.commercial_interest==="warm"?72:168;
+ if(Date.now()<=Date.parse(qualifiedAt)+slaHours*60*60*1000) fail("SLA has not been breached yet");
+ const {error}=await db.from("canton_sla_recoveries").insert({
+  organization_id:org,appointment_id:appointmentId,assigned_to:assignedTo,created_by:user.id,
+  action_text:actionText,due_date:dueDate
+ });
+ if(error?.code==="23505") fail("An open recovery plan already exists for this prospect");
+ if(error) fail("Could not create recovery plan");
+ revalidatePath(route);
+ redirect(route+"?success="+encodeURIComponent("SLA recovery plan assigned"));
+}
+
+export async function completeCantonSlaRecovery(f:FormData){
+ assertCantonLive();
+ const {db,org,user,role}=await context();
+ const id=field(f,"recoveryId",40);
+ const completionNote=field(f,"completionNote",1000);
+ if(!/^[0-9a-f-]{36}$/i.test(id)||completionNote.length<5) fail("Completion note required");
+ const {data:recovery}=await db.from("canton_sla_recoveries")
+  .select("id,assigned_to,status").eq("id",id).eq("organization_id",org).maybeSingle();
+ if(!recovery||recovery.status!=="open") fail("Recovery plan is not open");
+ if(!seniorRoles.has(role)&&role!=="manager"&&recovery.assigned_to!==user.id) fail("Only the assigned employee or manager may close this recovery plan");
+ const {data:changed,error}=await db.from("canton_sla_recoveries").update({
+  status:"completed",completed_at:new Date().toISOString(),completed_by:user.id,completion_note:completionNote
+ }).eq("id",id).eq("organization_id",org).eq("status","open").select("id");
+ if(error||!changed?.length) fail("Recovery plan already updated, refresh");
+ revalidatePath(route);
+ redirect(route+"?success="+encodeURIComponent("SLA recovery plan completed"));
+}
+
 /** QA ONLY: simulate due invitations; never call email or WhatsApp providers. */
 export async function simulateCantonFeedbackInvitations(f:FormData){
  assertCantonLive();
