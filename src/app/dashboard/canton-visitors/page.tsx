@@ -95,6 +95,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
     <label className="text-sm">Scheduled arrival (Canton time)<input className={input} name="scheduled" type="datetime-local"/></label>
     <label className="text-sm">Host / team member<input className={input} name="host"/></label>
     <label className="text-sm md:col-span-2">Notes (optional)<input className={input} name="notes"/></label>
+    <label className="flex items-start gap-3 rounded-lg border bg-slate-50 p-3 text-sm md:col-span-3"><input type="checkbox" name="feedbackEmailConsent" value="yes" className="mt-1 h-4 w-4"/><span><strong>Consentement email pour avis / Feedback email opt-in.</strong> À cocher uniquement si le visiteur a explicitement accepté de recevoir un lien d&apos;avis par email après son départ. Ne cochez pas sans son accord.</span></label>
     <label className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm md:col-span-3"><input type="checkbox" name="confirmNearby" value="yes" className="mt-1 h-4 w-4"/><span><strong>Rendez-vous distinct / Separate visit.</strong> À cocher uniquement si vous avez vérifié qu&apos;une réservation à moins de 60 minutes représente réellement une autre visite. / Check only after verifying a nearby booking is genuinely separate.</span></label>
     <button className="rounded-lg bg-indigo-700 px-4 py-2 font-medium text-white md:col-span-3">Register visitor / appointment</button>
    </form></section>
