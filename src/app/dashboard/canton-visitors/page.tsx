@@ -46,7 +46,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
  const {data:sites}=(isSenior||isManager||isReception)?await db.from("canton_qr_sites").select("id,label,enabled,street_address").eq("organization_id",membership.organization_id).order("created_at",{ascending:false}):{data:[]};
  const {data:requests}=isSenior||isManager||isReception?await db.from("canton_intake_requests").select("id,full_name,department,purpose,email,phone,created_at").eq("organization_id",membership.organization_id).eq("status","pending").order("created_at",{ascending:true}).limit(100):{data:[]};
  const visitorIds=[...new Set((visits||[]).map(v=>v.visitor_id))];
- const {data:people}=visitorIds.length?await db.from("canton_visitors").select("id,full_name,phone").eq("organization_id",membership.organization_id).in("id",visitorIds):{data:[]};
+ const {data:people}=visitorIds.length?await db.from("canton_visitors").select("id,full_name,phone,email").eq("organization_id",membership.organization_id).in("id",visitorIds):{data:[]};
  const map=new Map((people||[]).map(p=>[p.id,p]));
  const visitIds=(visits||[]).map(v=>v.id);
  const {data:feedback}=visitIds.length?await db.from("canton_visit_feedback")
@@ -180,8 +180,32 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
    <div className="rounded-lg border p-4"><h3 className="font-semibold">{fr?"Satisfaction des visiteurs":"Visitor feedback"}</h3>{origin?<><img src={qrImage(origin+"/canton-feedback-qr")} width={220} height={220} alt="QR feedback for Canton visits" className="mx-auto my-3"/><a className="text-sm text-indigo-700 underline" href="/canton-feedback-qr" target="_blank">{fr?"Ouvrir le formulaire d’avis":"Open feedback form"}</a></>:<p>{fr?"QR indisponible sur cet hôte":"QR unavailable on unknown host"}</p>}<p className="mt-2 text-xs text-slate-500">{fr?"Sans code. Le visiteur peut identifier sa visite terminée ou donner un avis anonyme.":"No code needed. Visitors can identify their completed visit or leave anonymous feedback."}</p></div>
    </div>
   </section>
-  {(isSenior||isManager||isReception)&&<section className="rounded-xl border bg-white p-5"><h2 className="text-lg font-semibold">{fr?"Arrivées QR à valider (":"QR arrivals pending approval ("}{(requests||[]).length})</h2><p className="mb-3 text-xs text-slate-500">{fr?"Vérifiez l’identité en personne avant de confirmer l’arrivée.":"Confirm identity in person before approving. QR registration does not automatically check in a visitor."}</p>
-   <div className="space-y-3">{(requests||[]).map(q=><div className="flex flex-wrap items-center justify-between gap-3 border-b py-3" key={q.id}><div><div className="font-semibold">{q.full_name} · {q.department}</div><div className="text-sm">{q.email||q.phone||""} · {q.purpose}</div></div><form action={reviewCantonQrIntake} className="flex gap-2"><input type="hidden" name="id" value={q.id}/><button className="rounded bg-green-100 px-3 py-2" name="decision" value="approve">{fr?"Confirmer l’arrivée":"Confirm arrival"}</button><button className="rounded bg-slate-100 px-3 py-2" name="decision" value="reject">{fr?"Refuser":"Reject"}</button></form></div>)}{!requests?.length&&<p className="py-4 text-sm text-slate-500">{fr?"Aucune arrivée QR en attente.":"No pending QR arrivals."}</p>}</div></section>}
+  {(isSenior||isManager||isReception)&&<section className="rounded-xl border bg-white p-5"><h2 className="text-lg font-semibold">{fr?"Arrivées QR à valider (":"QR arrivals pending approval ("}{(requests||[]).length})</h2><p className="mb-3 text-xs text-slate-500">{fr?"Vérifiez l’identité en personne avant de confirmer. Super Leader recherche automatiquement un rendez-vous existant afin d’éviter les doublons.":"Confirm identity in person before approval. Super Leader automatically looks for an existing appointment to avoid duplicate visits."}</p>
+   <div className="space-y-3">{(requests||[]).map(q=>{
+     const email=(q.email||"").toLowerCase();
+     const phone=(q.phone||"").replace(/[^0-9+]/g,"");
+     const matchingPeople=(people||[]).filter(p=>(email&&String(p.email||"").toLowerCase()===email)||(phone&&String(p.phone||"")===phone));
+     const matchingIds=new Set(matchingPeople.map(p=>p.id));
+     const candidateVisits=(visits||[]).filter(v=>matchingIds.has(v.visitor_id)&&v.department===q.department&&v.purpose===q.purpose&&v.status==="scheduled");
+     const exact=candidateVisits.length===1?candidateVisits[0]:null;
+     const ambiguous=candidateVisits.length>1;
+     return <div className="rounded-xl border p-4" key={q.id}>
+       <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+         <div className="font-semibold">{q.full_name} · {q.department}</div>
+         <div className="text-sm text-slate-600">{q.email||q.phone||""} · {q.purpose}</div>
+         {exact&&<div className="mt-2 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-900"><strong>{fr?"✓ Rendez-vous retrouvé":"✓ Appointment found"}</strong> · {exact.scheduled_local?.slice(0,16).replace("T"," ")||""} {exact.host_name?("· "+exact.host_name):""}<div className="mt-1 text-xs">{fr?"La validation enregistrera l’arrivée sur ce rendez-vous existant. Aucun doublon ne sera créé.":"Approval will check the visitor into this existing appointment. No duplicate visit will be created."}</div></div>}
+         {!exact&&!ambiguous&&<div className="mt-2 rounded-lg bg-indigo-50 px-3 py-2 text-sm text-indigo-900"><strong>{fr?"Nouvelle visite":"New visit"}</strong><div className="mt-1 text-xs">{fr?"Aucun rendez-vous correspondant n’a été trouvé. La validation créera une arrivée sur place.":"No matching appointment was found. Approval will create a new walk-in visit."}</div></div>}
+         {ambiguous&&<div className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900"><strong>{fr?"⚠ Plusieurs rendez-vous possibles":"⚠ Multiple possible appointments"}</strong><div className="mt-1 text-xs">{fr?"Ne validez pas automatiquement. Vérifiez les rendez-vous du visiteur avant de continuer.":"Do not auto-approve. Review the visitor’s appointments before continuing."}</div></div>}
+        </div>
+        <form action={reviewCantonQrIntake} className="flex flex-wrap gap-2">
+         <input type="hidden" name="id" value={q.id}/>
+         {!ambiguous&&<button className="rounded bg-green-100 px-3 py-2 font-medium text-green-900" name="decision" value="approve">{exact?(fr?"Confirmer sur le rendez-vous":"Confirm appointment arrival"):(fr?"Confirmer la nouvelle arrivée":"Confirm new arrival")}</button>}
+         <button className="rounded bg-slate-100 px-3 py-2" name="decision" value="reject">{fr?"Refuser":"Reject"}</button>
+        </form>
+       </div>
+      </div>;
+   })}{!requests?.length&&<p className="py-4 text-sm text-slate-500">{fr?"Aucune arrivée QR en attente.":"No pending QR arrivals."}</p>}</div></section>}
   <section className="rounded-xl border bg-white p-5"><h2 className="mb-3 text-lg font-semibold">{fr?"Enregistrer ou annoncer une visite":"Register or announce a visit"}</h2>
    <p className="mb-3 text-xs text-slate-500">{fr?"Le téléphone ou l’email permet de retrouver le visiteur. Les doublons exacts sont bloqués. Deux rendez-vous rapprochés à moins de 60 minutes nécessitent une confirmation. Heure locale de Canton.":"Phone or email identifies an existing visitor. Exact duplicate appointments are blocked. Bookings for the same visitor, department and purpose within 60 minutes require explicit confirmation. Time is local to Canton."}</p>
    <form action={createCantonAppointment} className="grid gap-3 md:grid-cols-3">
