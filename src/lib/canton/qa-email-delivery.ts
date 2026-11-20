@@ -73,7 +73,7 @@ export async function sendCantonQaFeedbackEmail(appointmentId:string):Promise<Ca
   });
   return {outcome:"failed",detail:"QA preview host missing"};
  }
- const url="https://"+deploymentHost+"/canton-feedback?token="+encodeURIComponent(visit.feedback_token)+"&lang="+language;
+ const url="https://"+deploymentHost+"/canton-feedback/"+encodeURIComponent(visit.feedback_token)+"?lang="+language;
  const payload=cantonFeedbackEmail({language,department:visit.department==="DIG"||visit.department==="TCF"?visit.department:"OTHER",feedbackUrl:url});
  let providerMessageId:string|null=null;
  let providerErrorCode:string|null=null;
