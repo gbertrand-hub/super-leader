@@ -63,10 +63,6 @@ export async function sendCantonQaFeedbackEmail(appointmentId:string):Promise<Ca
   return {outcome:"cancelled",detail:"Conditions changed before sending"};
  }
  const language=person.feedback_preferred_locale==="fr"?"fr":"en";
- const message=cantonFeedbackEmail({
-  language,department:visit.department==="DIG"||visit.department==="TCF"?visit.department:"OTHER",
-  feedbackUrl:"https://super-leader-"+(process.env.VERCEL_URL||"").replace(/^super-leader-/,""),
- });
  // Use the actual deployment URL only; this test must never link to production.
  const deploymentHost=process.env.VERCEL_URL||"";
  const validHost=/^[a-z0-9-]+\.vercel\.app$/.test(deploymentHost);
