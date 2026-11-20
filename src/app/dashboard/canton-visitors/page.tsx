@@ -38,7 +38,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
 
  const isManager=membership.role==="manager" || membership.role==="hr";
  let visitQuery=db.from("canton_appointments")
-  .select("id,visitor_id,department,purpose,status,scheduled_local,host_name,host_user_id,check_in_at,visit_started_at,check_out_at,feedback_token,feedback_code,follow_up_required,follow_up_owner_id,follow_up_status,follow_up_due_date,follow_up_note,follow_up_outcome,follow_up_result_note,follow_up_completed_at,commercial_interest,commercial_qualified_at,commercial_qualified_by,visit_outcome,debrief_note,debriefed_by,debriefed_at,created_at,announced_by")
+  .select("id,visitor_id,department,purpose,status,scheduled_local,host_name,host_user_id,check_in_at,visit_started_at,check_out_at,feedback_token,feedback_code,follow_up_required,follow_up_owner_id,follow_up_status,follow_up_due_date,follow_up_note,follow_up_outcome,follow_up_result_note,follow_up_completed_at,commercial_interest,commercial_qualified_at,commercial_qualified_by,visit_outcome,debrief_note,debriefed_by,debriefed_at,visit_origin,crm_referred_by,created_at,announced_by")
   .eq("organization_id",membership.organization_id);
  if(!isSenior) {
   visitQuery = (isManager || isReception)
@@ -270,7 +270,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
       const statusClass=["arrived","in_progress"].includes(v.status)?"bg-emerald-100 text-emerald-900":v.status==="scheduled"?"bg-indigo-100 text-indigo-900":v.status==="completed"?"bg-slate-100 text-slate-700":v.status==="no_show"?"bg-amber-100 text-amber-900":"bg-slate-100 text-slate-700";
       return <article key={v.id} className="grid gap-3 rounded-xl border bg-slate-50 p-4 md:grid-cols-[1.4fr_1fr_auto] md:items-center">
        <div>
-        <div className="flex flex-wrap items-center gap-2"><strong className="text-base">{person?.full_name||(fr?"Visiteur":"Visitor")}</strong><span className={"rounded-full px-2 py-1 text-xs font-semibold "+statusClass}>{statusLabel}</span></div>
+        <div className="flex flex-wrap items-center gap-2"><strong className="text-base">{person?.full_name||(fr?"Visiteur":"Visitor")}</strong><span className={"rounded-full px-2 py-1 text-xs font-semibold "+statusClass}>{statusLabel}</span>{v.visit_origin==="crm_referral"&&<span className="rounded-full bg-cyan-100 px-2 py-1 text-[10px] font-bold uppercase text-cyan-900">{fr?"Envoyé par CRM":"CRM referral"}</span>}</div>
         <p className="mt-1 text-sm text-slate-600">{v.department} · {v.purpose}</p>
         {person?.phone&&<p className="mt-1 text-xs text-slate-500">{person.phone}</p>}
        </div>
@@ -486,7 +486,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
           contacted:"Contacted",appointment_scheduled:"Appointment scheduled",proposal_sent:"Proposal sent",sale_closed:"Sale closed",no_response:"No response",not_interested:"Not interested",other:"Other"
          } as Record<string,string>)[v.follow_up_outcome||""]||v.follow_up_outcome);
       return <tr key={v.id} className={"border-b align-top "+(row.slaLate||row.overdue||row.missingAction?"bg-rose-50/60":row.slaPlannedTooLate||row.slaApproaching?"bg-amber-50/60":"")}>
-       <td className="p-3"><div className="font-semibold">{row.person?.full_name||(fr?"Visiteur":"Visitor")}</div><div className="text-xs text-slate-500">{v.department} · {v.purpose}</div></td>
+       <td className="p-3"><div className="flex flex-wrap items-center gap-2"><span className="font-semibold">{row.person?.full_name||(fr?"Visiteur":"Visitor")}</span>{v.visit_origin==="crm_referral"&&<span className="rounded-full bg-cyan-100 px-2 py-1 text-[10px] font-bold uppercase text-cyan-900">CRM</span>}</div><div className="text-xs text-slate-500">{v.department} · {v.purpose}</div></td>
        <td className="p-3">{v.commercial_interest?<span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-semibold">{interestLabel}</span>:<form action={qualifyCantonLegacyProspect} className="flex min-w-[180px] gap-2"><input type="hidden" name="id" value={v.id}/><select name="interest" required defaultValue="" className="rounded border border-slate-300 bg-white px-2 py-1 text-xs"><option value="" disabled>{fr?"À qualifier":"To qualify"}</option><option value="hot">🔥 Hot</option><option value="warm">🟠 Warm</option><option value="cold">🔵 Cold</option><option value="non_commercial">{fr?"Non commercial":"Non-commercial"}</option></select><button className="rounded bg-violet-700 px-2 py-1 text-xs font-semibold text-white">{fr?"Valider":"Save"}</button></form>}</td>
        <td className="p-3">{outcomeLabel||"—"}</td>
        <td className="p-3">{row.ownerId?(profileMap.get(row.ownerId)?.full_name||profileMap.get(row.ownerId)?.email||v.host_name||"—"):(v.host_name||"—")}</td>
