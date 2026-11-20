@@ -444,8 +444,10 @@ export async function completeCantonSlaRecovery(f:FormData){
  if(!/^[0-9a-f-]{36}$/i.test(id)||completionNote.length<5) fail("Completion note required");
  const {data:recovery}=await db.from("canton_sla_recoveries")
   .select("id,assigned_to,status").eq("id",id).eq("organization_id",org).maybeSingle();
- if(!recovery||recovery.status!=="open") fail("Recovery plan is not open");
- if(!seniorRoles.has(role)&&role!=="manager"&&recovery.assigned_to!==user.id) fail("Only the assigned employee or manager may close this recovery plan");
+ if(!recovery) fail("Recovery plan not found");
+ const recoveryRow=recovery!;
+ if(recoveryRow.status!=="open") fail("Recovery plan is not open");
+ if(!seniorRoles.has(role)&&role!=="manager"&&recoveryRow.assigned_to!==user.id) fail("Only the assigned employee or manager may close this recovery plan");
  const {data:changed,error}=await db.from("canton_sla_recoveries").update({
   status:"completed",completed_at:new Date().toISOString(),completed_by:user.id,completion_note:completionNote
  }).eq("id",id).eq("organization_id",org).eq("status","open").select("id");
