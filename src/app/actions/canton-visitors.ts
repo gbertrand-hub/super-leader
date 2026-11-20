@@ -223,6 +223,52 @@ export async function manageCantonReceptionStaff(f:FormData) {
  redirect(route+"?success="+encodeURIComponent("Reception access updated"));
 }
 
+export async function saveCantonVisitDebrief(f:FormData){
+ assertCantonLive();
+ const {db,org,user,role}=await context();
+ const id=field(f,"id",40);
+ const interest=field(f,"interest",30);
+ const outcome=field(f,"outcome",40);
+ const note=field(f,"note",1200);
+ const nextAction=field(f,"nextAction",800);
+ const dueDate=field(f,"dueDate",10);
+ const allowedInterest=["hot","warm","cold","non_commercial"];
+ const allowedOutcome=["information_only","follow_up_requested","proposal_requested","next_appointment","ready_to_buy","not_interested","other"];
+ if(!/^[0-9a-f-]{36}$/i.test(id)) fail("Invalid visit");
+ if(!allowedInterest.includes(interest)||!allowedOutcome.includes(outcome)||note.length<5) fail("Complete the visit debrief");
+ const {data:visit}=await db.from("canton_appointments")
+  .select("id,status,department,host_user_id,announced_by,debriefed_at")
+  .eq("id",id).eq("organization_id",org).maybeSingle();
+ if(!visit||visit.status!=="completed") fail("Complete the visit before debriefing");
+ if(!["DIG","TCF"].includes(visit.department)) fail("Commercial debrief is only required for DIG or TCF visits");
+ const isSenior=seniorRoles.has(role);
+ const isHost=visit.host_user_id===user.id;
+ const isCreator=visit.announced_by===user.id;
+ if(!isSenior&&role!=="manager"&&!isHost&&!isCreator) fail("Only the visit owner, host or manager can submit the debrief");
+ if(visit.debriefed_at) fail("This visit already has a debrief");
+ const {data:changed,error}=await db.from("canton_appointments").update({
+  commercial_interest:interest,
+  visit_outcome:outcome,
+  debrief_note:note,
+  debriefed_by:user.id,
+  debriefed_at:new Date().toISOString(),
+  follow_up_required:interest!=="non_commercial"&&outcome!=="not_interested",
+  updated_at:new Date().toISOString()
+ }).eq("id",id).eq("organization_id",org).is("debriefed_at",null).select("id,host_user_id");
+ if(error||!changed?.length) fail("Could not save the visit debrief");
+ if(nextAction||dueDate){
+  if(nextAction.length<5||!/^d{4}-d{2}-d{2}$/.test(dueDate)||!Number.isFinite(Date.parse(dueDate+"T12:00:00Z"))) fail("Next action and valid due date are both required");
+  const assignedTo=visit.host_user_id||user.id;
+  const {error:nextError}=await db.from("canton_next_actions").insert({
+   organization_id:org,appointment_id:id,assigned_to:assignedTo,
+   action_text:nextAction,due_date:dueDate,created_by:user.id
+  });
+  if(nextError) fail("Debrief saved, but next action could not be scheduled");
+ }
+ revalidatePath(route);
+ redirect(route+"?success="+encodeURIComponent("Visit debrief saved"));
+}
+
 export async function assignCantonFollowUp(f:FormData){
  assertCantonLive();
  const {db,org,user,role}=await context();
