@@ -1,23 +1,42 @@
-/** Stage-only kill switch: never use the existing production Supabase keys for Canton test writes. */
+/** Canton rollout gate.
+ * Preview QA remains isolated. Production stays fail-closed until both
+ * the production schema and the explicit production release flag are ready.
+ */
 const QA_PROJECT_REF = "xehstmnqljjhacjiukvc";
+const PROD_PROJECT_REF = "jjbuxrlvxnlnrjcorpwt";
 const QA_GIT_BRANCH = "feature/canton-visitor-v4-10-132";
-/** Login-only test is allowed on the isolated preview project while all Canton writes stay blocked. */
+
+function projectRef(): string {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+  try { return new URL(url).hostname.split(".")[0] || ""; } catch { return ""; }
+}
+
+/** Login-only QA test remains branch-scoped and isolated from production. */
 export function cantonAuthTestEnabled(): boolean {
   return process.env.VERCEL_ENV === "preview"
-    && process.env.NEXT_PUBLIC_SUPABASE_URL === "https://" + QA_PROJECT_REF + ".supabase.co"
+    && projectRef() === QA_PROJECT_REF
     && process.env.VERCEL_GIT_COMMIT_REF === QA_GIT_BRANCH;
 }
-export function cantonLiveEnabled(): boolean {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
-  let projectRef = "";
-  try { projectRef = new URL(url).hostname.split(".")[0] || ""; } catch { return false; }
-  return cantonAuthTestEnabled()
+
+/** Production activation requires explicit database readiness AND release approval. */
+export function cantonProductionEnabled(): boolean {
+  return process.env.VERCEL_ENV === "production"
+    && projectRef() === PROD_PROJECT_REF
     && process.env.CANTON_VISITOR_ENABLE_LIVE === "true"
-    && projectRef === QA_PROJECT_REF
-    && process.env.CANTON_TEST_DATABASE_READY === "true";
+    && process.env.CANTON_PRODUCTION_DATABASE_READY === "true"
+    && process.env.CANTON_PRODUCTION_RELEASE_APPROVED === "true";
 }
+
+export function cantonLiveEnabled(): boolean {
+  const qaLive = cantonAuthTestEnabled()
+    && process.env.CANTON_VISITOR_ENABLE_LIVE === "true"
+    && process.env.CANTON_TEST_DATABASE_READY === "true";
+
+  return qaLive || cantonProductionEnabled();
+}
+
 export function assertCantonLive(): void {
   if (!cantonLiveEnabled()) {
-    throw new Error("Canton live operations are disabled until an isolated preview database and auth have passed acceptance.");
+    throw new Error("Visitor & Appointment Management is disabled until the target database and release gate are approved.");
   }
 }
