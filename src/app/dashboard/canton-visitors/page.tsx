@@ -7,7 +7,7 @@ import {createCantonQrSite,reviewCantonQrIntake,updateCantonQrSiteAddress} from 
 import {redirect} from "next/navigation";
 import {createClient} from "@/lib/supabase/server";
 import {createAdminClient} from "@/lib/supabase/admin";
-import {createCantonAppointment,createCantonCrmReferral,updateCantonVisit,manageCantonReceptionStaff,assignCantonFollowUp,completeCantonFollowUp,createCantonNextAction,completeCantonNextAction,simulateCantonFeedbackInvitations,sendCantonQaEmailTest,markCantonArrivalAlertRead,saveCantonVisitDebrief,qualifyCantonLegacyProspect,createCantonSlaRecovery,completeCantonSlaRecovery} from "@/app/actions/canton-visitors";
+import {createCantonAppointment,createCantonCrmReferral,updateCantonVisit,manageCantonReceptionStaff,assignCantonFollowUp,completeCantonFollowUp,createCantonNextAction,completeCantonNextAction,simulateCantonFeedbackInvitations,sendCantonQaEmailTest,markCantonArrivalAlertRead,saveCantonVisitDebrief,qualifyCantonLegacyProspect,createCantonSlaRecovery,completeCantonSlaRecovery,createVisitorSite,updateVisitorSite,manageVisitorSiteStaff} from "@/app/actions/canton-visitors";
 export const dynamic="force-dynamic";
 export default async function CantonVisitorPage({searchParams}:{searchParams:Promise<{error?:string;success?:string;q?:string;view?:string;site?:string;filter?:string}>}){
  const {error,success,q="",view="",site="",filter=""}=await searchParams;
@@ -43,6 +43,11 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
  const {data:memberProfiles}=memberIds.length?await db.from("profiles").select("id,full_name,email").in("id",memberIds):{data:[]};
  const profileMap=new Map((memberProfiles||[]).map(p=>[p.id,p]));
  const assignedIds=new Set((staffAssignments||[]).map(p=>p.user_id));
+ const {data:siteStaff}=isSenior?await db.from("visitor_site_staff")
+  .select("site_id,user_id,access_role,is_active")
+  .in("site_id",(visitorSites||[]).map(s=>s.id))
+  .eq("is_active",true):{data:[]};
+ const siteStaffMap=new Map((siteStaff||[]).map(x=>[x.site_id+":"+x.user_id,x]));
 
  const isManager=membership.role==="manager" || membership.role==="hr";
  const allowedViews=["dashboard","reception","appointments","commercial","feedback","admin"] as const;
@@ -376,8 +381,64 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
     </div>
    </details>}
   </section>}
-  {isSenior&&<section data-canton-view="admin" className="rounded-xl border bg-white p-5"><h2 className="mb-2 text-lg font-semibold">{fr?"Accès réception":"Reception access"}</h2><p className="mb-3 text-sm text-slate-500">{fr?"Autorisez les employés à enregistrer les arrivées et départs. Les visites de direction restent confidentielles.":"Assign staff to check in and check out standard visits. Confidential direction visits remain restricted."}</p>
-  <div className="space-y-2">{(members||[]).map(m=><div className="flex flex-wrap items-center justify-between gap-2 border-b py-2 text-sm" key={m.user_id}><span>{profileMap.get(m.user_id)?.full_name||profileMap.get(m.user_id)?.email||m.user_id} <span className="text-xs text-slate-500">({m.role})</span></span><form action={manageCantonReceptionStaff}><input type="hidden" name="userId" value={m.user_id}/><button name="operation" value={assignedIds.has(m.user_id)?"revoke":"grant"} className={assignedIds.has(m.user_id)?"rounded bg-red-100 px-3 py-1":"rounded bg-emerald-100 px-3 py-1"}>{assignedIds.has(m.user_id)?(fr?"Retirer l’accès réception":"Remove reception access"):(fr?"Autoriser la réception":"Grant reception access")}</button></form></div>)}</div></section>}
+  {isSenior&&<section data-canton-view="admin" className="space-y-5">
+   <section className="rounded-2xl border-2 border-indigo-200 bg-indigo-50 p-5">
+    <div className="flex flex-wrap items-start justify-between gap-3">
+     <div><p className="text-xs font-bold uppercase tracking-wider text-indigo-700">{fr?"Configuration réseau":"Network configuration"}</p><h2 className="mt-1 text-xl font-bold text-indigo-950">{fr?"Bureaux & centres d’activité":"Offices & activity centers"}</h2><p className="mt-1 text-sm text-indigo-900">{fr?"Ajoutez les futurs bureaux, définissez leur fuseau horaire, leur adresse et leur équipe locale. Canton reste le HQ tant qu’un administrateur ne désigne pas explicitement un autre site.":"Add future offices, configure timezone, address and local team. Canton remains HQ until an administrator explicitly assigns another site."}</p></div>
+     <span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-indigo-900">{(visitorSites||[]).length} {fr?"site(s) actif(s)":"active site(s)"}</span>
+    </div>
+    <form action={createVisitorSite} className="mt-4 grid gap-3 rounded-xl border border-indigo-200 bg-white p-4 md:grid-cols-2 xl:grid-cols-3">
+     <label className="text-sm font-semibold text-slate-700">{fr?"Nom du site *":"Site name *"}<input name="name" required minLength={2} maxLength={180} className={input} placeholder={fr?"Ex. Paris Office":"E.g. Paris Office"}/></label>
+     <label className="text-sm font-semibold text-slate-700">{fr?"Code interne *":"Internal code *"}<input name="code" required minLength={2} maxLength={40} className={input} placeholder="PARIS"/></label>
+     <label className="text-sm font-semibold text-slate-700">{fr?"Ville":"City"}<input name="city" maxLength={120} className={input} placeholder="Paris"/></label>
+     <label className="text-sm font-semibold text-slate-700">{fr?"Pays (ISO)":"Country (ISO)"}<input name="countryCode" maxLength={2} className={input} placeholder="FR"/></label>
+     <label className="text-sm font-semibold text-slate-700">{fr?"Fuseau horaire *":"Timezone *"}<input name="timezone" required maxLength={80} className={input} placeholder="Europe/Paris"/></label>
+     <label className="text-sm font-semibold text-slate-700 md:col-span-2 xl:col-span-3">{fr?"Adresse physique":"Street address"}<input name="streetAddress" maxLength={300} className={input} placeholder={fr?"Adresse complète pour Google Maps et QR":"Full address for Google Maps and QR"}/></label>
+     <button className="rounded-lg bg-indigo-800 px-5 py-3 font-bold text-white md:col-span-2 xl:col-span-3">{fr?"Ajouter le bureau / centre":"Add office / center"}</button>
+    </form>
+
+    <div className="mt-5 space-y-4">
+     {(visitorSites||[]).map(s=><article key={s.id} className="rounded-xl border bg-white p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+       <div><div className="flex flex-wrap items-center gap-2"><h3 className="font-bold text-slate-900">{s.name}</h3>{s.is_hq&&<span className="rounded-full bg-amber-100 px-2 py-1 text-[10px] font-bold text-amber-900">HQ</span>}{!s.is_active&&<span className="rounded-full bg-slate-200 px-2 py-1 text-[10px] font-bold text-slate-700">{fr?"INACTIF":"INACTIVE"}</span>}</div><p className="mt-1 text-xs text-slate-500">{s.code} · {s.city||"—"} · {s.country_code||"—"} · {s.timezone}</p></div>
+       <div className="flex flex-wrap gap-2">
+        {!s.is_hq&&<form action={updateVisitorSite}><input type="hidden" name="siteId" value={s.id}/><button name="operation" value="make_hq" className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900">{fr?"Définir comme HQ":"Make HQ"}</button></form>}
+        <form action={updateVisitorSite}><input type="hidden" name="siteId" value={s.id}/><button name="operation" value="toggle" disabled={s.is_hq&&s.is_active} className="rounded-lg border bg-slate-50 px-3 py-2 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-40">{s.is_active?(fr?"Désactiver":"Deactivate"):(fr?"Réactiver":"Reactivate")}</button></form>
+       </div>
+      </div>
+      <form action={updateVisitorSite} className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+       <input type="hidden" name="siteId" value={s.id}/>
+       <input type="hidden" name="operation" value="save"/>
+       <label className="text-sm">{fr?"Nom":"Name"}<input name="name" required defaultValue={s.name} className={input}/></label>
+       <label className="text-sm">{fr?"Ville":"City"}<input name="city" defaultValue={s.city||""} className={input}/></label>
+       <label className="text-sm">{fr?"Pays":"Country"}<input name="countryCode" maxLength={2} defaultValue={s.country_code||""} className={input}/></label>
+       <label className="text-sm">{fr?"Fuseau horaire":"Timezone"}<input name="timezone" required defaultValue={s.timezone} className={input}/></label>
+       <label className="text-sm md:col-span-2">{fr?"Adresse":"Address"}<input name="streetAddress" defaultValue={s.street_address||""} className={input}/></label>
+       <button className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white xl:col-span-3">{fr?"Enregistrer les paramètres":"Save site settings"}</button>
+      </form>
+
+      <details className="mt-4 rounded-lg border bg-slate-50">
+       <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-slate-800">{fr?"Équipe locale & droits":"Local team & access rights"}</summary>
+       <div className="space-y-2 border-t p-3">
+        {(members||[]).map(m=>{const key=s.id+":"+m.user_id;const assigned=siteStaffMap.get(key);return <div key={m.user_id} className="grid gap-2 rounded-lg bg-white p-3 md:grid-cols-[1.4fr_1fr_auto] md:items-center">
+         <div><div className="font-medium">{profileMap.get(m.user_id)?.full_name||profileMap.get(m.user_id)?.email||m.user_id}</div><div className="text-xs text-slate-500">{m.role}</div></div>
+         <div className="text-sm">{assigned?<span className="rounded bg-emerald-100 px-2 py-1 text-xs font-semibold text-emerald-900">{assigned.access_role}</span>:<span className="text-slate-400">{fr?"Aucun accès local":"No local access"}</span>}</div>
+         <form action={manageVisitorSiteStaff} className="flex flex-wrap gap-2">
+          <input type="hidden" name="siteId" value={s.id}/><input type="hidden" name="userId" value={m.user_id}/>
+          <select name="accessRole" defaultValue={assigned?.access_role||"host"} className="rounded border border-slate-300 bg-white px-2 py-2 text-xs"><option value="reception">{fr?"Réception":"Reception"}</option><option value="host">Host</option><option value="manager">Manager</option></select>
+          <button name="operation" value="grant" className="rounded bg-indigo-700 px-3 py-2 text-xs font-semibold text-white">{assigned?(fr?"Modifier":"Update"):(fr?"Attribuer":"Assign")}</button>
+          {assigned&&<button name="operation" value="revoke" className="rounded bg-rose-100 px-3 py-2 text-xs font-semibold text-rose-900">{fr?"Retirer":"Remove"}</button>}
+         </form>
+        </div>})}
+       </div>
+      </details>
+     </article>)}
+    </div>
+   </section>
+
+   <section className="rounded-xl border bg-white p-5"><h2 className="mb-2 text-lg font-semibold">{fr?"Accès réception global (compatibilité Canton)":"Global reception access (Canton compatibility)"}</h2><p className="mb-3 text-sm text-slate-500">{fr?"Autorisez les employés à enregistrer les arrivées et départs. Les visites de direction restent confidentielles.":"Assign staff to check in and check out standard visits. Confidential direction visits remain restricted."}</p>
+  <div className="space-y-2">{(members||[]).map(m=><div className="flex flex-wrap items-center justify-between gap-2 border-b py-2 text-sm" key={m.user_id}><span>{profileMap.get(m.user_id)?.full_name||profileMap.get(m.user_id)?.email||m.user_id} <span className="text-xs text-slate-500">({m.role})</span></span><form action={manageCantonReceptionStaff}><input type="hidden" name="userId" value={m.user_id}/><button name="operation" value={assignedIds.has(m.user_id)?"revoke":"grant"} className={assignedIds.has(m.user_id)?"rounded bg-red-100 px-3 py-1":"rounded bg-emerald-100 px-3 py-1"}>{assignedIds.has(m.user_id)?(fr?"Retirer l’accès réception":"Remove reception access"):(fr?"Autoriser la réception":"Grant reception access")}</button></form></div>)}</div></section>
+  </section>}
 
 
   {(isSenior||isManager)&&<section className="rounded-xl border border-indigo-200 bg-indigo-50 p-5">
