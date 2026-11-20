@@ -4,6 +4,7 @@ import {revalidatePath} from "next/cache";
 import {redirect} from "next/navigation";
 import {createClient} from "@/lib/supabase/server";
 import {createAdminClient} from "@/lib/supabase/admin";
+import {syncCantonFeedbackToCrm} from "@/lib/canton/feedback-crm-sync";
 import {sendCantonQaFeedbackEmail} from "@/lib/canton/qa-email-delivery";
 
 const depts = new Set(["DIG","TCF","DIRECTION","OTHER"]);
@@ -313,13 +314,23 @@ export async function submitCantonFeedback(f:FormData){
   redirect("/canton-feedback/"+encodeURIComponent(token)+"?error=invalid");
  if(expectations&&!["yes","partially","no"].includes(expectations))
   redirect("/canton-feedback/"+encodeURIComponent(token)+"?error=invalid");
- const {error}=await db.from("canton_visit_feedback").insert({
+ const contactRequested=field(f,"contact")==="yes";
+ const comment=field(f,"comment",1200)||null;
+ const {data:feedback,error}=await db.from("canton_visit_feedback").insert({
   appointment_id:visit.id,rating,
   welcome_rating:welcome||null,expectations:expectations||null,
-  contact_requested:field(f,"contact")==="yes",
-  comment:field(f,"comment",1200)||null
+  contact_requested:contactRequested,
+  comment
+ }).select("id").single();
+ if(error||!feedback?.id) redirect("/canton-feedback/"+encodeURIComponent(token)+"?error=already-submitted");
+
+ await syncCantonFeedbackToCrm({
+  appointmentId:visit.id,
+  feedbackId:feedback.id,
+  rating,
+  contactRequested,
+  comment
  });
- if(error) redirect("/canton-feedback/"+encodeURIComponent(token)+"?error=already-submitted");
  redirect("/canton-feedback/"+encodeURIComponent(token)+"?success=1");
 }
 
