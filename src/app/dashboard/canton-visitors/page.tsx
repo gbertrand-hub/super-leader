@@ -9,8 +9,8 @@ import {createClient} from "@/lib/supabase/server";
 import {createAdminClient} from "@/lib/supabase/admin";
 import {createCantonAppointment,createCantonCrmReferral,updateCantonVisit,manageCantonReceptionStaff,assignCantonFollowUp,completeCantonFollowUp,createCantonNextAction,completeCantonNextAction,simulateCantonFeedbackInvitations,sendCantonQaEmailTest,markCantonArrivalAlertRead,saveCantonVisitDebrief,qualifyCantonLegacyProspect,createCantonSlaRecovery,completeCantonSlaRecovery} from "@/app/actions/canton-visitors";
 export const dynamic="force-dynamic";
-export default async function CantonVisitorPage({searchParams}:{searchParams:Promise<{error?:string;success?:string;q?:string}>}){
- const {error,success,q=""}=await searchParams;
+export default async function CantonVisitorPage({searchParams}:{searchParams:Promise<{error?:string;success?:string;q?:string;view?:string}>}){
+ const {error,success,q="",view=""}=await searchParams;
  const {locale}=await getI18n();const fr=locale==="fr";
  if (!cantonLiveEnabled()) return <main className="mx-auto max-w-2xl p-8"><h1 className="text-2xl font-bold">Canton Visitor Center</h1><p className="mt-3 rounded-lg bg-amber-50 p-4 text-amber-900">Real operations are disabled in this preview until the separate QA database, authentication, and access controls pass end-to-end testing.</p><a href="/canton-demo" className="mt-4 inline-block underline">Open the simulation</a></main>;
  const host=(await headers()).get("host")||"";
@@ -37,6 +37,18 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
  const assignedIds=new Set((staffAssignments||[]).map(p=>p.user_id));
 
  const isManager=membership.role==="manager" || membership.role==="hr";
+ const allowedViews=["dashboard","reception","appointments","commercial","feedback","admin"] as const;
+ type CantonView=(typeof allowedViews)[number];
+ const requestedView=allowedViews.includes(view as CantonView)?view as CantonView:"dashboard";
+ const activeView:CantonView=requestedView==="admin"&&!isSenior?"dashboard":requestedView==="feedback"&&!(isSenior||isManager)?"dashboard":requestedView==="reception"&&!(isSenior||isManager||isReception)?"dashboard":requestedView;
+ const navItems=[
+  {id:"dashboard" as CantonView,fr:"Tableau de bord",en:"Dashboard",show:true},
+  {id:"reception" as CantonView,fr:"Réception",en:"Reception",show:isSenior||isManager||isReception},
+  {id:"appointments" as CantonView,fr:"Rendez-vous",en:"Appointments",show:true},
+  {id:"commercial" as CantonView,fr:"Suivi commercial",en:"Commercial follow-up",show:true},
+  {id:"feedback" as CantonView,fr:"Feedback",en:"Feedback",show:isSenior||isManager},
+  {id:"admin" as CantonView,fr:"Administration",en:"Administration",show:isSenior}
+ ].filter(x=>x.show);
  let visitQuery=db.from("canton_appointments")
   .select("id,visitor_id,department,purpose,status,scheduled_local,host_name,host_user_id,check_in_at,visit_started_at,check_out_at,feedback_token,feedback_code,follow_up_required,follow_up_owner_id,follow_up_status,follow_up_due_date,follow_up_note,follow_up_outcome,follow_up_result_note,follow_up_completed_at,commercial_interest,commercial_qualified_at,commercial_qualified_by,visit_outcome,debrief_note,debriefed_by,debriefed_at,visit_origin,crm_referred_by,created_at,announced_by")
   .eq("organization_id",membership.organization_id);
@@ -168,20 +180,33 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
    })
   : todayRows;
  const input="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900";
- return <main className="space-y-6 p-4 md:p-8">
-  <div className="flex justify-end"><CantonLanguageSwitch locale={locale} returnPath="/canton-pilot"/></div>
+ return <main data-active-view={activeView} className="space-y-6 p-4 md:p-8">
+  <style>{`
+   main[data-active-view="dashboard"] [data-canton-view]:not([data-canton-view~="dashboard"]),
+   main[data-active-view="reception"] [data-canton-view]:not([data-canton-view~="reception"]),
+   main[data-active-view="appointments"] [data-canton-view]:not([data-canton-view~="appointments"]),
+   main[data-active-view="commercial"] [data-canton-view]:not([data-canton-view~="commercial"]),
+   main[data-active-view="feedback"] [data-canton-view]:not([data-canton-view~="feedback"]),
+   main[data-active-view="admin"] [data-canton-view]:not([data-canton-view~="admin"]) { display:none !important; }
+  `}</style>
+  <div className="flex justify-end"><CantonLanguageSwitch locale={locale} returnPath={"/canton-pilot?view="+activeView}/></div>
+  <nav aria-label={fr?"Navigation Canton":"Canton navigation"} className="sticky top-0 z-20 -mx-2 overflow-x-auto rounded-2xl border bg-white/95 p-2 shadow-sm backdrop-blur">
+   <div className="flex min-w-max gap-2">
+    {navItems.map(item=><Link key={item.id} href={"/canton-pilot?view="+item.id} className={"rounded-xl px-4 py-2 text-sm font-semibold transition "+(activeView===item.id?"bg-slate-900 text-white":"bg-slate-50 text-slate-700 hover:bg-slate-100")}>{fr?item.fr:item.en}</Link>)}
+   </div>
+  </nav>
   <div className="flex flex-wrap items-center justify-between gap-3"><div><h1 className="text-2xl font-bold">Canton Visitor Center</h1><p className="text-sm text-slate-500">{fr?"Rendez-vous, arrivées, départs et satisfaction · Canton, Texas (heure locale)":"Appointments, check-in, check-out and visitor experience · Canton, Texas (Central Time)"}</p></div><span className="text-sm text-slate-500">{fr?"TEST · données fictives":"QA · fictitious data"}</span></div>
   {error&&<p role="alert" className="rounded bg-red-100 p-3 text-red-800">{error}</p>}
   {success&&<p role="status" className="rounded bg-green-100 p-3 text-green-800">{success}</p>}
   {queryError&&<p role="alert" className="rounded bg-yellow-100 p-3">{fr?"Base de données non initialisée. Appliquez les migrations Canton.":"Database not initialized. Apply the Canton migration before using this module."}</p>}
-  {unreadArrivalAlerts.length>0&&<section className="rounded-2xl border-2 border-emerald-300 bg-emerald-50 p-5">
+  {unreadArrivalAlerts.length>0&&<section data-canton-view="dashboard reception" className="rounded-2xl border-2 border-emerald-300 bg-emerald-50 p-5">
    <div className="flex flex-wrap items-center justify-between gap-2"><div><p className="text-xs font-bold uppercase tracking-wider text-emerald-800">{fr?"Notification d’arrivée":"Arrival notification"}</p><h2 className="mt-1 text-xl font-bold text-emerald-950">{fr?"Votre visiteur est arrivé":"Your visitor has arrived"}</h2></div><span className="rounded-full bg-white px-3 py-1 text-sm font-bold text-emerald-900">{unreadArrivalAlerts.length}</span></div>
    <div className="mt-4 space-y-3">{unreadArrivalAlerts.map(alert=><article key={alert.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-white p-4">
     <div><div className="font-semibold">{alert.visitor_name}</div><div className="text-sm text-slate-600">{alert.department} · {fr?"arrivé à":"arrived at"} {new Date(alert.created_at).toLocaleTimeString(fr?"fr-FR":"en-US",{timeZone:"America/Chicago",hour:"2-digit",minute:"2-digit"})}</div></div>
     <form action={markCantonArrivalAlertRead}><input type="hidden" name="id" value={alert.id}/><button className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white">{fr?"J’ai vu":"Acknowledge"}</button></form>
    </article>)}</div>
   </section>}
-  {mySlaAlerts.length>0&&<section className="rounded-2xl border-2 border-amber-300 bg-amber-50 p-5">
+  {mySlaAlerts.length>0&&<section data-canton-view="dashboard commercial" className="rounded-2xl border-2 border-amber-300 bg-amber-50 p-5">
    <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-wider text-amber-800">{fr?"Alerte commerciale personnelle":"My commercial alert"}</p><h2 className="mt-1 text-xl font-bold text-amber-950">{fr?"Prospects à traiter avant dépassement SLA":"Prospects requiring action before SLA breach"}</h2></div><span className="rounded-full bg-white px-3 py-1 text-sm font-bold text-amber-900">{mySlaAlerts.length}</span></div>
    <div className="mt-4 space-y-3">{mySlaAlerts.map(row=><article key={row.visit.id} className="rounded-xl border border-amber-200 bg-white p-4">
     <div className="flex flex-wrap items-center justify-between gap-3"><div><div className="font-semibold">{row.person?.full_name||(fr?"Visiteur":"Visitor")} · {row.visit.department}</div><div className="mt-1 text-sm text-slate-600">{row.action?.action_text||(fr?"Aucune prochaine action planifiée":"No next action scheduled")}</div></div>
@@ -189,7 +214,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
     {row.slaDeadline&&<div className="mt-2 text-xs text-slate-500">{fr?"Limite":"Deadline"}: {row.slaDeadline.toLocaleString(fr?"fr-FR":"en-US",{timeZone:"America/Chicago"})}</div>}
    </article>)}</div>
   </section>}
-  {managerEscalations.length>0&&<section className="rounded-2xl border-2 border-rose-400 bg-rose-50 p-5">
+  {managerEscalations.length>0&&<section data-canton-view="dashboard commercial" className="rounded-2xl border-2 border-rose-400 bg-rose-50 p-5">
    <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-wider text-rose-800">{fr?"Escalade manager":"Manager escalation"}</p><h2 className="mt-1 text-xl font-bold text-rose-950">{fr?"SLA commerciaux dépassés":"Commercial SLAs breached"}</h2><p className="mt-1 text-sm text-rose-900">{fr?"Ces dossiers ont dépassé leur délai de suivi et nécessitent une intervention managériale.":"These records exceeded their follow-up SLA and require managerial intervention."}</p></div><span className="rounded-full bg-white px-3 py-1 text-sm font-bold text-rose-900">{managerEscalations.length}</span></div>
    <div className="mt-4 space-y-3">{managerEscalations.map(row=><article key={row.visit.id} className="rounded-xl border border-rose-200 bg-white p-4">
     <div className="flex flex-wrap items-center justify-between gap-3"><div><div className="font-semibold">{row.person?.full_name||(fr?"Visiteur":"Visitor")} · {row.visit.department} · {row.visit.commercial_interest?.toUpperCase()}</div><div className="mt-1 text-sm text-slate-600">{fr?"Responsable":"Owner"}: {row.ownerId?(profileMap.get(row.ownerId)?.full_name||profileMap.get(row.ownerId)?.email||row.visit.host_name||"—"):(row.visit.host_name||"—")}</div></div><span className="rounded bg-rose-100 px-3 py-1 text-xs font-bold text-rose-900">{fr?"Escaladé":"Escalated"}</span></div>
@@ -204,7 +229,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
     </form>}
    </article>)}</div>
   </section>}
-  {myOpenRecoveries.length>0&&<section className="rounded-2xl border-2 border-sky-300 bg-sky-50 p-5">
+  {myOpenRecoveries.length>0&&<section data-canton-view="dashboard commercial" className="rounded-2xl border-2 border-sky-300 bg-sky-50 p-5">
    <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-wider text-sky-800">{fr?"Plan de rattrapage SLA":"SLA recovery plan"}</p><h2 className="mt-1 text-xl font-bold text-sky-950">{fr?"Actions correctives qui vous sont attribuées":"Recovery actions assigned to you"}</h2></div><span className="rounded-full bg-white px-3 py-1 text-sm font-bold text-sky-900">{myOpenRecoveries.length}</span></div>
    <div className="mt-4 space-y-3">{myOpenRecoveries.map(rec=>{const visit=(visits||[]).find(v=>v.id===rec.appointment_id);return <article key={rec.id} className="rounded-xl border border-sky-200 bg-white p-4">
     <div className="font-semibold">{map.get(visit?.visitor_id||"")?.full_name||(fr?"Visiteur":"Visitor")} · {visit?.department}</div>
@@ -215,7 +240,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
   </section>}
 
 
-  <section className="rounded-2xl border-2 border-cyan-300 bg-cyan-50 p-5">
+  <section data-canton-view="appointments" className="rounded-2xl border-2 border-cyan-300 bg-cyan-50 p-5">
    <div className="flex flex-wrap items-start justify-between gap-3">
     <div>
      <p className="text-xs font-bold uppercase tracking-wider text-cyan-800">CRM → Canton</p>
@@ -236,10 +261,10 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
    {!(crmProspects||[]).length&&<p className="mt-3 rounded-lg bg-white p-3 text-sm text-slate-600">{fr?"Aucun prospect CRM disponible dans cette base de test.":"No CRM prospects are available in this test database."}</p>}
   </section>
 
-  <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">{[
+  <div data-canton-view="dashboard" className="grid grid-cols-2 gap-3 lg:grid-cols-4">{[
    [fr?"Aujourd’hui":"Today",todayRows.length],[fr?"Attendus":"Expected",count(v=>v.status==="scheduled")],[fr?"Sur place":"On site",count(v=>["arrived","in_progress"].includes(v.status))],[fr?"Terminées":"Completed",count(v=>v.status==="completed")],[fr?"Avis":"Feedback", (feedback||[]).length],[fr?"Taux de réponse":"Response rate",feedbackResponseRate],[fr?"Note moyenne":"Avg. rating",ratingAverage],[fr?"Attention requise":"Attention needed",pendingFeedback],[fr?"Suivis ouverts":"Follow-ups open",pendingHandoffs],[fr?"Sans responsable":"Unassigned follow-ups",unassignedFollowUps.length],[fr?"Prochaines actions":"Next actions",openNextActions.length],[fr?"À faire aujourd’hui":"Due today",nextActionsToday.length],[fr?"En retard":"Overdue",overdueNextActions.length]
   ].map(([label,value])=><div key={label} className="rounded-xl border bg-white p-4"><div className="text-sm text-slate-500">{label}</div><div className="text-2xl font-bold">{value}</div></div>)}</div>
-  {(isSenior||isManager||isReception)&&<section className="rounded-2xl border-2 border-indigo-200 bg-white p-5 shadow-sm">
+  {(isSenior||isManager||isReception)&&<section data-canton-view="reception" className="rounded-2xl border-2 border-indigo-200 bg-white p-5 shadow-sm">
    <div className="flex flex-wrap items-start justify-between gap-3">
     <div>
      <p className="text-xs font-bold uppercase tracking-wider text-indigo-700">{fr?"Poste réception":"Reception desk"}</p>
@@ -251,7 +276,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
      <span className="rounded-full bg-emerald-50 px-3 py-1 font-semibold text-emerald-800">{fr?"Sur place":"On site"}: {count(v=>["arrived","in_progress"].includes(v.status))}</span>
     </div>
    </div>
-   <form method="get" action="/canton-pilot" className="mt-4 flex flex-col gap-2 rounded-xl bg-slate-50 p-3 sm:flex-row">
+   <form method="get" action="/canton-pilot" className="mt-4 flex flex-col gap-2 rounded-xl bg-slate-50 p-3 sm:flex-row"><input type="hidden" name="view" value="reception"/>
     <label className="sr-only" htmlFor="canton-reception-search">{fr?"Rechercher un visiteur":"Search for a visitor"}</label>
     <input id="canton-reception-search" name="q" defaultValue={q} className="min-h-11 flex-1 rounded-lg border border-slate-300 bg-white px-4 text-base" placeholder={fr?"Rechercher : nom, téléphone, email ou responsable…":"Search: name, phone, email or host…"}/>
     <button className="min-h-11 rounded-lg bg-slate-900 px-5 font-semibold text-white">{fr?"Rechercher":"Search"}</button>
@@ -305,7 +330,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
     </div>
    </details>}
   </section>}
-  {isSenior&&<section className="rounded-xl border bg-white p-5"><h2 className="mb-2 text-lg font-semibold">{fr?"Accès réception":"Reception access"}</h2><p className="mb-3 text-sm text-slate-500">{fr?"Autorisez les employés à enregistrer les arrivées et départs. Les visites de direction restent confidentielles.":"Assign staff to check in and check out standard visits. Confidential direction visits remain restricted."}</p>
+  {isSenior&&<section data-canton-view="admin" className="rounded-xl border bg-white p-5"><h2 className="mb-2 text-lg font-semibold">{fr?"Accès réception":"Reception access"}</h2><p className="mb-3 text-sm text-slate-500">{fr?"Autorisez les employés à enregistrer les arrivées et départs. Les visites de direction restent confidentielles.":"Assign staff to check in and check out standard visits. Confidential direction visits remain restricted."}</p>
   <div className="space-y-2">{(members||[]).map(m=><div className="flex flex-wrap items-center justify-between gap-2 border-b py-2 text-sm" key={m.user_id}><span>{profileMap.get(m.user_id)?.full_name||profileMap.get(m.user_id)?.email||m.user_id} <span className="text-xs text-slate-500">({m.role})</span></span><form action={manageCantonReceptionStaff}><input type="hidden" name="userId" value={m.user_id}/><button name="operation" value={assignedIds.has(m.user_id)?"revoke":"grant"} className={assignedIds.has(m.user_id)?"rounded bg-red-100 px-3 py-1":"rounded bg-emerald-100 px-3 py-1"}>{assignedIds.has(m.user_id)?(fr?"Retirer l’accès réception":"Remove reception access"):(fr?"Autoriser la réception":"Grant reception access")}</button></form></div>)}</div></section>}
 
 
@@ -342,7 +367,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
    <div className="rounded-lg border p-4"><h3 className="font-semibold">{fr?"Satisfaction des visiteurs":"Visitor feedback"}</h3>{origin?<><img src={qrImage(origin+"/canton-feedback-qr")} width={220} height={220} alt="QR feedback for Canton visits" className="mx-auto my-3"/><a className="text-sm text-indigo-700 underline" href="/canton-feedback-qr" target="_blank">{fr?"Ouvrir le formulaire d’avis":"Open feedback form"}</a></>:<p>{fr?"QR indisponible sur cet hôte":"QR unavailable on unknown host"}</p>}<p className="mt-2 text-xs text-slate-500">{fr?"Sans code. Le visiteur peut identifier sa visite terminée ou donner un avis anonyme.":"No code needed. Visitors can identify their completed visit or leave anonymous feedback."}</p></div>
    </div>
   </section>
-  {(isSenior||isManager||isReception)&&<section className="rounded-xl border bg-white p-5"><h2 className="text-lg font-semibold">{fr?"Arrivées QR à valider (":"QR arrivals pending approval ("}{(requests||[]).length})</h2><p className="mb-3 text-xs text-slate-500">{fr?"Vérifiez l’identité en personne avant de confirmer. Super Leader recherche automatiquement un rendez-vous existant afin d’éviter les doublons.":"Confirm identity in person before approval. Super Leader automatically looks for an existing appointment to avoid duplicate visits."}</p>
+  {(isSenior||isManager||isReception)&&<section data-canton-view="reception" className="rounded-xl border bg-white p-5"><h2 className="text-lg font-semibold">{fr?"Arrivées QR à valider (":"QR arrivals pending approval ("}{(requests||[]).length})</h2><p className="mb-3 text-xs text-slate-500">{fr?"Vérifiez l’identité en personne avant de confirmer. Super Leader recherche automatiquement un rendez-vous existant afin d’éviter les doublons.":"Confirm identity in person before approval. Super Leader automatically looks for an existing appointment to avoid duplicate visits."}</p>
    <div className="space-y-3">{(requests||[]).map(q=>{
      const email=(q.email||"").toLowerCase();
      const phone=(q.phone||"").replace(/[^0-9+]/g,"");
@@ -368,7 +393,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
        </div>
       </div>;
    })}{!requests?.length&&<p className="py-4 text-sm text-slate-500">{fr?"Aucune arrivée QR en attente.":"No pending QR arrivals."}</p>}</div></section>}
-  <section className="rounded-xl border bg-white p-5"><h2 className="mb-3 text-lg font-semibold">{fr?"Enregistrer ou annoncer une visite":"Register or announce a visit"}</h2>
+  <section data-canton-view="appointments" className="rounded-xl border bg-white p-5"><h2 className="mb-3 text-lg font-semibold">{fr?"Enregistrer ou annoncer une visite":"Register or announce a visit"}</h2>
    <p className="mb-3 text-xs text-slate-500">{fr?"Le téléphone ou l’email permet de retrouver le visiteur. Les doublons exacts sont bloqués. Deux rendez-vous rapprochés à moins de 60 minutes nécessitent une confirmation. Heure locale de Canton.":"Phone or email identifies an existing visitor. Exact duplicate appointments are blocked. Bookings for the same visitor, department and purpose within 60 minutes require explicit confirmation. Time is local to Canton."}</p>
    <form action={createCantonAppointment} className="grid gap-3 md:grid-cols-3">
     <label className="text-sm">{fr?"Nom complet *":"Full name *"}<input className={input} name="name" required maxLength={180}/></label>
@@ -406,7 +431,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
     {!(visits||[]).some(v=>v.status==="completed"&&["DIG","TCF"].includes(v.department)&&!v.debriefed_at&&(isSenior||isManager||v.host_user_id===user.id||v.announced_by===user.id))&&<p className="rounded-lg bg-white p-4 text-sm text-slate-600">{fr?"Aucun debrief commercial en attente pour vous.":"No commercial visit debrief is pending for you."}</p>}
    </div>
   </section>
-  <section className="rounded-xl border border-indigo-200 bg-indigo-50 p-5">
+  <section data-canton-view="commercial" className="rounded-xl border border-indigo-200 bg-indigo-50 p-5">
    <h2 className="text-lg font-semibold">{fr?"Mes suivis attribués":"My assigned follow-ups"}</h2>
    <p className="mb-3 text-sm text-slate-600">{fr?"Les actions qui vous ont été confiées apparaissent ici, même si le rendez-vous a été annoncé par un autre collègue.":"Tasks assigned to you appear here, even if another colleague created the visit."}</p>
    <div className="space-y-3">{(visits||[]).filter(v=>v.follow_up_owner_id===user.id && v.follow_up_status==="open").map(v=><div key={v.id} className="flex flex-wrap items-start justify-between gap-3 rounded-lg border bg-white p-3">
@@ -433,7 +458,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
      </form>
    </div>)}{!(visits||[]).some(v=>v.follow_up_owner_id===user.id&&v.follow_up_status==="open")&&<p className="text-sm text-slate-600">{fr?"Aucun suivi ouvert qui vous est attribué.":"No open follow-ups assigned to you."}</p>}</div>
   </section>
-  <section className="rounded-xl border bg-white p-5">
+  <section data-canton-view="commercial" className="rounded-xl border bg-white p-5">
    <h2 className="text-lg font-semibold">{fr?"Résultats commerciaux enregistrés":"Recorded commercial outcomes"}</h2>
    <p className="mt-1 text-sm text-slate-600">{fr?"Historique des suivis terminés, conservé avec le dossier de visite.":"History of completed follow-ups, linked to the visit."}</p>
    <div className="mt-3 space-y-2">{(visits||[]).filter(v=>v.follow_up_status==="completed"&&v.follow_up_outcome&&(isSenior||v.department!=="DIRECTION")).slice(0,25).map(v=><div key={v.id} className="rounded-lg border bg-slate-50 p-3 text-sm">
@@ -451,7 +476,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
    </div>)}{!(visits||[]).some(v=>v.follow_up_status==="completed"&&v.follow_up_outcome)&&<p className="text-sm text-slate-500">{fr?"Aucun résultat enregistré pour le moment.":"No completed outcomes recorded yet."}</p>}</div>
   </section>
 
-  <section className="rounded-2xl border-2 border-violet-300 bg-violet-50 p-5">
+  <section data-canton-view="commercial" className="rounded-2xl border-2 border-violet-300 bg-violet-50 p-5">
    <div className="flex flex-wrap items-start justify-between gap-3">
     <div>
      <p className="text-xs font-bold uppercase tracking-wider text-violet-800">{fr?"Prospects issus des visites":"Visit-generated prospects"}</p>
@@ -501,7 +526,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
    </div>
   </section>
 
-  <section className="rounded-xl border border-indigo-200 bg-indigo-50 p-5">
+  <section data-canton-view="commercial" className="rounded-xl border border-indigo-200 bg-indigo-50 p-5">
    <h2 className="text-lg font-semibold">{fr?"Prochaines actions commerciales":"Next commercial actions"}</h2>
    <p className="mt-2 text-sm text-slate-700">{fr?"Une proposition envoyée ne signifie pas que la vente est conclue. Planifiez l’étape suivante et gardez le dossier actif jusqu’à la prochaine décision.":"A proposal sent is not a closed sale. Schedule the next step and keep the opportunity visible until the next decision."}</p>
    <div className="mt-4 grid grid-cols-3 gap-2">
@@ -554,7 +579,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
     </div>
    )}</div>
   </section>}
-  <section className="overflow-auto rounded-xl border bg-white p-4"><h2 className="mb-3 text-lg font-semibold">{fr?"Visites et rendez-vous récents (150 derniers)":"Recent visits and appointments (last 150)"}</h2><table className="w-full min-w-[850px] text-left text-sm"><thead><tr className="border-b text-slate-500">{[fr?"Visiteur":"Visitor",fr?"Département":"Department",fr?"Quand (Canton)":"When (Canton)",fr?"Statut":"Status",fr?"Responsable":"Host",fr?"Actions":"Actions",fr?"Avis":"Feedback"].map(h=><th className="p-2" key={h}>{h}</th>)}</tr></thead>
+  <section data-canton-view="appointments" className="overflow-auto rounded-xl border bg-white p-4"><h2 className="mb-3 text-lg font-semibold">{fr?"Visites et rendez-vous récents (150 derniers)":"Recent visits and appointments (last 150)"}</h2><table className="w-full min-w-[850px] text-left text-sm"><thead><tr className="border-b text-slate-500">{[fr?"Visiteur":"Visitor",fr?"Département":"Department",fr?"Quand (Canton)":"When (Canton)",fr?"Statut":"Status",fr?"Responsable":"Host",fr?"Actions":"Actions",fr?"Avis":"Feedback"].map(h=><th className="p-2" key={h}>{h}</th>)}</tr></thead>
    <tbody>{(visits||[]).map(v=><tr className="border-b align-top" key={v.id}>
     <td className="p-2"><div className="font-medium">{map.get(v.visitor_id)?.full_name||(fr?"Visiteur":"Visitor")}</div><div className="text-xs text-slate-500">{map.get(v.visitor_id)?.phone}</div></td>
     <td className="p-2">{v.department}<div className="text-xs text-slate-500">{v.purpose}</div></td>
