@@ -1,16 +1,18 @@
 /** Stage-only kill switch: never use the existing production Supabase keys for Canton test writes. */
 const QA_PROJECT_REF = "xehstmnqljjhacjiukvc";
+const QA_GIT_BRANCH = "feature/canton-visitor-v4-10-132";
 /** Login-only test is allowed on the isolated preview project while all Canton writes stay blocked. */
 export function cantonAuthTestEnabled(): boolean {
   return process.env.VERCEL_ENV === "preview"
-    && process.env.NEXT_PUBLIC_SUPABASE_URL === "https://" + QA_PROJECT_REF + ".supabase.co";
+    && process.env.NEXT_PUBLIC_SUPABASE_URL === "https://" + QA_PROJECT_REF + ".supabase.co"
+    && process.env.VERCEL_GIT_COMMIT_REF === QA_GIT_BRANCH;
 }
 export function cantonLiveEnabled(): boolean {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
   let projectRef = "";
   try { projectRef = new URL(url).hostname.split(".")[0] || ""; } catch { return false; }
-  return process.env.CANTON_VISITOR_ENABLE_LIVE === "true"
-    && process.env.VERCEL_ENV === "preview"
+  return cantonAuthTestEnabled()
+    && process.env.CANTON_VISITOR_ENABLE_LIVE === "true"
     && projectRef === QA_PROJECT_REF
     && process.env.CANTON_TEST_DATABASE_READY === "true";
 }
