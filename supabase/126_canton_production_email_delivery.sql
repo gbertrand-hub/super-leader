@@ -6,7 +6,7 @@ alter table public.canton_feedback_invitation_outbox
 
 alter table public.canton_feedback_invitation_outbox
  add constraint canton_feedback_invitation_outbox_status_check
- check(status in ('pending','cancelled','sending','sent','failed'));
+ check(status in ('pending','cancelled','simulated','sending','sent','failed'));
 
 alter table public.canton_feedback_invitation_outbox
  add column if not exists attempt_count integer not null default 0,
