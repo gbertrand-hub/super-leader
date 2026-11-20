@@ -36,7 +36,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
 
  const isManager=membership.role==="manager" || membership.role==="hr";
  let visitQuery=db.from("canton_appointments")
-  .select("id,visitor_id,department,purpose,status,scheduled_local,host_name,host_user_id,check_in_at,visit_started_at,check_out_at,feedback_token,feedback_code,follow_up_required,follow_up_owner_id,follow_up_status,follow_up_due_date,follow_up_note,follow_up_outcome,follow_up_result_note,follow_up_completed_at,commercial_interest,visit_outcome,debrief_note,debriefed_by,debriefed_at,created_at,announced_by")
+  .select("id,visitor_id,department,purpose,status,scheduled_local,host_name,host_user_id,check_in_at,visit_started_at,check_out_at,feedback_token,feedback_code,follow_up_required,follow_up_owner_id,follow_up_status,follow_up_due_date,follow_up_note,follow_up_outcome,follow_up_result_note,follow_up_completed_at,commercial_interest,commercial_qualified_at,commercial_qualified_by,visit_outcome,debrief_note,debriefed_by,debriefed_at,created_at,announced_by")
   .eq("organization_id",membership.organization_id);
  if(!isSenior) {
   visitQuery = (isManager || isReception)
@@ -105,6 +105,12 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
  ).map(v=>{
   const action=openActionByVisit.get(v.id)||null;
   const ownerId=action?.assigned_to||v.follow_up_owner_id||v.host_user_id||null;
+  const qualifiedAt=v.commercial_qualified_at||v.debriefed_at||v.check_out_at||v.created_at;
+  const slaHours=v.commercial_interest==="hot"?24:v.commercial_interest==="warm"?72:v.commercial_interest==="cold"?168:null;
+  const slaDeadline=slaHours?new Date(Date.parse(qualifiedAt)+slaHours*60*60*1000):null;
+  const actionDueAt=action?new Date(action.due_date+"T23:59:59-06:00"):null;
+  const slaLate=!!slaDeadline&&Date.now()>slaDeadline.getTime()&&!action;
+  const slaPlannedTooLate=!!slaDeadline&&!!actionDueAt&&actionDueAt.getTime()>slaDeadline.getTime();
   return {
    visit:v,
    person:map.get(v.visitor_id),
@@ -112,7 +118,11 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
    ownerId,
    overdue:!!action&&action.due_date<today,
    dueToday:!!action&&action.due_date===today,
-   missingAction:!action
+   missingAction:!action,
+   slaHours,
+   slaDeadline,
+   slaLate,
+   slaPlannedTooLate
   };
  }).sort((a,b)=>{
   const rank:Record<string,number>={hot:0,warm:1,cold:2};
@@ -126,7 +136,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
  const warmProspects=prospectRows.filter(x=>x.visit.commercial_interest==="warm");
  const coldProspects=prospectRows.filter(x=>x.visit.commercial_interest==="cold");
  const unqualifiedProspects=prospectRows.filter(x=>!x.visit.commercial_interest);
- const atRiskProspects=prospectRows.filter(x=>x.overdue||x.missingAction||!x.visit.commercial_interest);
+ const atRiskProspects=prospectRows.filter(x=>x.overdue||x.missingAction||!x.visit.commercial_interest||x.slaLate||x.slaPlannedTooLate);
 
  const todayRows=(visits||[]).filter(v=>{
   if(v.check_in_at) return cantonDay(v.check_in_at)===today;
@@ -381,7 +391,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
     </div>
     <div className={"rounded-full px-3 py-1 text-sm font-bold "+(atRiskProspects.length?"bg-rose-100 text-rose-900":"bg-white text-violet-900")}>{fr?"À risque":"At risk"}: {atRiskProspects.length}</div>
    </div>
-   <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+   <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-5">
     <div className="rounded-xl bg-white p-4"><div className="text-xs font-semibold text-slate-500">🔥 Hot</div><div className="mt-1 text-2xl font-bold">{hotProspects.length}</div></div>
     <div className="rounded-xl bg-white p-4"><div className="text-xs font-semibold text-slate-500">🟠 Warm</div><div className="mt-1 text-2xl font-bold">{warmProspects.length}</div></div>
     <div className="rounded-xl bg-white p-4"><div className="text-xs font-semibold text-slate-500">🔵 Cold</div><div className="mt-1 text-2xl font-bold">{coldProspects.length}</div></div>
@@ -391,7 +401,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
    {atRiskProspects.length>0&&<p role="alert" className="mt-3 rounded-lg border border-rose-300 bg-rose-50 p-3 text-sm font-medium text-rose-900">{fr?"⚠️ Un prospect qualifié ne doit jamais rester sans prochaine action. Les dossiers signalés ci-dessous doivent être traités en priorité.":"⚠️ A qualified prospect should never remain without a next action. Flagged records below should be handled first."}</p>}
    <div className="mt-4 overflow-auto rounded-xl border bg-white">
     <table className="w-full min-w-[900px] text-left text-sm">
-     <thead><tr className="border-b bg-slate-50 text-slate-600">{[fr?"Prospect":"Prospect",fr?"Intérêt":"Interest",fr?"Résultat":"Outcome",fr?"Responsable":"Owner",fr?"Prochaine action":"Next action",fr?"Échéance":"Due",fr?"État":"State"].map(h=><th key={h} className="p-3">{h}</th>)}</tr></thead>
+     <thead><tr className="border-b bg-slate-50 text-slate-600">{[fr?"Prospect":"Prospect",fr?"Intérêt":"Interest",fr?"Résultat":"Outcome",fr?"Responsable":"Owner",fr?"Prochaine action":"Next action",fr?"Échéance":"Due",fr?"SLA":"SLA",fr?"État":"State"].map(h=><th key={h} className="p-3">{h}</th>)}</tr></thead>
      <tbody>{prospectRows.map(row=>{
       const v=row.visit;
       const interestLabel=v.commercial_interest==="hot"?"🔥 Hot":v.commercial_interest==="warm"?"🟠 Warm":v.commercial_interest==="cold"?"🔵 Cold":fr?"⚪ À qualifier":"⚪ To qualify";
@@ -413,7 +423,8 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
        <td className="p-3">{row.ownerId?(profileMap.get(row.ownerId)?.full_name||profileMap.get(row.ownerId)?.email||v.host_name||"—"):(v.host_name||"—")}</td>
        <td className="p-3">{row.action?.action_text||<strong className="text-rose-800">{fr?"Aucune prochaine action":"No next action"}</strong>}</td>
        <td className="p-3">{row.action?.due_date||"—"}</td>
-       <td className="p-3">{row.overdue?<span className="rounded bg-rose-100 px-2 py-1 text-xs font-bold text-rose-900">{fr?"En retard":"Overdue"}</span>:row.dueToday?<span className="rounded bg-amber-100 px-2 py-1 text-xs font-bold text-amber-900">{fr?"Aujourd’hui":"Today"}</span>:row.missingAction?<span className="rounded bg-rose-100 px-2 py-1 text-xs font-bold text-rose-900">{fr?"À attribuer":"Needs action"}</span>:<span className="rounded bg-emerald-100 px-2 py-1 text-xs font-bold text-emerald-900">{fr?"Suivi planifié":"Planned"}</span>}</td>
+       <td className="p-3">{row.slaHours?<div className="space-y-1"><div className="text-xs font-semibold">{row.slaHours===24?"24 h":row.slaHours===72?"3 jours":"7 jours"}</div><div className="text-[11px] text-slate-500">{fr?"Limite":"Deadline"}: {row.slaDeadline?.toLocaleString(fr?"fr-FR":"en-US",{timeZone:"America/Chicago",month:"short",day:"2-digit",hour:"2-digit",minute:"2-digit"})}</div></div>:"—"}</td>
+       <td className="p-3">{row.slaLate?<span className="rounded bg-rose-100 px-2 py-1 text-xs font-bold text-rose-900">{fr?"SLA dépassé":"SLA breached"}</span>:row.slaPlannedTooLate?<span className="rounded bg-orange-100 px-2 py-1 text-xs font-bold text-orange-900">{fr?"Action trop tardive":"Action too late"}</span>:row.overdue?<span className="rounded bg-rose-100 px-2 py-1 text-xs font-bold text-rose-900">{fr?"En retard":"Overdue"}</span>:row.dueToday?<span className="rounded bg-amber-100 px-2 py-1 text-xs font-bold text-amber-900">{fr?"Aujourd’hui":"Today"}</span>:row.missingAction?<span className="rounded bg-rose-100 px-2 py-1 text-xs font-bold text-rose-900">{fr?"À attribuer":"Needs action"}</span>:<span className="rounded bg-emerald-100 px-2 py-1 text-xs font-bold text-emerald-900">{fr?"Dans le SLA":"Within SLA"}</span>}</td>
       </tr>;
      })}</tbody>
     </table>
