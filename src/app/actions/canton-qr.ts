@@ -31,6 +31,19 @@ export async function createCantonQrSite(f:FormData){
  if(error)fail("Could not create site");
  revalidatePath(dash);redirect(dash+"?success=QR%20site%20created");
 }
+export async function updateCantonQrSiteAddress(f:FormData){
+ assertCantonLive();
+ const {db,org,role}=await staff();
+ if(!["owner","admin"].includes(role))fail("Only administrators can edit office location");
+ const site=value(f,"site",40);
+ const streetAddress=value(f,"streetAddress",300).trim();
+ if(!uuid(site)||streetAddress.length<8)fail("A valid office street address is required");
+ const {data,error}=await db.from("canton_qr_sites")
+ .update({street_address:streetAddress}).eq("id",site).eq("organization_id",org).select("id");
+ if(error||!data?.length)fail("Office location could not be saved");
+ revalidatePath(dash);
+ redirect(dash+"?success="+encodeURIComponent("Office location saved"));
+}
 export async function submitCantonQrIntake(f:FormData){
  assertCantonLive();
  const site=value(f,"site",40);
