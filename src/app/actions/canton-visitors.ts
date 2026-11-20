@@ -418,11 +418,13 @@ export async function createCantonSlaRecovery(f:FormData){
  const {data:visit}=await db.from("canton_appointments")
   .select("id,status,department,commercial_interest,commercial_qualified_at")
   .eq("id",appointmentId).eq("organization_id",org).maybeSingle();
- if(!visit||visit.status!=="completed"||!["DIG","TCF"].includes(visit.department)||!["hot","warm","cold"].includes(visit.commercial_interest||""))
+ if(!visit) fail("Visit not found");
+ const recoveryVisit=visit!;
+ if(recoveryVisit.status!=="completed"||!["DIG","TCF"].includes(recoveryVisit.department)||!["hot","warm","cold"].includes(recoveryVisit.commercial_interest||""))
   fail("Only qualified completed DIG/TCF visits can receive a recovery plan");
- const qualifiedAt=visit.commercial_qualified_at;
+ const qualifiedAt=recoveryVisit.commercial_qualified_at;
  if(!qualifiedAt) fail("Commercial qualification timestamp missing");
- const slaHours=visit.commercial_interest==="hot"?24:visit.commercial_interest==="warm"?72:168;
+ const slaHours=recoveryVisit.commercial_interest==="hot"?24:recoveryVisit.commercial_interest==="warm"?72:168;
  if(Date.now()<=Date.parse(qualifiedAt)+slaHours*60*60*1000) fail("SLA has not been breached yet");
  const {error}=await db.from("canton_sla_recoveries").insert({
   organization_id:org,appointment_id:appointmentId,assigned_to:assignedTo,created_by:user.id,
