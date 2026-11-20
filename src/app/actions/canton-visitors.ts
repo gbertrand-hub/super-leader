@@ -257,7 +257,7 @@ export async function createCantonNextAction(f:FormData){
   .select("id,status,department,follow_up_owner_id,follow_up_status,follow_up_outcome")
   .eq("id",appointmentId).eq("organization_id",org).maybeSingle();
  if(!visit||visit.status!=="completed"||visit.follow_up_status!=="completed"||!visit.follow_up_outcome||!visit.follow_up_owner_id)
-  fail("Complete the initial commercial follow-up first");
+  throw new Error("Complete the initial commercial follow-up first");
  if(!["DIG","TCF"].includes(visit.department))fail("Next actions available for DIG / TCF");
  if(!seniorRoles.has(role)&&role!=="manager"&&visit.follow_up_owner_id!==user.id)
   fail("Only the assigned commercial or manager may plan the next action");
@@ -283,12 +283,12 @@ export async function completeCantonNextAction(f:FormData){
  const {data:action}=await db.from("canton_next_actions")
   .select("id,assigned_to,appointment_id,status").eq("id",id)
   .eq("organization_id",org).maybeSingle();
- if(!action||action.status!=="open")fail("Next action is not open");
+ if(!action||action.status!=="open")throw new Error("Next action is not open");
  if(!seniorRoles.has(role)&&role!=="manager"&&action.assigned_to!==user.id)
   fail("Only the assigned employee or manager may close this action");
  const {data:visit}=await db.from("canton_appointments").select("department")
   .eq("organization_id",org).eq("id",action.appointment_id).maybeSingle();
- if(!visit||!["DIG","TCF"].includes(visit.department))fail("Not a commercial action");
+ if(!visit||!["DIG","TCF"].includes(visit.department))throw new Error("Not a commercial action");
  const {data:changed,error}=await db.from("canton_next_actions")
   .update({status:"completed",completion_note:completionNote,completed_at:new Date().toISOString(),completed_by:user.id})
   .eq("id",id).eq("organization_id",org).eq("status","open").select("id");
