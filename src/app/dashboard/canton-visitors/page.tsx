@@ -7,7 +7,7 @@ import {createCantonQrSite,reviewCantonQrIntake,updateCantonQrSiteAddress} from 
 import {redirect} from "next/navigation";
 import {createClient} from "@/lib/supabase/server";
 import {createAdminClient} from "@/lib/supabase/admin";
-import {createCantonAppointment,updateCantonVisit,manageCantonReceptionStaff,assignCantonFollowUp,completeCantonFollowUp,createCantonNextAction,completeCantonNextAction,simulateCantonFeedbackInvitations,sendCantonQaEmailTest,markCantonArrivalAlertRead,saveCantonVisitDebrief,qualifyCantonLegacyProspect,createCantonSlaRecovery,completeCantonSlaRecovery} from "@/app/actions/canton-visitors";
+import {createCantonAppointment,createCantonCrmReferral,updateCantonVisit,manageCantonReceptionStaff,assignCantonFollowUp,completeCantonFollowUp,createCantonNextAction,completeCantonNextAction,simulateCantonFeedbackInvitations,sendCantonQaEmailTest,markCantonArrivalAlertRead,saveCantonVisitDebrief,qualifyCantonLegacyProspect,createCantonSlaRecovery,completeCantonSlaRecovery} from "@/app/actions/canton-visitors";
 export const dynamic="force-dynamic";
 export default async function CantonVisitorPage({searchParams}:{searchParams:Promise<{error?:string;success?:string;q?:string}>}){
  const {error,success,q=""}=await searchParams;
@@ -28,6 +28,8 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
  const isReception=!!reception;
  const {data:members}=(isSenior||membership.role==="manager")?await db.from("organization_members").select("user_id,role").eq("organization_id",membership.organization_id).eq("is_active",true).limit(200):{data:[]};
  const {data:hostMembers}=await db.from("organization_members").select("user_id,role").eq("organization_id",membership.organization_id).eq("is_active",true).limit(200);
+ const {data:crmProspects}=await db.from("crm_clients").select("id,reference,full_name,email,phone")
+  .eq("organization_id",membership.organization_id).order("created_at",{ascending:false}).limit(100);
  const {data:staffAssignments}=isSenior?await db.from("canton_reception_staff").select("user_id").eq("organization_id",membership.organization_id):{data:[]};
  const memberIds=[...new Set([...(members||[]).map(m=>m.user_id),...(hostMembers||[]).map(m=>m.user_id)])];
  const {data:memberProfiles}=memberIds.length?await db.from("profiles").select("id,full_name,email").in("id",memberIds):{data:[]};
@@ -211,6 +213,28 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
     <form action={completeCantonSlaRecovery} className="mt-3 flex flex-wrap items-end gap-2"><input type="hidden" name="recoveryId" value={rec.id}/><label className="min-w-[240px] flex-1 text-sm">{fr?"Compte rendu de résolution *":"Resolution note *"}<input name="completionNote" required minLength={5} maxLength={1000} className={input}/></label><button className="rounded-lg bg-sky-800 px-4 py-2 text-sm font-semibold text-white">{fr?"Clôturer le plan":"Close recovery plan"}</button></form>
    </article>})}</div>
   </section>}
+
+
+  <section className="rounded-2xl border-2 border-cyan-300 bg-cyan-50 p-5">
+   <div className="flex flex-wrap items-start justify-between gap-3">
+    <div>
+     <p className="text-xs font-bold uppercase tracking-wider text-cyan-800">CRM → Canton</p>
+     <h2 className="mt-1 text-xl font-bold text-cyan-950">{fr?"Envoyer un prospect CRM à Canton":"Refer a CRM prospect to Canton"}</h2>
+     <p className="mt-1 max-w-3xl text-sm text-cyan-900">{fr?"Utilisez la fiche CRM existante. Super Leader rattache la visite à ce prospect au lieu de recréer un contact.":"Use the existing CRM record. Super Leader links the Canton visit to that prospect instead of creating a duplicate contact."}</p>
+    </div>
+    <span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-cyan-900">{fr?"Source : équipe commerciale":"Source: sales team"}</span>
+   </div>
+   <form action={createCantonCrmReferral} className="mt-4 grid gap-3 rounded-xl border border-cyan-200 bg-white p-4 lg:grid-cols-2 xl:grid-cols-3">
+    <label className="text-sm font-semibold text-slate-700">{fr?"Prospect CRM *":"CRM prospect *"}<select name="clientId" required defaultValue="" className={input}><option value="" disabled>{fr?"Sélectionner un prospect CRM":"Select a CRM prospect"}</option>{(crmProspects||[]).map(client=><option key={client.id} value={client.id}>{client.full_name+" · "+client.reference+(client.email?" · "+client.email:"")}</option>)}</select></label>
+    <label className="text-sm font-semibold text-slate-700">{fr?"Visite / département *":"Visit / department *"}<select name="department" required defaultValue="DIG" className={input}><option value="DIG">DIG · {fr?"Visite terrain / immobilier":"Land / real-estate visit"}</option><option value="TCF">TCF · {fr?"Visite ferme":"Farm visit"}</option><option value="OTHER">{fr?"Autre visite commerciale":"Other commercial visit"}</option></select></label>
+    <label className="text-sm font-semibold text-slate-700">{fr?"Date et heure Canton *":"Canton date & time *"}<input type="datetime-local" name="scheduled" required className={input}/></label>
+    <label className="text-sm font-semibold text-slate-700">{fr?"Personne à rencontrer":"Canton host"}<select name="hostUserId" defaultValue="" className={input}><option value="">{fr?"À attribuer":"Unassigned"}</option>{(hostMembers||[]).map(m=><option key={m.user_id} value={m.user_id}>{profileMap.get(m.user_id)?.full_name||profileMap.get(m.user_id)?.email||m.user_id}</option>)}</select></label>
+    <label className="text-sm font-semibold text-slate-700">{fr?"Objectif de la visite":"Visit purpose"}<select name="purpose" defaultValue="commercial_visit" className={input}><option value="commercial_visit">{fr?"Voir avant de s’engager":"See before committing"}</option><option value="land_visit">{fr?"Visite terrain":"Land visit"}</option><option value="farm_visit">{fr?"Visite ferme":"Farm visit"}</option><option value="meet_team">{fr?"Rencontrer l’équipe":"Meet the team"}</option><option value="decision_meeting">{fr?"Réunion de décision":"Decision meeting"}</option></select></label>
+    <label className="text-sm font-semibold text-slate-700 lg:col-span-2 xl:col-span-3">{fr?"Notes du commercial pour Canton":"Sales notes for Canton"}<textarea name="notes" maxLength={1000} className={input+" min-h-24"} placeholder={fr?"Ex. Prospect intéressé par Garden City, veut voir avant de signer. Questions sur financement et accès au terrain.":"E.g. Prospect interested in Garden City, wants to visit before signing. Questions about financing and land access."}/></label>
+    <button className="rounded-lg bg-cyan-900 px-5 py-3 font-bold text-white lg:col-span-2 xl:col-span-3">{fr?"Planifier la visite depuis le CRM":"Schedule Canton visit from CRM"}</button>
+   </form>
+   {!(crmProspects||[]).length&&<p className="mt-3 rounded-lg bg-white p-3 text-sm text-slate-600">{fr?"Aucun prospect CRM disponible dans cette base de test.":"No CRM prospects are available in this test database."}</p>}
+  </section>
 
   <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">{[
    [fr?"Aujourd’hui":"Today",todayRows.length],[fr?"Attendus":"Expected",count(v=>v.status==="scheduled")],[fr?"Sur place":"On site",count(v=>["arrived","in_progress"].includes(v.status))],[fr?"Terminées":"Completed",count(v=>v.status==="completed")],[fr?"Avis":"Feedback", (feedback||[]).length],[fr?"Taux de réponse":"Response rate",feedbackResponseRate],[fr?"Note moyenne":"Avg. rating",ratingAverage],[fr?"Attention requise":"Attention needed",pendingFeedback],[fr?"Suivis ouverts":"Follow-ups open",pendingHandoffs],[fr?"Sans responsable":"Unassigned follow-ups",unassignedFollowUps.length],[fr?"Prochaines actions":"Next actions",openNextActions.length],[fr?"À faire aujourd’hui":"Due today",nextActionsToday.length],[fr?"En retard":"Overdue",overdueNextActions.length]
