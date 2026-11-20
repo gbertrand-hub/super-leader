@@ -339,7 +339,7 @@ export async function saveCantonVisitDebrief(f:FormData){
  if(!/^[0-9a-f-]{36}$/i.test(id)) fail("Invalid visit");
  if(!allowedInterest.includes(interest)||!allowedOutcome.includes(outcome)||note.length<5) fail("Complete the visit debrief");
  const {data:visit}=await db.from("canton_appointments")
-  .select("id,status,department,host_user_id,announced_by,debriefed_at")
+  .select("id,visitor_id,status,department,host_user_id,announced_by,debriefed_at,visit_origin,crm_referred_by")
   .eq("id",id).eq("organization_id",org).maybeSingle();
  if(!visit) fail("Visit not found");
  const debriefVisit=visit!;
@@ -362,17 +362,69 @@ export async function saveCantonVisitDebrief(f:FormData){
   updated_at:new Date().toISOString()
  }).eq("id",id).eq("organization_id",org).is("debriefed_at",null).select("id,host_user_id");
  if(error||!changed?.length) fail("Could not save the visit debrief");
+ let cantonNextActionAssignee:string|null=null;
  if(nextAction||dueDate){
   if(nextAction.length<5||!/^\d{4}-\d{2}-\d{2}$/.test(dueDate)||!Number.isFinite(Date.parse(dueDate+"T12:00:00Z"))) fail("Next action and valid due date are both required");
-  const assignedTo=debriefVisit.host_user_id||user.id;
+  cantonNextActionAssignee=debriefVisit.host_user_id||user.id;
   const {error:nextError}=await db.from("canton_next_actions").insert({
-   organization_id:org,appointment_id:id,assigned_to:assignedTo,
+   organization_id:org,appointment_id:id,assigned_to:cantonNextActionAssignee,
    action_text:nextAction,due_date:dueDate,created_by:user.id
   });
   if(nextError) fail("Debrief saved, but next action could not be scheduled");
  }
+
+ const {data:visitorLink}=await db.from("canton_visitors").select("crm_client_id")
+  .eq("id",debriefVisit.visitor_id).eq("organization_id",org).maybeSingle();
+ const crmClientId=visitorLink?.crm_client_id||null;
+ if(crmClientId){
+  const outcomeMap:Record<string,string>={
+   information_only:"resolved",
+   follow_up_requested:"follow_up",
+   proposal_requested:"follow_up",
+   next_appointment:"follow_up",
+   ready_to_buy:"follow_up",
+   not_interested:"other",
+   other:"other"
+  };
+  const interestLabel=interest==="hot"?"Hot":interest==="warm"?"Warm":interest==="cold"?"Cold":"Non-commercial";
+  const summary="Canton visit completed · "+debriefVisit.department+" · Interest: "+interestLabel+" · Outcome: "+outcome+" · "+note;
+  const nextFollowUpAt=dueDate?new Date(dueDate+"T18:00:00Z").toISOString():null;
+  const {data:interaction,error:crmInteractionError}=await db.from("crm_interactions").insert({
+   organization_id:org,
+   client_id:crmClientId,
+   employee_id:user.id,
+   channel:"meeting",
+   direction:"inbound",
+   interaction_type:"sales",
+   outcome:outcomeMap[outcome]||"other",
+   summary,
+   occurred_at:new Date().toISOString(),
+   next_follow_up_at:nextFollowUpAt,
+   feedback_requested:false,
+   created_by:user.id
+  }).select("id").single();
+  if(crmInteractionError||!interaction) fail("Debrief saved, but CRM history could not be updated");
+  const crmInteraction=interaction!;
+  if(nextAction&&dueDate){
+   const crmAssignedTo=debriefVisit.crm_referred_by||cantonNextActionAssignee||user.id;
+   const priority=interest==="hot"?"urgent":interest==="warm"?"high":"normal";
+   const {error:crmTaskError}=await db.from("crm_follow_up_tasks").insert({
+    organization_id:org,
+    client_id:crmClientId,
+    interaction_id:crmInteraction.id,
+    assigned_to:crmAssignedTo,
+    title:"Canton follow-up · "+nextAction.slice(0,120),
+    description:"Created automatically from Canton visit debrief.",
+    due_at:new Date(dueDate+"T18:00:00Z").toISOString(),
+    priority,
+    status:"todo",
+    created_by:user.id
+   });
+   if(crmTaskError) fail("Debrief and CRM history saved, but CRM follow-up task could not be created");
+  }
+ }
  revalidatePath(route);
- redirect(route+"?success="+encodeURIComponent("Visit debrief saved"));
+ redirect(route+"?success="+encodeURIComponent(crmClientId?"Visit debrief saved and synchronized to CRM":"Visit debrief saved"));
 }
 
 export async function assignCantonFollowUp(f:FormData){
