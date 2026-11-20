@@ -209,7 +209,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
   <div className="flex justify-end"><CantonLanguageSwitch locale={locale} returnPath={routeByView[activeView]}/></div>
   <nav aria-label={fr?"Navigation Canton":"Canton navigation"} className="sticky top-0 z-20 -mx-2 overflow-x-auto rounded-2xl border bg-white/95 p-2 shadow-sm backdrop-blur">
    <div className="flex min-w-max gap-2">
-    {navItems.map(item=><Link key={item.id} href={routeByView[item.id]} className={"rounded-xl px-4 py-2 text-sm font-semibold transition "+(activeView===item.id?"bg-slate-900 text-white":"bg-slate-50 text-slate-700 hover:bg-slate-100")}>{fr?item.fr:item.en}</Link>)}
+    {navItems.map(item=><Link key={item.id} href={routeByView[item.id]+"?site="+encodeURIComponent(selectedSiteId)} className={"rounded-xl px-4 py-2 text-sm font-semibold transition "+(activeView===item.id?"bg-slate-900 text-white":"bg-slate-50 text-slate-700 hover:bg-slate-100")}>{fr?item.fr:item.en}</Link>)}
    </div>
   </nav>
   <div className="flex flex-wrap items-center justify-between gap-3"><div><h1 className="text-2xl font-bold">{fr?"Gestion des Visiteurs & Rendez-vous":"Visitor & Appointment Management"}</h1><p className="text-sm text-slate-500">{fr?"Réseau multi-sites · Canton HQ comme point focal":"Multi-site network · Canton HQ as focal point"}</p></div><span className="text-sm text-slate-500">{fr?"TEST · données fictives":"QA · fictitious data"}</span></div>
