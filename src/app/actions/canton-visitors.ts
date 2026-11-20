@@ -23,9 +23,25 @@ async function context(){
  const {data:reception}=await db.from("canton_reception_staff").select("user_id").eq("organization_id",m.organization_id).eq("user_id",user.id).maybeSingle();
  return {db,user,org:m.organization_id as string,role:m.role as string,isReception:!!reception};
 }
+async function canAccessVisitorSite(ctx:Awaited<ReturnType<typeof context>>,siteId:string|null){
+ if(!siteId) return seniorRoles.has(ctx.role);
+ if(seniorRoles.has(ctx.role)) return true;
+ const {data:assignment}=await ctx.db.from("visitor_site_staff").select("access_role")
+  .eq("site_id",siteId).eq("user_id",ctx.user.id).eq("is_active",true).maybeSingle();
+ if(assignment) return true;
+ const {data:anyAssignment}=await ctx.db.from("visitor_site_staff").select("site_id")
+  .eq("user_id",ctx.user.id).eq("is_active",true).limit(1).maybeSingle();
+ if(anyAssignment) return false;
+ const {data:site}=await ctx.db.from("visitor_sites").select("is_hq").eq("id",siteId).eq("organization_id",ctx.org).maybeSingle();
+ return !!site?.is_hq && (ctx.isReception||ctx.role==="manager"||ctx.role==="hr");
+}
+async function requireVisitorSiteAccess(ctx:Awaited<ReturnType<typeof context>>,siteId:string|null){
+ if(!(await canAccessVisitorSite(ctx,siteId))) fail("You do not have access to this visitor site");
+}
 export async function createCantonCrmReferral(f:FormData){
  assertCantonLive();
- const {db,user,org}=await context();
+ const ctx=await context();
+ const {db,user,org}=ctx;
  const clientId=field(f,"clientId",40);
  const department=field(f,"department").toUpperCase();
  const siteId=field(f,"siteId",40);
@@ -39,6 +55,7 @@ export async function createCantonCrmReferral(f:FormData){
   const {data:hq}=await db.from("visitor_sites").select("id").eq("organization_id",org).eq("is_hq",true).eq("is_active",true).limit(1).maybeSingle();
   resolvedSiteId=hq?.id||null;
  }
+ await requireVisitorSiteAccess(ctx,resolvedSiteId);
  const purpose=field(f,"purpose",100)||"commercial_visit";
  const scheduled=field(f,"scheduled");
  const hostUserId=field(f,"hostUserId",40);
@@ -110,7 +127,8 @@ export async function createCantonCrmReferral(f:FormData){
 
 export async function createCantonAppointment(f:FormData){
  assertCantonLive();
- const {db,user,org,role}=await context();
+ const ctx=await context();
+ const {db,user,org,role}=ctx;
  const name=field(f,"name"), rawPhone=field(f,"phone",35);
  const phone=rawPhone.replace(/[^+0-9]/g,"")||null;
  const email=field(f,"email",200).toLowerCase()||null;
@@ -129,6 +147,7 @@ export async function createCantonAppointment(f:FormData){
   const {data:hq}=await db.from("visitor_sites").select("id").eq("organization_id",org).eq("is_hq",true).eq("is_active",true).limit(1).maybeSingle();
   resolvedSiteId=hq?.id||null;
  }
+ await requireVisitorSiteAccess(ctx,resolvedSiteId);
  if(!name || (!phone&&!email) || !depts.has(department)) fail("Name, phone or email, and department are required");
  if(department==="DIRECTION" && !seniorRoles.has(role)) fail("Only the organization administration can schedule confidential direction visits");
  if(scheduled&&!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(scheduled)) fail("Invalid Canton appointment date");
@@ -227,10 +246,14 @@ export async function updateCantonVisit(f:FormData){
  assertCantonLive();
  const {db,org,user,role,isReception}=await context(),id=field(f,"id"),action=field(f,"action");
  if(!/^[0-9a-f-]{36}$/i.test(id)) fail("Invalid visit");
- const {data:row}=await db.from("canton_appointments").select("status,check_in_at,check_out_at,department,announced_by,host_user_id")
+ const {data:row}=await db.from("canton_appointments").select("status,check_in_at,check_out_at,department,announced_by,host_user_id,site_id")
   .eq("id",id).eq("organization_id",org).maybeSingle();
  if(!row) fail("Visit not found");
  const visit = row!;
+ if(!seniorRoles.has(role)){
+  const ctxForSite={db,user,org,role,isReception};
+  await requireVisitorSiteAccess(ctxForSite,visit.site_id||null);
+ }
  const isSenior=seniorRoles.has(role);
  const isCreator=visit.announced_by===user.id;
  const isHost=visit.host_user_id===user.id;
