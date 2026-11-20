@@ -4,8 +4,8 @@ import {CantonLanguageSwitch} from "@/components/canton/canton-language-switch";
 import {submitCantonFeedback} from "@/app/actions/canton-visitors";
 import {createAdminClient} from "@/lib/supabase/admin";
 export const dynamic="force-dynamic";
-export default async function CantonFeedbackPage({searchParams}:{searchParams:Promise<{token?:string;success?:string;error?:string;lang?:string}>}){
- const {token="",success,error,lang}=await searchParams;
+export async function CantonFeedbackContent({token="",success,error,lang,returnPath}:{token?:string;success?:string;error?:string;lang?:string;returnPath?:string}){
+
  const {locale}=await getI18n();
  const language=lang==="fr"||lang==="en"?lang:locale;
  const fr=language==="fr";
@@ -22,7 +22,7 @@ export default async function CantonFeedbackPage({searchParams}:{searchParams:Pr
  }
  const input="w-full rounded-lg border border-slate-300 px-3 py-2";
  return <main className="mx-auto max-w-xl space-y-5 p-6">
-  <div className="flex justify-end"><CantonLanguageSwitch locale={language} returnPath={"/canton-feedback?token="+encodeURIComponent(token)}/></div>
+  <div className="flex justify-end"><CantonLanguageSwitch locale={language} returnPath={returnPath||("/canton-feedback?token="+encodeURIComponent(token))}/></div>
   <header className="rounded-2xl bg-slate-900 p-7 text-white"><p className="text-xs tracking-widest text-amber-300">ILEAD GLOBAL • CANTON</p><h1 className="mt-2 text-2xl font-bold">{fr?"Votre avis sur la visite":"Your visit feedback"}</h1><p className="mt-2 text-sm">{fr?"Merci de votre visite. Votre avis prend moins d’une minute.":"Thank you for visiting us. This takes less than a minute."}</p></header>
   {success?<p className="rounded bg-green-100 p-4">{fr?"Merci pour votre retour !":"Thank you for your feedback!"}</p>:
    !allowed?<p className="rounded bg-slate-100 p-4">{fr?"Ce lien n’est plus disponible ou a déjà été utilisé.":"This feedback link is unavailable or has already been used."}</p>:
@@ -38,4 +38,9 @@ export default async function CantonFeedbackPage({searchParams}:{searchParams:Pr
    </form>}
   <p className="text-xs text-slate-500">{fr?"Votre avis est associé à votre visite et nous aide à nous améliorer. Réponse facultative.":"Your response is linked to your visit and helps us improve. Feedback is optional."}</p>
  </main>;
+}
+
+export default async function CantonFeedbackPage({searchParams}:{searchParams:Promise<{token?:string;success?:string;error?:string;lang?:string}>}){
+ const params=await searchParams;
+ return <CantonFeedbackContent {...params}/>;
 }
