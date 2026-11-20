@@ -63,6 +63,10 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
  const feedbackResponseRate=completedCount?Math.round(100*(feedback||[]).length/completedCount)+"%":"—";
  const pendingFeedback=(feedback||[]).filter(x=>x.rating<=2||x.contact_requested).length;
  const pendingHandoffs=(visits||[]).filter(v=>v.follow_up_status==="open").length;
+ const unassignedFollowUps=(visits||[]).filter(v=>v.status==="completed"&&v.follow_up_status==="open"&&!v.follow_up_owner_id&&(v.department==="DIG"||v.department==="TCF"));
+ const flaggedFeedbackVisits=new Set((feedback||[]).filter(f=>f.contact_requested||f.rating<=2).map(f=>f.appointment_id));
+ const unreviewedOpportunities=(visits||[]).filter(v=>v.status==="completed"&&(v.department==="DIG"||v.department==="TCF")&&flaggedFeedbackVisits.has(v.id)&&v.follow_up_status!=="completed"&&!v.follow_up_owner_id);
+
  const ratingAverage=(feedback||[]).length
   ? ((feedback||[]).reduce((total,f)=>total+f.rating,0)/(feedback||[]).length).toFixed(1):"—";
  const cantonDay=(stamp:string)=>{const parts=new Intl.DateTimeFormat("en-US",{timeZone:"America/Chicago",year:"numeric",month:"2-digit",day:"2-digit"}).formatToParts(new Date(stamp));const val=(type:string)=>parts.find(p=>p.type===type)?.value||"";return val("year")+"-"+val("month")+"-"+val("day");};
@@ -81,7 +85,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
   {success&&<p role="status" className="rounded bg-green-100 p-3 text-green-800">{success}</p>}
   {queryError&&<p role="alert" className="rounded bg-yellow-100 p-3">{fr?"Base de données non initialisée. Appliquez les migrations Canton.":"Database not initialized. Apply the Canton migration before using this module."}</p>}
   <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">{[
-   [fr?"Aujourd’hui":"Today",todayRows.length],[fr?"Attendus":"Expected",count(v=>v.status==="scheduled")],[fr?"Sur place":"On site",count(v=>["arrived","in_progress"].includes(v.status))],[fr?"Terminées":"Completed",count(v=>v.status==="completed")],[fr?"Avis":"Feedback", (feedback||[]).length],[fr?"Taux de réponse":"Response rate",feedbackResponseRate],[fr?"Note moyenne":"Avg. rating",ratingAverage],[fr?"Attention requise":"Attention needed",pendingFeedback],[fr?"Suivis ouverts":"Follow-ups open",pendingHandoffs]
+   [fr?"Aujourd’hui":"Today",todayRows.length],[fr?"Attendus":"Expected",count(v=>v.status==="scheduled")],[fr?"Sur place":"On site",count(v=>["arrived","in_progress"].includes(v.status))],[fr?"Terminées":"Completed",count(v=>v.status==="completed")],[fr?"Avis":"Feedback", (feedback||[]).length],[fr?"Taux de réponse":"Response rate",feedbackResponseRate],[fr?"Note moyenne":"Avg. rating",ratingAverage],[fr?"Attention requise":"Attention needed",pendingFeedback],[fr?"Suivis ouverts":"Follow-ups open",pendingHandoffs],[fr?"Sans responsable":"Unassigned follow-ups",unassignedFollowUps.length]
   ].map(([label,value])=><div key={label} className="rounded-xl border bg-white p-4"><div className="text-sm text-slate-500">{label}</div><div className="text-2xl font-bold">{value}</div></div>)}</div>
   {isSenior&&<section className="rounded-xl border bg-white p-5"><h2 className="mb-2 text-lg font-semibold">{fr?"Accès réception":"Reception access"}</h2><p className="mb-3 text-sm text-slate-500">{fr?"Autorisez les employés à enregistrer les arrivées et départs. Les visites de direction restent confidentielles.":"Assign staff to check in and check out standard visits. Confidential direction visits remain restricted."}</p>
   <div className="space-y-2">{(members||[]).map(m=><div className="flex flex-wrap items-center justify-between gap-2 border-b py-2 text-sm" key={m.user_id}><span>{profileMap.get(m.user_id)?.full_name||profileMap.get(m.user_id)?.email||m.user_id} <span className="text-xs text-slate-500">({m.role})</span></span><form action={manageCantonReceptionStaff}><input type="hidden" name="userId" value={m.user_id}/><button name="operation" value={assignedIds.has(m.user_id)?"revoke":"grant"} className={assignedIds.has(m.user_id)?"rounded bg-red-100 px-3 py-1":"rounded bg-emerald-100 px-3 py-1"}>{assignedIds.has(m.user_id)?(fr?"Retirer l’accès réception":"Remove reception access"):(fr?"Autoriser la réception":"Grant reception access")}</button></form></div>)}</div></section>}
@@ -145,7 +149,14 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
     <form action={completeCantonFollowUp}><input type="hidden" name="id" value={v.id}/><button className="rounded-lg bg-emerald-700 px-3 py-2 text-sm text-white">{fr?"Marquer terminé":"Mark completed"}</button></form>
    </div>)}{!(visits||[]).some(v=>v.follow_up_owner_id===user.id&&v.follow_up_status==="open")&&<p className="text-sm text-slate-600">{fr?"Aucun suivi ouvert qui vous est attribué.":"No open follow-ups assigned to you."}</p>}</div>
   </section>
-  {(isSenior||membership.role==="manager")&&<section className="rounded-xl border bg-white p-5">
+  {(isSenior||membership.role==="manager")&&unassignedFollowUps.length>0&&<section role="status" className="rounded-xl border-2 border-amber-400 bg-amber-50 p-5">
+   <h2 className="text-lg font-semibold text-amber-950">{fr?"⚠️ Suivis commerciaux sans responsable":"⚠️ Commercial follow-ups without owner"}</h2>
+   <p className="mt-2 text-sm text-amber-900">{fr?"Ces visites DIG/TCF sont terminées et nécessitent un suivi, mais aucun collaborateur n’a été désigné. Attribuez un responsable et une échéance ci-dessous.":"These DIG/TCF visits need follow-up, but no employee is assigned. Assign an owner and a due date below."}</p>
+   <div className="mt-3 space-y-2">{unassignedFollowUps.slice(0,10).map(v=><div key={v.id} className="rounded-lg bg-white p-3 text-sm"><strong>{map.get(v.visitor_id)?.full_name||(fr?"Visiteur":"Visitor")}</strong> · {v.department} · <span className="font-medium">{v.follow_up_note||(fr?"Action commerciale à attribuer":"Commercial action to assign")}</span>
+     {unreviewedOpportunities.some(x=>x.id===v.id)&&<span className="ml-2 rounded bg-amber-200 px-2 py-1 text-xs">{fr?"Avis nécessitant une attention":"Feedback needs attention"}</span>}</div>)}</div>
+   <a href="#canton-followup-handoff" className="mt-3 inline-block rounded-lg bg-amber-900 px-4 py-2 text-sm font-medium text-white">{fr?"Attribuer les suivis":"Assign follow-ups"}</a>
+  </section>}
+  {(isSenior||membership.role==="manager")&&<section id="canton-followup-handoff" className="scroll-mt-6 rounded-xl border bg-white p-5">
    <h2 className="text-lg font-semibold">{fr?"Suivi après visite":"Follow-up handoff"}</h2>
    <p className="mb-3 text-sm text-slate-500">{fr?"Attribuez un responsable et une échéance après la visite. Le suivi reste ouvert jusqu’à sa clôture.":"Assign a responsible employee and due date after each completed visit. Open tasks remain visible until closed."}</p>
    <div className="space-y-3">{(visits||[]).filter(v=>v.status==="completed" && (v.department!=="DIRECTION"||isSenior)).map(v=>
