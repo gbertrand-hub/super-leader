@@ -36,7 +36,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
 
  const isManager=membership.role==="manager" || membership.role==="hr";
  let visitQuery=db.from("canton_appointments")
-  .select("id,visitor_id,department,purpose,status,scheduled_local,host_name,host_user_id,check_in_at,check_out_at,feedback_token,feedback_code,follow_up_required,follow_up_owner_id,follow_up_status,follow_up_due_date,follow_up_note,follow_up_outcome,follow_up_result_note,follow_up_completed_at,created_at,announced_by")
+  .select("id,visitor_id,department,purpose,status,scheduled_local,host_name,host_user_id,check_in_at,visit_started_at,check_out_at,feedback_token,feedback_code,follow_up_required,follow_up_owner_id,follow_up_status,follow_up_due_date,follow_up_note,follow_up_outcome,follow_up_result_note,follow_up_completed_at,created_at,announced_by")
   .eq("organization_id",membership.organization_id);
  if(!isSenior) {
   visitQuery = (isManager || isReception)
@@ -161,10 +161,13 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
        <div className="text-sm">
         <div><span className="text-slate-500">{fr?"Heure":"Time"}:</span> <strong>{v.scheduled_local?.slice(11,16)||(v.check_in_at?new Date(v.check_in_at).toLocaleTimeString(fr?"fr-FR":"en-US",{timeZone:"America/Chicago",hour:"2-digit",minute:"2-digit"}):fr?"Non programmée":"Unscheduled")}</strong></div>
         <div className="mt-1"><span className="text-slate-500">{fr?"Responsable":"Host"}:</span> {v.host_name||"—"}</div>
+        {v.status==="arrived"&&v.check_in_at&&(()=>{const wait=Math.max(0,Math.floor((Date.now()-Date.parse(v.check_in_at))/60000));return <div className={"mt-2 inline-flex rounded-full px-2 py-1 text-xs font-semibold "+(wait>=20?"bg-rose-100 text-rose-900":wait>=10?"bg-amber-100 text-amber-900":"bg-emerald-100 text-emerald-900")}>{fr?"Attente":"Waiting"}: {wait} min</div>;})()}
+        {v.status==="in_progress"&&v.visit_started_at&&<div className="mt-2 inline-flex rounded-full bg-blue-100 px-2 py-1 text-xs font-semibold text-blue-900">{fr?"Prise en charge":"Started"}: {new Date(v.visit_started_at).toLocaleTimeString(fr?"fr-FR":"en-US",{timeZone:"America/Chicago",hour:"2-digit",minute:"2-digit"})}</div>}
        </div>
        <div className="flex flex-wrap gap-2 md:justify-end">
         {["announced","scheduled"].includes(v.status)&&<form action={updateCantonVisit}><input type="hidden" name="id" value={v.id}/><button name="action" value="checkin" className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white">{fr?"✓ Enregistrer l’arrivée":"✓ Check in"}</button></form>}
-        {["arrived","in_progress"].includes(v.status)&&<form action={updateCantonVisit}><input type="hidden" name="id" value={v.id}/><button name="action" value="checkout" className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white">{fr?"Enregistrer le départ":"Check out"}</button></form>}
+        {v.status==="arrived"&&(isSenior||isManager||isReception||v.host_user_id===user.id)&&<form action={updateCantonVisit}><input type="hidden" name="id" value={v.id}/><button name="action" value="start" className="rounded-lg bg-indigo-700 px-4 py-2 text-sm font-semibold text-white">{fr?"Démarrer la visite":"Start visit"}</button></form>}
+        {["arrived","in_progress"].includes(v.status)&&<form action={updateCantonVisit}><input type="hidden" name="id" value={v.id}/><button name="action" value="checkout" className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white">{fr?"Enregistrer le départ":"Check out"}</button></form>
         {v.status==="scheduled"&&(isSenior||membership.role==="manager")&&<form action={updateCantonVisit}><input type="hidden" name="id" value={v.id}/><button name="action" value="no_show" className="rounded-lg border bg-white px-3 py-2 text-sm">{fr?"Absent":"No show"}</button></form>}
         {v.status==="completed"&&<span className="rounded-lg bg-slate-200 px-3 py-2 text-xs font-medium text-slate-700">{fr?"Visite clôturée":"Visit closed"}</span>}
        </div>
