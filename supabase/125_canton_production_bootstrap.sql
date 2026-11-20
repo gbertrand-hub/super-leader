@@ -98,3 +98,25 @@ begin
    raise exception 'Expected exactly one active HQ, found %',n;
  end if;
 end $$;
+
+
+-- Seed the production Canton QR reception and bind it to the operational HQ site.
+insert into public.canton_qr_sites(
+ organization_id,label,enabled,street_address,visitor_site_id
+)
+select
+ '7681043d-2ce8-47e7-bb93-6dacef906875'::uuid,
+ 'Canton Main Reception',
+ true,
+ '3540 Van Zandt County Road 2410, Canton, Texas 75103, United States',
+ s.id
+from public.visitor_sites s
+where s.organization_id='7681043d-2ce8-47e7-bb93-6dacef906875'::uuid
+  and s.code='CANTON_HQ'
+  and s.is_active=true
+  and not exists (
+    select 1 from public.canton_qr_sites q
+    where q.organization_id='7681043d-2ce8-47e7-bb93-6dacef906875'::uuid
+      and q.visitor_site_id=s.id
+      and q.enabled=true
+  );
