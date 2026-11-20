@@ -37,17 +37,18 @@ export async function createCantonCrmReferral(f:FormData){
  const {data:client}=await db.from("crm_clients").select("id,full_name,email,phone")
   .eq("id",clientId).eq("organization_id",org).maybeSingle();
  if(!client) fail("CRM prospect not found");
+ const crmClient=client!;
  let visitor:{id:string;crm_client_id:string|null}|null=null;
  const {data:linked}=await db.from("canton_visitors").select("id,crm_client_id")
   .eq("organization_id",org).eq("crm_client_id",clientId).limit(1).maybeSingle();
  visitor=linked;
- if(!visitor&&client.email){
+ if(!visitor&&crmClient.email){
   const {data}=await db.from("canton_visitors").select("id,crm_client_id")
-   .eq("organization_id",org).eq("email",String(client.email).toLowerCase()).limit(1).maybeSingle();
+   .eq("organization_id",org).eq("email",String(crmClient.email).toLowerCase()).limit(1).maybeSingle();
   visitor=data;
  }
- if(!visitor&&client.phone){
-  const normalizedPhone=String(client.phone).replace(/[^+0-9]/g,"");
+ if(!visitor&&crmClient.phone){
+  const normalizedPhone=String(crmClient.phone).replace(/[^+0-9]/g,"");
   const {data}=await db.from("canton_visitors").select("id,crm_client_id")
    .eq("organization_id",org).eq("phone",normalizedPhone).limit(1).maybeSingle();
   visitor=data;
@@ -61,10 +62,10 @@ export async function createCantonCrmReferral(f:FormData){
    if(error) fail("Could not link visitor to CRM");
   }
  }else{
-  const phone=client.phone?String(client.phone).replace(/[^+0-9]/g,"")||null:null;
-  const email=client.email?String(client.email).toLowerCase():null;
+  const phone=crmClient.phone?String(crmClient.phone).replace(/[^+0-9]/g,"")||null:null;
+  const email=crmClient.email?String(crmClient.email).toLowerCase():null;
   const {data,error}=await db.from("canton_visitors").insert({
-   organization_id:org,full_name:client.full_name,phone,email,crm_client_id:clientId,created_by:user.id
+   organization_id:org,full_name:crmClient.full_name,phone,email,crm_client_id:clientId,created_by:user.id
   }).select("id").single();
   if(error||!data) fail("Could not create Canton visitor link");
   visitorId=data.id;
