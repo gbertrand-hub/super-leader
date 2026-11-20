@@ -31,14 +31,23 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
  const {data:crmProspects}=await db.from("crm_clients").select("id,reference,full_name,email,phone")
   .eq("organization_id",membership.organization_id).order("created_at",{ascending:false}).limit(100);
  const {data:staffAssignments}=isSenior?await db.from("canton_reception_staff").select("user_id").eq("organization_id",membership.organization_id):{data:[]};
- const {data:visitorSites}=await db.from("visitor_sites")
+ const {data:allVisitorSites}=await db.from("visitor_sites")
   .select("id,code,name,city,country_code,timezone,street_address,is_hq,is_active")
   .eq("organization_id",membership.organization_id)
   .eq("is_active",true)
   .order("is_hq",{ascending:false}).order("name",{ascending:true});
+ const {data:mySiteAssignments}=!isSenior?await db.from("visitor_site_staff")
+  .select("site_id,access_role")
+  .eq("user_id",user.id).eq("is_active",true):{data:[]};
+ const myAssignedSiteIds=new Set((mySiteAssignments||[]).map(x=>x.site_id));
+ const visitorSites=isSenior
+  ? (allVisitorSites||[])
+  : myAssignedSiteIds.size>0
+   ? (allVisitorSites||[]).filter(s=>myAssignedSiteIds.has(s.id))
+   : (allVisitorSites||[]).filter(s=>s.is_hq && (isReception||isManager));
  const siteById=new Map((visitorSites||[]).map(s=>[s.id,s]));
- const hqSite=(visitorSites||[]).find(s=>s.is_hq)||null;
- const selectedSiteId=site==="all"&&isSenior?"all":siteById.has(site)?site:(isSenior?"all":hqSite?.id||"all");
+ const hqSite=(allVisitorSites||[]).find(s=>s.is_hq)||null;
+ const selectedSiteId=site==="all"&&isSenior?"all":siteById.has(site)?site:(isSenior?"all":visitorSites?.[0]?.id||hqSite?.id||"all");
  const memberIds=[...new Set([...(members||[]).map(m=>m.user_id),...(hostMembers||[]).map(m=>m.user_id)])];
  const {data:memberProfiles}=memberIds.length?await db.from("profiles").select("id,full_name,email").in("id",memberIds):{data:[]};
  const profileMap=new Map((memberProfiles||[]).map(p=>[p.id,p]));
