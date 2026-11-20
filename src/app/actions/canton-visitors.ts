@@ -73,8 +73,9 @@ export async function createCantonAppointment(f:FormData){
  // No checkbox means no new consent; email address alone is never consent.
  if(field(f,"feedbackEmailConsent",8)==="yes"){
   if(!email)fail("An email address is required for the feedback invitation");
+  const feedbackLocale=field(f,"feedbackLocale",2)==="fr"?"fr":"en";
   const {error:consentError}=await db.from("canton_visitors").update({
-   email,feedback_email_opt_in:true,feedback_opt_in_source:"staff_attested_at_booking",
+   email,feedback_email_opt_in:true,feedback_preferred_locale:feedbackLocale,feedback_opt_in_source:"staff_attested_at_booking",
    feedback_opt_in_at:new Date().toISOString()
   }).eq("id",visitorId).eq("organization_id",org);
   if(consentError)fail("Could not record feedback email consent");
