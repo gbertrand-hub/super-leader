@@ -63,9 +63,9 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
  const feedbackResponseRate=completedCount?Math.round(100*(feedback||[]).length/completedCount)+"%":"—";
  const pendingFeedback=(feedback||[]).filter(x=>x.rating<=2||x.contact_requested).length;
  const pendingHandoffs=(visits||[]).filter(v=>v.follow_up_status==="open").length;
- const unassignedFollowUps=(visits||[]).filter(v=>v.status==="completed"&&v.follow_up_status==="open"&&!v.follow_up_owner_id&&(v.department==="DIG"||v.department==="TCF"));
  const flaggedFeedbackVisits=new Set((feedback||[]).filter(f=>f.contact_requested||f.rating<=2).map(f=>f.appointment_id));
- const unreviewedOpportunities=(visits||[]).filter(v=>v.status==="completed"&&(v.department==="DIG"||v.department==="TCF")&&flaggedFeedbackVisits.has(v.id)&&v.follow_up_status!=="completed"&&!v.follow_up_owner_id);
+ const unassignedFollowUps=(visits||[]).filter(v=>v.status==="completed"&&!v.follow_up_owner_id&&(v.department==="DIG"||v.department==="TCF")&&(v.follow_up_status==="open"||flaggedFeedbackVisits.has(v.id))&&v.follow_up_status!=="completed");
+ const unreviewedOpportunities=unassignedFollowUps.filter(v=>flaggedFeedbackVisits.has(v.id));
 
  const ratingAverage=(feedback||[]).length
   ? ((feedback||[]).reduce((total,f)=>total+f.rating,0)/(feedback||[]).length).toFixed(1):"—";
@@ -151,7 +151,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
   </section>
   {(isSenior||membership.role==="manager")&&unassignedFollowUps.length>0&&<section role="status" className="rounded-xl border-2 border-amber-400 bg-amber-50 p-5">
    <h2 className="text-lg font-semibold text-amber-950">{fr?"⚠️ Suivis commerciaux sans responsable":"⚠️ Commercial follow-ups without owner"}</h2>
-   <p className="mt-2 text-sm text-amber-900">{fr?"Ces visites DIG/TCF sont terminées et nécessitent un suivi, mais aucun collaborateur n’a été désigné. Attribuez un responsable et une échéance ci-dessous.":"These DIG/TCF visits need follow-up, but no employee is assigned. Assign an owner and a due date below."}</p>
+   <p className="mt-2 text-sm text-amber-900">{fr?"Ces visites DIG/TCF ont un suivi ouvert ou un avis qui demande une attention particulière, mais aucun responsable n’a été désigné. Attribuez un collaborateur et une échéance ci-dessous.":"These DIG/TCF visits have an open follow-up or feedback requiring attention, but no owner. Assign an employee and a due date below."}</p>
    <div className="mt-3 space-y-2">{unassignedFollowUps.slice(0,10).map(v=><div key={v.id} className="rounded-lg bg-white p-3 text-sm"><strong>{map.get(v.visitor_id)?.full_name||(fr?"Visiteur":"Visitor")}</strong> · {v.department} · <span className="font-medium">{v.follow_up_note||(fr?"Action commerciale à attribuer":"Commercial action to assign")}</span>
      {unreviewedOpportunities.some(x=>x.id===v.id)&&<span className="ml-2 rounded bg-amber-200 px-2 py-1 text-xs">{fr?"Avis nécessitant une attention":"Feedback needs attention"}</span>}</div>)}</div>
    <a href="#canton-followup-handoff" className="mt-3 inline-block rounded-lg bg-amber-900 px-4 py-2 text-sm font-medium text-white">{fr?"Attribuer les suivis":"Assign follow-ups"}</a>
