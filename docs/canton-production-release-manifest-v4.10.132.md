@@ -61,26 +61,19 @@ Reason: these files are QA/stage specific or contain the QA organization id. Pro
 
 ## Production seed
 
-After migration 124:
+The production seed is executed by:
+- `125_canton_production_bootstrap.sql`
 
-insert into public.visitor_sites
- (organization_id,code,name,city,country_code,timezone,street_address,is_hq,is_active)
-values
- ('7681043d-2ce8-47e7-bb93-6dacef906875'::uuid,
-  'CANTON_HQ','Canton HQ','Canton','US','America/Chicago',
-  '3540 Van Zandt County Road 2410, Canton, Texas 75103, United States',
-  true,true)
-on conflict(organization_id,code) do update set
- name=excluded.name,
- city=excluded.city,
- country_code=excluded.country_code,
- timezone=excluded.timezone,
- street_address=excluded.street_address,
- is_hq=true,
- is_active=true,
- updated_at=now();
+It creates/updates:
+- Canton HQ in `visitor_sites`;
+- Canton Main Reception in `canton_qr_sites`;
+- the mapping from the QR reception to the Canton HQ operational site;
+- server-only grants and RPC hardening.
 
-Do not seed Yaounde/Kinshasa until their addresses and local operational owners are confirmed.
+Do not separately replay a second manual Canton HQ seed after migration 125.
+
+Do not seed Yaoundé/Kinshasa until their addresses and local operational owners are confirmed.
+
 
 ## Production environment variables
 
@@ -100,6 +93,27 @@ QA-only variables must not be reused as production controls:
 - CANTON_QA_EMAIL_TEST_ENABLED
 - CANTON_QA_EMAIL_RECIPIENT
 - CANTON_QA_WHATSAPP_RECIPIENT
+
+## External communication readiness
+
+### Email
+Production-ready in code, but remains fail-closed until Resend variables are configured:
+- RESEND_API_KEY
+- FEEDBACK_FROM_EMAIL
+- FEEDBACK_FROM_NAME (optional)
+- CRON_SECRET
+
+### WhatsApp
+Deferred / disabled for first production release unless all of the following are explicitly validated:
+- visitor WhatsApp opt-in;
+- WHATSAPP_ACCESS_TOKEN;
+- WHATSAPP_PHONE_NUMBER_ID;
+- WHATSAPP_GRAPH_VERSION;
+- approved WHATSAPP_FEEDBACK_TEMPLATE_NAME;
+- template language codes and URL-button structure;
+- webhook verification if delivery status tracking is enabled.
+
+WhatsApp is not a blocker for the initial release because the QR and email fallback paths are complete.
 
 ## Pre-release checks
 
