@@ -55,3 +55,11 @@ create index if not exists visitor_site_staff_user_idx
 create unique index if not exists visitor_sites_one_hq_per_org_idx
  on public.visitor_sites(organization_id)
  where is_hq=true;
+
+
+-- Multi-site foreign-key coverage must be created only after the site columns exist.
+create index if not exists canton_appointments_site_fk_idx
+ on public.canton_appointments(site_id) where site_id is not null;
+
+create index if not exists canton_qr_sites_visitor_site_fk_idx
+ on public.canton_qr_sites(visitor_site_id) where visitor_site_id is not null;
