@@ -225,8 +225,6 @@ create index if not exists canton_appointments_announced_by_fk_idx
   on public.canton_appointments(announced_by) where announced_by is not null;
 create index if not exists canton_appointments_follow_up_owner_fk_idx
   on public.canton_appointments(follow_up_owner_id) where follow_up_owner_id is not null;
-create index if not exists canton_appointments_site_fk_idx
-  on public.canton_appointments(site_id) where site_id is not null;
 create index if not exists canton_feedback_outbox_org_fk_idx
   on public.canton_feedback_invitation_outbox(organization_id);
 create index if not exists canton_intake_appointment_fk_idx
@@ -237,8 +235,6 @@ create index if not exists canton_intake_org_site_fk_idx
   on public.canton_intake_requests(organization_id,site_id);
 create index if not exists canton_qr_sites_created_by_fk_idx
   on public.canton_qr_sites(created_by) where created_by is not null;
-create index if not exists canton_qr_sites_visitor_site_fk_idx
-  on public.canton_qr_sites(visitor_site_id) where visitor_site_id is not null;
 create index if not exists canton_reception_staff_granted_by_fk_idx
   on public.canton_reception_staff(granted_by) where granted_by is not null;
 create index if not exists canton_reception_staff_user_fk_idx
