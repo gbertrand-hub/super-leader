@@ -14,6 +14,11 @@ export type AuthState = {
   success?: string;
 };
 
+function safeInternalNext(value: FormDataEntryValue | null): string {
+  const next = String(value ?? "").trim();
+  return next.startsWith("/") && !next.startsWith("//") ? next : "/dashboard/my-day";
+}
+
 function authErrorMessage(error: {
   message?: string;
   code?: string;
@@ -52,7 +57,7 @@ export async function signInAction(
     return { error: "Email et mot de passe obligatoires." };
   }
 
-  let destination = "/dashboard/my-day";
+  let destination = safeInternalNext(formData.get("next"));
 
   try {
     const supabase = await createClient();

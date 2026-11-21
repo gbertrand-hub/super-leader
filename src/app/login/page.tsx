@@ -11,10 +11,17 @@ type LoginPageProps = {
   searchParams?: Promise<{
     passwordChanged?: string;
     temporaryExpired?: string;
+    next?: string;
   }>;
 };
 
+function safeNextPath(value?: string): string {
+  return value && value.startsWith("/") && !value.startsWith("//") ? value : "/dashboard/my-day";
+}
+
 export default async function LoginPage({searchParams}: LoginPageProps) {
+  const params = (await searchParams) ?? {};
+  const nextPath = safeNextPath(params.next);
   const supabase = await createClient();
   const {data} = await supabase.auth.getUser();
   if (data.user) {
@@ -31,7 +38,6 @@ export default async function LoginPage({searchParams}: LoginPageProps) {
     );
   }
 
-  const params = (await searchParams) ?? {};
   const {t} = await getI18n();
 
   return (
@@ -58,6 +64,7 @@ export default async function LoginPage({searchParams}: LoginPageProps) {
           },
         ]}
         submitLabel={t("auth.login.submit")}
+        hiddenFields={{next: nextPath}}
         footer={{
           text: t("auth.login.noAccount"),
           href: "/signup",

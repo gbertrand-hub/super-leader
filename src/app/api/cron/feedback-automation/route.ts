@@ -1,6 +1,7 @@
 import {NextResponse} from "next/server";
 import {processFeedbackAutomation} from "@/lib/crm/feedback-automation";
 import {verifyCronRequest} from "@/lib/crm/webhook-security";
+import {processCantonProductionFeedbackEmails} from "@/lib/canton/production-feedback-delivery";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -11,8 +12,11 @@ export async function GET(request: Request) {
   }
 
   try {
-    const result = await processFeedbackAutomation();
-    return NextResponse.json({ok: true, ...result});
+    const [crm,canton] = await Promise.all([
+      processFeedbackAutomation(),
+      processCantonProductionFeedbackEmails(25),
+    ]);
+    return NextResponse.json({ok: true, crm, canton});
   } catch (error) {
     console.error("Feedback automation cron failed", error);
     return NextResponse.json({

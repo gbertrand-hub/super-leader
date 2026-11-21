@@ -1,0 +1,32 @@
+name: Canton Visitor V1 validation
+on:
+  pull_request:
+    paths:
+      - 'src/app/actions/canton-visitors.ts'
+      - 'src/app/canton-feedback/**'
+      - 'src/app/dashboard/canton-visitors/**'
+      - 'src/lib/navigation/dashboard-menu.ts'
+      - 'src/i18n/messages.ts'
+      - 'supabase/100_canton_visitor_v1.sql'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/canton-visitor-ci.yml'
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npm run build
+        env:
+          NEXT_TELEMETRY_DISABLED: '1'
+          NEXT_PUBLIC_SUPABASE_URL: 'https://example.supabase.co'
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: 'sb_publishable_ci_dummy'
+          SUPABASE_SERVICE_ROLE_KEY: 'ci_placeholder'

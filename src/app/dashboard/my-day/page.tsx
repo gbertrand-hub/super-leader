@@ -58,6 +58,7 @@ type ReopeningRow = {report_date: string; expires_at: string; status: string};
 type MeetingRow = {id: string; title: string; meeting_type: string; mandatory: boolean; starts_at: string; ends_at: string | null; meeting_url: string | null; provider: string};
 type MeetingAttendanceRow = {meeting_id: string; user_id: string; status: string};
 type CrmTaskRow = {id: string; client_id: string; title: string; due_at: string | null; priority: string; status: string};
+type CantonNextActionRow = {id: string; appointment_id: string; action_text: string; due_date: string; status: string};
 type ClientRow = {id: string; full_name: string};
 type CollectionRow = {
   id: string;
@@ -264,7 +265,7 @@ export default async function MyDayPage() {
   const meetingWindowEnd = new Date(`${today}T23:59:59Z`);
   meetingWindowEnd.setUTCDate(meetingWindowEnd.getUTCDate() + 1);
 
-  const [attendanceResult, reportResult, reopeningResult, meetingsResult, tasksResult, collectionsResult, feedbackResult, notificationsResult, scoreResult, plansResult, academyEnrollmentsResult] = await Promise.all([
+  const [attendanceResult, reportResult, reopeningResult, meetingsResult, tasksResult, collectionsResult, feedbackResult, notificationsResult, scoreResult, plansResult, academyEnrollmentsResult, cantonNextActionsResult] = await Promise.all([
     admin.from("attendance_records").select("user_id, work_date, clock_in_at, clock_out_at, status, late_minutes, total_work_minutes, outside_schedule_minutes, night_minutes, weekend_minutes, closure_count, reopening_reason").eq("organization_id", membership.organization_id).eq("user_id", authData.user.id).eq("work_date", today).maybeSingle<AttendanceRow>(),
     admin.from("daily_reports").select("user_id, report_date, status, submitted_at").eq("organization_id", membership.organization_id).eq("user_id", authData.user.id).eq("report_date", today).maybeSingle<ReportRow>(),
     admin.from("daily_report_reopenings").select("report_date, expires_at, status").eq("organization_id", membership.organization_id).eq("user_id", authData.user.id).eq("status", "active").gt("expires_at", requestNowIso).order("expires_at", {ascending: false}).limit(5),
@@ -276,9 +277,10 @@ export default async function MyDayPage() {
     admin.from("employee_month_scores").select("total_score, position, eligible, reports_expected, reports_submitted").eq("organization_id", membership.organization_id).eq("user_id", authData.user.id).eq("score_month", scoreMonth).maybeSingle<ScoreRow>(),
     admin.from("action_plans").select("id, action_title, due_date, priority, status, progress").eq("organization_id", membership.organization_id).eq("owner_id", authData.user.id).in("status", ["todo", "in_progress", "blocked"]).order("due_date", {ascending: true, nullsFirst: false}).limit(40),
     admin.from("academy_enrollments").select("id, course_id, status, progress_percent").eq("organization_id", membership.organization_id).eq("user_id", authData.user.id).in("status", ["assigned", "in_progress", "failed", "overdue"]),
+    admin.from("canton_next_actions").select("id,appointment_id,action_text,due_date,status").eq("organization_id", membership.organization_id).eq("assigned_to", authData.user.id).eq("status","open").order("due_date",{ascending:true}).limit(30),
   ]);
 
-  const optionalErrors = [reopeningResult.error, meetingsResult.error, tasksResult.error, collectionsResult.error, feedbackResult.error, notificationsResult.error, scoreResult.error, plansResult.error, academyEnrollmentsResult.error].filter(Boolean);
+  const optionalErrors = [reopeningResult.error, meetingsResult.error, tasksResult.error, collectionsResult.error, feedbackResult.error, notificationsResult.error, scoreResult.error, plansResult.error, academyEnrollmentsResult.error, cantonNextActionsResult.error].filter(Boolean);
   optionalErrors.forEach((error) => console.error("Ma journée : module optionnel indisponible", error?.message));
   if (attendanceResult.error) console.error("Ma journée : présence indisponible", attendanceResult.error.message);
   if (reportResult.error) console.error("Ma journée : rapport indisponible", reportResult.error.message);
@@ -318,6 +320,7 @@ export default async function MyDayPage() {
   const score = scoreResult.data ?? null;
   const plans = (plansResult.data ?? []) as ActionPlanRow[];
   const academyEnrollments = (academyEnrollmentsResult.data ?? []) as AcademyEnrollmentRow[];
+  const cantonNextActions = (cantonNextActionsResult.data ?? []) as CantonNextActionRow[];
   const academyCourseIds = Array.from(new Set(academyEnrollments.map((row) => row.course_id)));
   const {data: academyCoursesData, error: academyCoursesError} = academyCourseIds.length
     ? await admin
@@ -362,6 +365,12 @@ export default async function MyDayPage() {
     .filter((item): item is {enrollment: AcademyEnrollmentRow; course: AcademyCourseRow} => Boolean(item.course && item.course.status === "published"))
     .sort((a, b) => a.course.deadline.localeCompare(b.course.deadline));
   const activeReopening = activeReopenings.find((row) => row.report_date === today || row.report_date < today);
+  const cantonDueToday = cantonNextActions.filter((action) => action.due_date === today);
+  const cantonOverdue = cantonNextActions.filter((action) => action.due_date < today);
+  const cantonSoonHorizon = new Date(`${today}T00:00:00Z`);
+  cantonSoonHorizon.setUTCDate(cantonSoonHorizon.getUTCDate() + 3);
+  const cantonSoonDate = cantonSoonHorizon.toISOString().slice(0,10);
+  const cantonSoon = cantonNextActions.filter((action) => action.due_date > today && action.due_date <= cantonSoonDate);
 
   const priorities: PriorityItem[] = [];
   if (isScheduledToday && !attendance?.clock_in_at) {
@@ -384,6 +393,9 @@ export default async function MyDayPage() {
       priorities.push({key: `meeting-${meeting.id}`, title: meeting.title, detail: t("myDay.priorities.meetingDetail", {time}), href: "/dashboard/performance?view=meetings", tone: meeting.mandatory ? "today" : "soon", rank: 3});
     }
   });
+  cantonOverdue.slice(0,3).forEach((action)=>priorities.push({key:`canton-${action.id}`,title:action.action_text,detail:locale==="fr"?`Action Canton en retard · échéance ${action.due_date}`:`Canton action overdue · due ${action.due_date}`,href:"/canton-pilot",tone:"urgent",rank:1}));
+  cantonDueToday.slice(0,3).forEach((action)=>priorities.push({key:`canton-${action.id}`,title:action.action_text,detail:locale==="fr"?"Action commerciale Canton à traiter aujourd’hui":"Canton commercial action due today",href:"/canton-pilot",tone:"today",rank:2}));
+  cantonSoon.slice(0,3).forEach((action)=>priorities.push({key:`canton-${action.id}`,title:action.action_text,detail:locale==="fr"?`Action Canton à venir · ${action.due_date}`:`Upcoming Canton action · ${action.due_date}`,href:"/canton-pilot",tone:"soon",rank:4}));
   overdueTasks.slice(0, 3).forEach((task) => priorities.push({key: `task-${task.id}`, title: task.title, detail: t("myDay.priorities.overdueClientTask", {client: clientName(task.client_id)}), href: "/dashboard/crm", tone: "urgent", rank: 1}));
   dueTasks.filter((task) => !overdueTasks.some((row) => row.id === task.id)).slice(0, 3).forEach((task) => priorities.push({key: `task-${task.id}`, title: task.title, detail: t("myDay.priorities.clientTask", {client: clientName(task.client_id)}), href: "/dashboard/crm", tone: "today", rank: 3}));
   overdueCollections.slice(0, 3).forEach((item) => priorities.push({key: `collection-${item.id}`, title: t("myDay.priorities.overduePayment", {client: item.customer_name}), detail: `${item.product_name} · ${formatMoney(dateLocale, item.currency, item.next_payment_amount)}`, href: "/dashboard/collections", tone: "urgent", rank: 1}));
@@ -536,7 +548,7 @@ export default async function MyDayPage() {
           <Metric label={t("myDay.metrics.report")} value={reportLabel} detail={report ? t("myDay.metrics.submittedAt", {time: formatTime(report.submitted_at)}) : t("myDay.metrics.deadline", {time: reportDeadline})} tone={report ? "emerald" : !isScheduledToday ? "slate" : reportWindowOpen || activeReopening ? "amber" : "red"} />
           <Metric label={t("myDay.metrics.meetings")} value={ownMeetings.length} detail={t("myDay.metrics.today")} tone={ownMeetings.length ? "indigo" : "slate"} />
           <Metric label={t("myDay.metrics.tasks")} value={dueTasks.length + duePlans.length} detail={t("myDay.metrics.overdue", {count: overdueTasks.length + duePlans.filter((plan) => plan.due_date && plan.due_date < today).length})} tone={overdueTasks.length ? "red" : dueTasks.length ? "amber" : "slate"} />
-          <Metric label={t("myDay.metrics.notifications")} value={notifications.length} detail={t("myDay.metrics.urgent", {count: urgentNotifications.length})} tone={urgentNotifications.length ? "red" : notifications.length ? "amber" : "slate"} />
+          <Metric label={t("myDay.metrics.notifications")} value={notifications.length + cantonDueToday.length + cantonOverdue.length} detail={locale==="fr"?`${urgentNotifications.length + cantonOverdue.length} urgentes · ${cantonDueToday.length} rappel Canton aujourd’hui`:`${urgentNotifications.length + cantonOverdue.length} urgent · ${cantonDueToday.length} Canton reminder due today`} tone={(urgentNotifications.length + cantonOverdue.length) ? "red" : (notifications.length + cantonDueToday.length) ? "amber" : "slate"} />
           <Metric label={t("myDay.metrics.score")} value={score ? `${number(score.total_score).toFixed(1)}/100` : "—"} detail={score?.position ? t("myDay.metrics.position", {position: score.position}) : t("myDay.metrics.awaitingScore")} tone={score?.eligible ? "emerald" : "slate"} />
         </section>
 

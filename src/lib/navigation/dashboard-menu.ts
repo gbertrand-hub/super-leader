@@ -129,6 +129,12 @@ export const DASHBOARD_NAVIGATION_SECTIONS: DashboardNavigationSection[] = [
     labelKey: "navigation.sections.commercial",
     items: [
       {
+        labelKey: "navigation.cantonVisitors",
+        href: "/dashboard/canton-visitors",
+        icon: "schedule",
+        roles: ["owner", "admin", "hr", "manager", "employee"],
+      },
+      {
         labelKey: "navigation.crm",
         href: "/dashboard/crm",
         icon: "crm",
