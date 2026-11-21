@@ -27,7 +27,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
  const isSenior=["owner","admin"].includes(membership.role);
  const {data:reception}=await db.from("canton_reception_staff").select("user_id").eq("organization_id",membership.organization_id).eq("user_id",user.id).maybeSingle();
  const isReception=!!reception;
- const {data:members}=(isSenior||membership.role==="manager")?await db.from("organization_members").select("user_id,role").eq("organization_id",membership.organization_id).eq("is_active",true).limit(200):{data:[]};
+ const {data:members}=(isSenior||membership.role==="manager")?await db.from("organization_members").select("user_id,role").eq("organization_id",membership.organization_id).eq("is_active",true).limit(500):{data:[]};
  const {data:hostMembers}=await db.from("organization_members").select("user_id,role").eq("organization_id",membership.organization_id).eq("is_active",true).limit(500);
  const {data:crmProspects}=await db.from("crm_clients").select("id,reference,full_name,email,phone")
   .eq("organization_id",membership.organization_id).order("created_at",{ascending:false}).limit(100);
@@ -51,7 +51,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
  const hqSite=(allVisitorSites||[]).find(s=>s.is_hq)||null;
  const selectedSiteId=site==="all"&&isSenior?"all":siteById.has(site)?site:(isSenior?"all":visitorSites?.[0]?.id||hqSite?.id||"all");
  const memberIds=[...new Set([...(members||[]).map(m=>m.user_id),...(hostMembers||[]).map(m=>m.user_id)])];
- const {data:memberProfiles}=memberIds.length?await db.from("profiles").select("id,full_name,email").in("id",memberIds):{data:[]};
+ const {data:memberProfiles}=memberIds.length?await db.from("profiles").select("id,full_name,email,city,country").in("id",memberIds):{data:[]};
  const profileMap=new Map((memberProfiles||[]).map(p=>[p.id,p]));
  const assignedIds=new Set((staffAssignments||[]).map(p=>p.user_id));
  const {data:siteStaff}=isSenior?await db.from("visitor_site_staff")
@@ -59,6 +59,10 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
   .in("site_id",(visitorSites||[]).map(s=>s.id))
   .eq("is_active",true):{data:[]};
  const siteStaffMap=new Map((siteStaff||[]).map(x=>[x.site_id+":"+x.user_id,x]));
+ const adminSitesToRender=selectedSiteId==="all"
+  ? (visitorSites||[])
+  : (visitorSites||[]).filter(s=>s.id===selectedSiteId);
+
  const {data:teams}=isSenior?await db.from("teams")
   .select("id,name,department")
   .eq("organization_id",membership.organization_id)
@@ -425,7 +429,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
     </form>
 
     <div className="mt-5 space-y-4">
-     {(visitorSites||[]).map(s=><article key={s.id} className="rounded-xl border bg-white p-4">
+     {adminSitesToRender.map(s=><article key={s.id} className="rounded-xl border bg-white p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
        <div><div className="flex flex-wrap items-center gap-2"><h3 className="font-bold text-slate-900">{s.name}</h3>{s.is_hq&&<span className="rounded-full bg-amber-100 px-2 py-1 text-[10px] font-bold text-amber-900">HQ</span>}{!s.is_active&&<span className="rounded-full bg-slate-200 px-2 py-1 text-[10px] font-bold text-slate-700">{fr?"INACTIF":"INACTIVE"}</span>}</div><p className="mt-1 text-xs text-slate-500">{s.code} · {s.city||"—"} · {s.country_code||"—"} · {s.timezone}</p></div>
        <div className="flex flex-wrap gap-2">
@@ -454,6 +458,8 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
          userId:m.user_id,
          name:p?.full_name||p?.email||m.user_id,
          email:p?.email||null,
+         city:p?.city||null,
+         country:p?.country||null,
          orgRole:m.role,
          accessRole:assigned?.access_role||null
         }})}
