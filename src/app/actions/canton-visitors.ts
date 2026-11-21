@@ -536,6 +536,7 @@ export async function qualifyCantonLegacyProspect(f:FormData){
 
 export async function saveCantonVisitDebrief(f:FormData){
  assertCantonLive();
+ const returnTo=safeCantonReturn(field(f,"returnTo",500));
  const {db,org,user,role}=await context();
  const id=field(f,"id",40);
  const interest=field(f,"interest",30);
@@ -633,11 +634,12 @@ export async function saveCantonVisitDebrief(f:FormData){
   }
  }
  revalidatePath(route);
- redirect(route+"?success="+encodeURIComponent(crmClientId?"Visit debrief saved and synchronized to CRM":"Visit debrief saved"));
+ redirect(withMessage(returnTo,"success",crmClientId?"Visit debrief saved and synchronized to CRM":"Visit debrief saved"));
 }
 
 export async function assignCantonFollowUp(f:FormData){
  assertCantonLive();
+ const returnTo=safeCantonReturn(field(f,"returnTo",500));
  const {db,org,user,role}=await context();
  if(!["owner","admin","manager"].includes(role)) fail("Only a manager can assign follow-up");
  const id=field(f,"id",40),ownerId=field(f,"ownerId",40),note=field(f,"note",1000),dueDate=field(f,"dueDate",10);
@@ -657,10 +659,11 @@ export async function assignCantonFollowUp(f:FormData){
   updated_at:new Date().toISOString()
  }).eq("id",id).eq("organization_id",org).eq("status","completed").select("id");
  if(error||!changed?.length)fail("Could not assign follow-up");
- revalidatePath(route);redirect(route+"?success="+encodeURIComponent("Follow-up assigned"));
+ revalidatePath(route);redirect(withMessage(returnTo,"success","Follow-up assigned"));
 }
 export async function completeCantonFollowUp(f:FormData){
  assertCantonLive();
+ const returnTo=safeCantonReturn(field(f,"returnTo",500));
  const {db,org,user,role}=await context();
  const id=field(f,"id",40);
  const outcome=field(f,"outcome",40);
@@ -680,13 +683,14 @@ export async function completeCantonFollowUp(f:FormData){
   updated_at:new Date().toISOString()
  }).eq("id",id).eq("organization_id",org).eq("follow_up_status","open").select("id");
  if(error||!changed?.length)fail("Follow-up changed, refresh");
- revalidatePath(route);redirect(route+"?success="+encodeURIComponent("Follow-up result recorded and closed"));
+ revalidatePath(route);redirect(withMessage(returnTo,"success","Follow-up result recorded and closed"));
 }
 
 
 /** Continue commercial action after an initial result (QA only). No outbound message is sent. */
 export async function createCantonNextAction(f:FormData){
  assertCantonLive();
+ const returnTo=safeCantonReturn(field(f,"returnTo",500));
  const {db,org,user,role}=await context();
  const appointmentId=field(f,"appointmentId",40);
  const actionText=field(f,"actionText",800);
@@ -712,10 +716,11 @@ export async function createCantonNextAction(f:FormData){
   action_text:actionText,due_date:dueDate,created_by:user.id
  });
  if(error)fail("Could not save next action");
- revalidatePath(route);redirect(route+"?success="+encodeURIComponent("Next commercial action scheduled"));
+ revalidatePath(route);redirect(withMessage(returnTo,"success","Next commercial action scheduled"));
 }
 export async function completeCantonNextAction(f:FormData){
  assertCantonLive();
+ const returnTo=safeCantonReturn(field(f,"returnTo",500));
  const {db,org,user,role}=await context();
  const id=field(f,"actionId",40);
  const completionNote=field(f,"completionNote",1000);
@@ -734,7 +739,7 @@ export async function completeCantonNextAction(f:FormData){
   .update({status:"completed",completion_note:completionNote,completed_at:new Date().toISOString(),completed_by:user.id})
   .eq("id",id).eq("organization_id",org).eq("status","open").select("id");
  if(error||!changed?.length)fail("Action already updated, refresh");
- revalidatePath(route);redirect(route+"?success="+encodeURIComponent("Next action completed"));
+ revalidatePath(route);redirect(withMessage(returnTo,"success","Next action completed"));
 }
 
 export async function createCantonSlaRecovery(f:FormData){
