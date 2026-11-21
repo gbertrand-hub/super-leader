@@ -13,6 +13,8 @@ const route = "/canton";
 const seniorRoles = new Set(["owner","admin"]);
 const field=(f:FormData,k:string,n=180)=>String(f.get(k)??"").trim().slice(0,n);
 const fail=(message:string):never=>redirect(route+"?error="+encodeURIComponent(message));
+const safeCantonReturn=(value:string)=>/^\/canton(?:\/(?:reception|appointments|commercial|feedback|admin))?(?:\?[^\r\n]*)?$/.test(value)&&!value.startsWith("//")?value:route;
+const withMessage=(path:string,key:"success"|"error",message:string)=>path+(path.includes("?")?"&":"?")+key+"="+encodeURIComponent(message);
 async function context(){
  const supabase=await createClient();
  const {data:{user}}=await supabase.auth.getUser();
@@ -275,11 +277,13 @@ export async function createCantonAppointment(f:FormData){
 }
 export async function updateCantonVisit(f:FormData){
  assertCantonLive();
+ const returnTo=safeCantonReturn(field(f,"returnTo",500));
+ const updateFail=(message:string):never=>redirect(withMessage(returnTo,"error",message));
  const {db,org,user,role,isReception}=await context(),id=field(f,"id"),action=field(f,"action");
- if(!/^[0-9a-f-]{36}$/i.test(id)) fail("Invalid visit");
+ if(!/^[0-9a-f-]{36}$/i.test(id)) updateFail("Invalid visit");
  const {data:row}=await db.from("canton_appointments").select("status,check_in_at,check_out_at,department,announced_by,host_user_id,site_id")
   .eq("id",id).eq("organization_id",org).maybeSingle();
- if(!row) fail("Visit not found");
+ if(!row) updateFail("Visit not found");
  const visit = row!;
  if(!seniorRoles.has(role)){
   const ctxForSite={db,user,org,role,isReception};
@@ -289,14 +293,14 @@ export async function updateCantonVisit(f:FormData){
  const isCreator=visit.announced_by===user.id;
  const isHost=visit.host_user_id===user.id;
  const canOperateStandardVisit=visit.department!=="DIRECTION" && (isReception || role==="manager" || role==="hr" || isHost);
- if(!isSenior && visit.department==="DIRECTION") fail("Confidential visit: administrator access required");
- if(!isSenior && !isCreator && !canOperateStandardVisit) fail("Not authorized to manage this visit");
- if(["reschedule","no_show","followup"].includes(action) && !isSenior && !isCreator && role!=="manager") fail("Only the organizer or a manager can change this visit");
+ if(!isSenior && visit.department==="DIRECTION") updateFail("Confidential visit: administrator access required");
+ if(!isSenior && !isCreator && !canOperateStandardVisit) updateFail("Not authorized to manage this visit");
+ if(["reschedule","no_show","followup"].includes(action) && !isSenior && !isCreator && role!=="manager") updateFail("Only the organizer or a manager can change this visit");
  const now=new Date().toISOString();
  let patch:Record<string,unknown>={updated_at:now};
  if(action==="reschedule" && ["announced","scheduled","no_show"].includes(visit.status)){
   const scheduled=field(f,"scheduled");
-  if(!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(scheduled)) fail("Invalid date for reschedule");
+  if(!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(scheduled)) updateFail("Invalid date for reschedule");
   patch={...patch,status:"scheduled",scheduled_local:scheduled.replace("T"," ")+":00"};
  } else
  if(action==="checkin" && ["announced","scheduled"].includes(visit.status)){
@@ -309,13 +313,13 @@ export async function updateCantonVisit(f:FormData){
   patch={...patch,status:"no_show"};
  } else if(action==="followup" && visit.status==="completed"){
   patch={...patch,follow_up_required:field(f,"required")==="yes"};
- } else fail("Action not allowed in current status");
+ } else updateFail("Action not allowed in current status");
  const {data:changed,error}=await db.from("canton_appointments").update(patch)
   .eq("id",id).eq("organization_id",org).eq("status",visit.status).select("id");
- if(error) fail(error.code==="23505"?"An appointment already exists at this time":"Unable to update visit");
- if(!changed?.length) fail("Visit changed in another session. Please refresh and retry");
+ if(error) updateFail(error.code==="23505"?"An appointment already exists at this time":"Unable to update visit");
+ if(!changed?.length) updateFail("Visit changed in another session. Please refresh and retry");
  revalidatePath(route);
- redirect(route+"?success="+encodeURIComponent("Visit updated"));
+ redirect(withMessage(returnTo,"success","Visit updated"));
 }
 export async function markCantonArrivalAlertRead(f:FormData){
  assertCantonLive();
