@@ -158,8 +158,9 @@ export async function createCantonAppointment(f:FormData){
  const {db,user,org,role}=ctx;
  const name=field(f,"name"), rawPhone=field(f,"phone",35);
  const phone=rawPhone.replace(/[^+0-9]/g,"")||null;
- const email=field(f,"email",200).toLowerCase()||null;
- if(!email) fail("Email is required for visitor registration");
+ const rawEmail=field(f,"email",200).toLowerCase();
+ if(!rawEmail) fail("Email is required for visitor registration");
+ const email=rawEmail as string;
  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) fail("Please enter a valid email address");
  const department=field(f,"department").toUpperCase();
  const purpose=field(f,"purpose",100)||"other";
