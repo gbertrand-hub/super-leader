@@ -89,8 +89,8 @@ export async function createCantonCrmReferral(f:FormData){
  const {data:client}=await db.from("crm_clients").select("id,full_name,email,phone")
   .eq("id",clientId).eq("organization_id",org).maybeSingle();
  if(!client) fail("CRM prospect not found");
- if(!client.email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(client.email))) fail("This CRM prospect needs a valid email address before a commercial visit can be scheduled");
- const crmClient=client!;
+ const crmClient=client;
+ if(!crmClient.email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(crmClient.email))) fail("This CRM prospect needs a valid email address before a commercial visit can be scheduled");
  let visitor:{id:string;crm_client_id:string|null}|null=null;
  const {data:linked}=await db.from("canton_visitors").select("id,crm_client_id")
   .eq("organization_id",org).eq("crm_client_id",clientId).limit(1).maybeSingle();
