@@ -732,13 +732,14 @@ export async function reassignCantonNextAction(f:FormData){
  const {data:action}=await db.from("canton_next_actions")
   .select("id,assigned_to,appointment_id,status").eq("id",actionId)
   .eq("organization_id",org).maybeSingle();
- if(!action||action.status!=="open") reassignFail("This next action is no longer open");
- if(action.assigned_to===assignedTo) reassignFail("Select a different team member");
+ if(!action||action.status!=="open") return reassignFail("This next action is no longer open");
+ const openAction=action;
+ if(openAction.assigned_to===assignedTo) reassignFail("Select a different team member");
  const {data:member}=await db.from("organization_members").select("user_id")
   .eq("organization_id",org).eq("user_id",assignedTo).eq("is_active",true).maybeSingle();
  if(!member) reassignFail("The new assignee must be an active organization member");
  const {data:visit}=await db.from("canton_appointments").select("department")
-  .eq("organization_id",org).eq("id",action.appointment_id).maybeSingle();
+  .eq("organization_id",org).eq("id",openAction.appointment_id).maybeSingle();
  if(!visit||!["DIG","TCF"].includes(visit.department)) reassignFail("Only DIG / TCF commercial actions can be reassigned here");
  const {error}=await db.rpc("canton_reassign_next_action",{
   p_organization_id:org,
