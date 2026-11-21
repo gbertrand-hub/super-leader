@@ -49,6 +49,7 @@ Then run:
 127_canton_feedback_crm_sync.sql
 128_canton_qr_site_timezone.sql
 129_canton_feedback_site_timezone.sql
+130_canton_site_scoped_scheduling.sql
 
 ### Do NOT apply directly
 109_canton_qa_backend_grants.sql
