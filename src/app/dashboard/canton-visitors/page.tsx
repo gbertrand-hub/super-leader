@@ -465,11 +465,11 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
 
    <details className="rounded-xl border bg-white">
     <summary className="cursor-pointer p-5">
-     <div className="font-semibold">{fr?"Accès global exceptionnel":"Exceptional global access"}</div>
-     <div className="mt-1 text-sm font-normal text-slate-500">{fr?"Compatibilité historique Canton. À réserver au HQ, aux administrateurs ou au support central qui doivent intervenir sur tous les sites.":"Legacy Canton compatibility. Reserve for HQ administrators or central support requiring access across all sites."}</div>
+     <div className="font-semibold">{fr?"Accès réception historique · Canton HQ":"Legacy reception access · Canton HQ"}</div>
+     <div className="mt-1 text-sm font-normal text-slate-500">{fr?"Compatibilité avec l’ancien fonctionnement Canton. Pour le multi-sites, utilisez désormais « Équipe locale & droits » sur chaque site.":"Compatibility with the former Canton workflow. For multi-site access, use Local team & access rights on each site."}</div>
     </summary>
     <div className="border-t p-5">
-     <div className="space-y-2">{(members||[]).map(m=><div className="flex flex-wrap items-center justify-between gap-2 border-b py-2 text-sm" key={m.user_id}><span>{profileMap.get(m.user_id)?.full_name||profileMap.get(m.user_id)?.email||m.user_id} <span className="text-xs text-slate-500">({m.role})</span></span><form action={manageCantonReceptionStaff}><input type="hidden" name="userId" value={m.user_id}/><button name="operation" value={assignedIds.has(m.user_id)?"revoke":"grant"} className={assignedIds.has(m.user_id)?"rounded bg-red-100 px-3 py-1":"rounded bg-emerald-100 px-3 py-1"}>{assignedIds.has(m.user_id)?(fr?"Retirer l’accès global":"Remove global access"):(fr?"Autoriser globalement":"Grant global access")}</button></form></div>)}</div>
+     <div className="space-y-2">{(members||[]).map(m=><div className="flex flex-wrap items-center justify-between gap-2 border-b py-2 text-sm" key={m.user_id}><span>{profileMap.get(m.user_id)?.full_name||profileMap.get(m.user_id)?.email||m.user_id} <span className="text-xs text-slate-500">({m.role})</span></span><form action={manageCantonReceptionStaff}><input type="hidden" name="userId" value={m.user_id}/><button name="operation" value={assignedIds.has(m.user_id)?"revoke":"grant"} className={assignedIds.has(m.user_id)?"rounded bg-red-100 px-3 py-1":"rounded bg-emerald-100 px-3 py-1"}>{assignedIds.has(m.user_id)?(fr?"Retirer l’accès":"Remove access"):(fr?"Autoriser la réception":"Grant reception access")}</button></form></div>)}</div>
     </div>
    </details>
   </section>}
