@@ -103,7 +103,7 @@ export async function createCantonCrmReferral(f:FormData){
  if(!visitorId) visitorId=visitor!.id;
  const scheduledLocal=scheduled.replace("T"," ")+":00";
  const {data:duplicate}=await db.from("canton_appointments").select("id")
-  .eq("organization_id",org).eq("visitor_id",visitorId).eq("scheduled_local",scheduledLocal)
+  .eq("organization_id",org).eq("visitor_id",visitorId).eq("site_id",resolvedSiteId).eq("scheduled_local",scheduledLocal)
   .not("status","in","(cancelled,no_show)").limit(1).maybeSingle();
  if(duplicate) fail("This CRM prospect already has a Canton visit at that time");
  let hostName:string|null=null,resolvedHostUserId:string|null=null;
@@ -201,7 +201,7 @@ export async function createCantonAppointment(f:FormData){
  const scheduledLocal=scheduled ? scheduled.replace("T"," ")+":00" : null;
  if(scheduledLocal){
   const {data:existing}=await db.from("canton_appointments").select("id")
-   .eq("organization_id",org).eq("visitor_id",visitorId).eq("department",department)
+   .eq("organization_id",org).eq("visitor_id",visitorId).eq("site_id",resolvedSiteId).eq("department",department)
    .eq("purpose",purpose).eq("scheduled_local",scheduledLocal)
    .not("status","in","(cancelled,no_show)").limit(1).maybeSingle();
   if(existing) fail("An appointment already exists for this visitor, purpose and time");
@@ -213,7 +213,7 @@ export async function createCantonAppointment(f:FormData){
   const from=cantonWallTime(scheduledAsUtc-60*60*1000);
   const to=cantonWallTime(scheduledAsUtc+60*60*1000);
   const {data:nearby,error:nearbyError}=await db.from("canton_appointments").select("id,scheduled_local")
-   .eq("organization_id",org).eq("visitor_id",visitorId)
+   .eq("organization_id",org).eq("visitor_id",visitorId).eq("site_id",resolvedSiteId)
    .eq("department",department).eq("purpose",purpose)
    .in("status",["scheduled","announced","arrived","in_progress"])
    .gte("scheduled_local",from).lte("scheduled_local",to).limit(3);
