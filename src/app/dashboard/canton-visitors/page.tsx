@@ -9,7 +9,7 @@ import {createCantonQrSite,reviewCantonQrIntake,updateCantonQrSiteAddress} from 
 import {redirect} from "next/navigation";
 import {createClient} from "@/lib/supabase/server";
 import {createAdminClient} from "@/lib/supabase/admin";
-import {createCantonAppointment,createCantonCrmReferral,updateCantonVisit,manageCantonReceptionStaff,assignCantonFollowUp,completeCantonFollowUp,createCantonNextAction,completeCantonNextAction,simulateCantonFeedbackInvitations,sendCantonQaEmailTest,markCantonArrivalAlertRead,saveCantonVisitDebrief,qualifyCantonLegacyProspect,createCantonSlaRecovery,completeCantonSlaRecovery,createVisitorSite,updateVisitorSite} from "@/app/actions/canton-visitors";
+import {createCantonAppointment,createCantonCrmReferral,updateCantonVisit,manageCantonReceptionStaff,assignCantonFollowUp,completeCantonFollowUp,createCantonNextAction,reassignCantonNextAction,completeCantonNextAction,simulateCantonFeedbackInvitations,sendCantonQaEmailTest,markCantonArrivalAlertRead,saveCantonVisitDebrief,qualifyCantonLegacyProspect,createCantonSlaRecovery,completeCantonSlaRecovery,createVisitorSite,updateVisitorSite} from "@/app/actions/canton-visitors";
 export const dynamic="force-dynamic";
 export default async function CantonVisitorPage({searchParams}:{searchParams:Promise<{error?:string;success?:string;q?:string;view?:string;site?:string;filter?:string}>}){
  const {error,success,q="",view="",site="",filter=""}=await searchParams;
@@ -722,11 +722,17 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
      return <article key={action.id} className="rounded-lg border bg-white p-4">
       <div className="font-semibold">{map.get(visit?.visitor_id||"")?.full_name||(fr?"Visiteur":"Visitor")} · {visit?.department}</div>
       <p className="mt-1 text-sm">{action.action_text}</p>
-      <p className="mt-1 text-xs text-slate-700">{fr?"Échéance":"Due"}: {action.due_date} {action.due_date<today?"⚠️":""}
+      <p className="mt-1 text-xs text-slate-700">{fr?"Responsable":"Owner"}: <strong>{profileMap.get(action.assigned_to)?.full_name||profileMap.get(action.assigned_to)?.email||action.assigned_to}</strong> · {fr?"Échéance":"Due"}: {action.due_date} {action.due_date<today?"⚠️":""}
        {action.due_date===today&&<span className="ml-2 rounded bg-amber-100 px-2 py-1 font-semibold text-amber-900">{fr?"À faire aujourd’hui":"Due today"}</span>}
        {action.due_date<today&&<span className="ml-2 rounded bg-rose-100 px-2 py-1 font-semibold text-rose-900">{fr?"En retard":"Overdue"}</span>}
        {action.due_date>today&&<span className="ml-2 rounded bg-slate-100 px-2 py-1 font-semibold text-slate-700">{fr?"À venir":"Upcoming"}</span>}
       </p>
+      {(isSenior||isManager)&&<form action={reassignCantonNextAction} className="mt-3 grid gap-2 rounded-lg border border-indigo-200 bg-indigo-50 p-3 md:grid-cols-[1fr_1.2fr_auto] md:items-end">
+       <input type="hidden" name="returnTo" value={currentReturnPath}/><input type="hidden" name="actionId" value={action.id}/>
+       <label className="text-sm">{fr?"Réaffecter à":"Reassign to"}<select name="assignedTo" required className={input} defaultValue=""><option value="">{fr?"Choisir un collaborateur":"Choose team member"}</option>{(members||[]).filter(m=>m.user_id!==action.assigned_to).map(m=><option value={m.user_id} key={m.user_id}>{profileMap.get(m.user_id)?.full_name||profileMap.get(m.user_id)?.email||m.user_id}</option>)}</select></label>
+       <label className="text-sm">{fr?"Motif de la réaffectation *":"Reassignment reason *"}<input name="reason" required minLength={5} maxLength={500} className={input} placeholder={fr?"Ex. Cécile indisponible aujourd’hui":"E.g. Cécile is unavailable today"}/></label>
+       <button className="rounded-lg bg-indigo-700 px-4 py-2 text-sm font-semibold text-white">{fr?"Réaffecter":"Reassign"}</button>
+      </form>}
       {(isSenior||isManager||action.assigned_to===user.id)&&<form action={completeCantonNextAction} className="mt-3 flex flex-wrap items-end gap-2"><input type="hidden" name="returnTo" value={currentReturnPath}/><input type="hidden" name="actionId" value={action.id}/>
        <label className="min-w-[240px] flex-1 text-sm">{fr?"Compte rendu de la nouvelle action *":"Next action completion note *"}<input required minLength={5} maxLength={1000} name="completionNote" className={input}/></label>
        <button className="rounded-lg bg-emerald-700 px-3 py-2 text-sm font-semibold text-white">{fr?"Enregistrer et terminer":"Save and complete"}</button>
