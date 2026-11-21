@@ -2,6 +2,7 @@ import {cantonLiveEnabled} from "@/lib/canton/feature-gate";
 import {getI18n} from "@/i18n/server";
 import {CantonLanguageSwitch} from "@/components/canton/canton-language-switch";
 import {CantonSiteStaffManager} from "@/components/canton/canton-site-staff-manager";
+import {CantonCrmProspectPicker} from "@/components/canton/canton-crm-prospect-picker";
 import Link from "next/link";
 import {headers} from "next/headers";
 import {createCantonQrSite,reviewCantonQrIntake,updateCantonQrSiteAddress} from "@/app/actions/canton-qr";
@@ -59,6 +60,11 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
   .in("site_id",(visitorSites||[]).map(s=>s.id))
   .eq("is_active",true):{data:[]};
  const siteStaffMap=new Map((siteStaff||[]).map(x=>[x.site_id+":"+x.user_id,x]));
+ const effectiveSiteId=selectedSiteId==="all"?(hqSite?.id||""):selectedSiteId;
+ const selectedSiteHostIds=new Set((siteStaff||[]).filter(x=>x.site_id===effectiveSiteId&&x.is_active).map(x=>x.user_id));
+ const siteHostMembers=(hostMembers||[]).filter(m=>selectedSiteHostIds.has(m.user_id));
+ const activeSite=effectiveSiteId?siteById.get(effectiveSiteId)||hqSite:null;
+
  const adminSitesToRender=selectedSiteId==="all"
   ? (visitorSites||[])
   : (visitorSites||[]).filter(s=>s.id===selectedSiteId);
@@ -314,10 +320,10 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
     <span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-cyan-900">{fr?"Source : équipe commerciale":"Source: sales team"}</span>
    </div>
    <form action={createCantonCrmReferral} className="mt-4 grid gap-3 rounded-xl border border-cyan-200 bg-white p-4 lg:grid-cols-2 xl:grid-cols-3">
-    <input type="hidden" name="siteId" value={selectedSiteId==="all"?(hqSite?.id||""):selectedSiteId}/><label className="text-sm font-semibold text-slate-700">{fr?"Prospect CRM *":"CRM prospect *"}<select name="clientId" required defaultValue="" className={input}><option value="" disabled>{fr?"Sélectionner un prospect CRM":"Select a CRM prospect"}</option>{(crmProspects||[]).map(client=><option key={client.id} value={client.id}>{client.full_name+" · "+client.reference+(client.email?" · "+client.email:"")}</option>)}</select></label>
+    <input type="hidden" name="siteId" value={effectiveSiteId}/><label className="text-sm font-semibold text-slate-700">{fr?"Prospect CRM *":"CRM prospect *"}<CantonCrmProspectPicker locale={fr?"fr":"en"}/></label>
     <label className="text-sm font-semibold text-slate-700">{fr?"Visite / département *":"Visit / department *"}<select name="department" required defaultValue="DIG" className={input}><option value="DIG">DIG · {fr?"Visite terrain / immobilier":"Land / real-estate visit"}</option><option value="TCF">TCF · {fr?"Visite ferme":"Farm visit"}</option><option value="OTHER">{fr?"Autre visite commerciale":"Other commercial visit"}</option></select></label>
     <label className="text-sm font-semibold text-slate-700">{fr?"Date et heure Canton *":"Canton date & time *"}<input type="datetime-local" name="scheduled" required className={input}/></label>
-    <label className="text-sm font-semibold text-slate-700">{fr?"Personne à rencontrer":"Canton host"}<select name="hostUserId" defaultValue="" className={input}><option value="">{fr?"À attribuer":"Unassigned"}</option>{(hostMembers||[]).map(m=><option key={m.user_id} value={m.user_id}>{profileMap.get(m.user_id)?.full_name||profileMap.get(m.user_id)?.email||m.user_id}</option>)}</select></label>
+    <label className="text-sm font-semibold text-slate-700">{fr?"Personne à rencontrer":"Host to meet"}<select name="hostUserId" defaultValue="" className={input}><option value="">{fr?"À attribuer":"Unassigned"}</option>{siteHostMembers.map(m=><option key={m.user_id} value={m.user_id}>{profileMap.get(m.user_id)?.full_name||profileMap.get(m.user_id)?.email||m.user_id}</option>)}</select><span className="mt-1 block text-xs font-normal text-slate-500">{fr?"Uniquement les membres affectés au site actif.":"Only staff assigned to the active site."}</span></label>
     <label className="text-sm font-semibold text-slate-700">{fr?"Objectif de la visite":"Visit purpose"}<select name="purpose" defaultValue="commercial_visit" className={input}><option value="commercial_visit">{fr?"Voir avant de s’engager":"See before committing"}</option><option value="land_visit">{fr?"Visite terrain":"Land visit"}</option><option value="farm_visit">{fr?"Visite ferme":"Farm visit"}</option><option value="meet_team">{fr?"Rencontrer l’équipe":"Meet the team"}</option><option value="decision_meeting">{fr?"Réunion de décision":"Decision meeting"}</option></select></label>
     <label className="text-sm font-semibold text-slate-700 lg:col-span-2 xl:col-span-3">{fr?"Notes du commercial pour Canton":"Sales notes for Canton"}<textarea name="notes" maxLength={1000} className={input+" min-h-24"} placeholder={fr?"Ex. Prospect intéressé par Garden City, veut voir avant de signer. Questions sur financement et accès au terrain.":"E.g. Prospect interested in Garden City, wants to visit before signing. Questions about financing and land access."}/></label>
     <button className="rounded-lg bg-cyan-900 px-5 py-3 font-bold text-white lg:col-span-2 xl:col-span-3">{fr?"Planifier la visite depuis le CRM":"Schedule Canton visit from CRM"}</button>
@@ -548,16 +554,24 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
        </div>
       </div>;
    })}{!requests?.length&&<p className="py-4 text-sm text-slate-500">{fr?"Aucune arrivée QR en attente.":"No pending QR arrivals."}</p>}</div></section>}
-  <section data-canton-view="appointments" className="rounded-xl border bg-white p-5"><h2 className="mb-3 text-lg font-semibold">{fr?"Enregistrer ou annoncer une visite":"Register or announce a visit"}</h2><p className="mb-3 text-xs text-slate-500">{selectedSiteId==="all"?(fr?"Sélectionnez un site avant de créer une visite. Le HQ Canton est utilisé par défaut.":"Select a site before creating a visit. Canton HQ is used by default."):(fr?"Site : ":"Site: ")+(siteById.get(selectedSiteId)?.name||"—")}</p><input form="canton-appointment-form" type="hidden" name="siteId" value={selectedSiteId==="all"?(hqSite?.id||""):selectedSiteId}/>
-   <p className="mb-3 text-xs text-slate-500">{fr?"Le téléphone ou l’email permet de retrouver le visiteur. Les doublons exacts sont bloqués. Deux rendez-vous rapprochés à moins de 60 minutes nécessitent une confirmation. Heure locale de Canton.":"Phone or email identifies an existing visitor. Exact duplicate appointments are blocked. Bookings for the same visitor, department and purpose within 60 minutes require explicit confirmation. Time is local to Canton."}</p>
+  <section data-canton-view="appointments" className="rounded-xl border bg-white p-5">
+   <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+    <h2 className="text-lg font-semibold">{fr?"Enregistrer ou annoncer une visite":"Register or announce a visit"}</h2>
+    <div className="rounded-xl border-2 border-indigo-500 bg-indigo-50 px-4 py-3 text-sm font-bold text-indigo-950">
+     {fr?"SITE ACTIF":"ACTIVE SITE"} · {activeSite?.name||"—"}{activeSite?.city?" · "+activeSite.city:""}
+    </div>
+   </div>
+   <p className="mb-3 rounded-lg bg-indigo-50 p-3 text-xs font-medium text-indigo-900">{fr?"Pour enregistrer une visite dans un autre bureau, changez d’abord le site actif en haut de la page.":"To register a visit at another office, first change the active site at the top of the page."}</p>
+   <input form="canton-appointment-form" type="hidden" name="siteId" value={effectiveSiteId}/>
+   <p className="mb-3 text-xs text-slate-500">{fr?"L’email est obligatoire pour identifier le visiteur et permettre le suivi commercial. Le téléphone reste fortement recommandé. Les doublons exacts sont bloqués.":"Email is required to identify the visitor and support commercial follow-up. Phone remains strongly recommended. Exact duplicate appointments are blocked."}</p>
    <form action={createCantonAppointment} className="grid gap-3 md:grid-cols-3">
     <label className="text-sm">{fr?"Nom complet *":"Full name *"}<input className={input} name="name" required maxLength={180}/></label>
     <label className="text-sm">{fr?"Téléphone":"Telephone"}<input className={input} name="phone" type="tel" placeholder="+1 555 123 4567"/></label>
-    <label className="text-sm">Email<input className={input} name="email" type="email"/></label>
+    <label className="text-sm">Email *<input className={input} name="email" type="email" required/></label>
     <label className="text-sm">{fr?"Département":"Department"}<select className={input} name="department"><option value="DIG">{fr?"DIG – Terrains":"DIG – Land"}</option><option value="TCF">{fr?"TCF – Ferme":"TCF – Farm"}</option><option value="DIRECTION">Direction</option><option value="OTHER">{fr?"Autre":"Other"}</option></select></label>
     <label className="text-sm">{fr?"Motif":"Purpose"}<select className={input} name="purpose"><option value="land_tour">{fr?"Visite de terrain":"Land tour"}</option><option value="farm_tour">{fr?"Visite de ferme":"Farm tour"}</option><option value="meeting">{fr?"Rendez-vous":"Meeting"}</option><option value="other">{fr?"Autre":"Other"}</option></select></label>
     <label className="text-sm">{fr?"Arrivée prévue (heure de Canton)":"Scheduled arrival (Canton time)"}<input className={input} name="scheduled" type="datetime-local"/></label>
-    <label className="text-sm">{fr?"Responsable / Équipe":"Host / team member"}<select className={input} name="hostUserId" defaultValue=""><option value="">{fr?"Choisir un responsable Super Leader":"Choose a Super Leader host"}</option>{(hostMembers||[]).map(m=><option value={m.user_id} key={m.user_id}>{profileMap.get(m.user_id)?.full_name||profileMap.get(m.user_id)?.email||m.user_id}</option>)}</select><input type="hidden" name="host" value=""/></label>
+    <label className="text-sm">{fr?"Responsable / Équipe":"Host / team member"}<select className={input} name="hostUserId" defaultValue=""><option value="">{fr?"Choisir un responsable Super Leader":"Choose a Super Leader host"}</option>{siteHostMembers.map(m=><option value={m.user_id} key={m.user_id}>{profileMap.get(m.user_id)?.full_name||profileMap.get(m.user_id)?.email||m.user_id}</option>)}</select><input type="hidden" name="host" value=""/></label>
     <label className="text-sm md:col-span-2">{fr?"Notes (facultatif)":"Notes (optional)"}<input className={input} name="notes"/></label>
     <label className="text-sm">{fr?"Langue préférée pour l’email de satisfaction":"Preferred feedback email language"}<select name="feedbackLocale" defaultValue={locale} className={input}><option value="fr">Français</option><option value="en">English</option></select></label>
     <label className="flex items-start gap-3 rounded-lg border bg-slate-50 p-3 text-sm md:col-span-3"><input type="checkbox" name="feedbackEmailConsent" value="yes" className="mt-1 h-4 w-4"/><span><strong>{fr?"Consentement à l’email de satisfaction.":"Feedback email consent."}</strong> {fr?"À cocher uniquement si le visiteur accepte explicitement de recevoir un lien d’avis par email après son départ.":"Check only if the visitor explicitly agrees to a feedback email after checkout."}</span></label>
