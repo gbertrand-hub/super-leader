@@ -118,6 +118,34 @@ Deferred / disabled for first production release unless all of the following are
 
 WhatsApp is not a blocker for the initial release because the QR and email fallback paths are complete.
 
+## Current production preflight status
+
+Verified read-only on production:
+- iLEAD Global organization exists with the expected UUID;
+- crm_clients exists;
+- crm_interactions exists;
+- crm_follow_up_tasks exists;
+- canton_appointments does not yet exist;
+- visitor_sites does not yet exist.
+
+Reusable read-only verification:
+- `supabase/canton_production_preflight_readonly.sql`
+
+Production Vercel variables already present:
+- NEXT_PUBLIC_SUPABASE_URL
+- NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
+- SUPABASE_SERVICE_ROLE_KEY
+- RESEND_API_KEY
+- FEEDBACK_FROM_EMAIL
+- FEEDBACK_FROM_NAME
+- CRON_SECRET
+
+Production Canton variables still intentionally absent until release setup:
+- CANTON_VISITOR_ENABLE_LIVE
+- CANTON_PRODUCTION_DATABASE_READY
+- CANTON_PRODUCTION_RELEASE_APPROVED
+- CANTON_INTAKE_RATE_SECRET
+
 ## Pre-release checks
 
 1. Backup / recovery point for production database.
