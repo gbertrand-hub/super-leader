@@ -39,6 +39,29 @@ async function canAccessVisitorSite(ctx:Awaited<ReturnType<typeof context>>,site
 async function requireVisitorSiteAccess(ctx:Awaited<ReturnType<typeof context>>,siteId:string|null){
  if(!(await canAccessVisitorSite(ctx,siteId))) fail("You do not have access to this visitor site");
 }
+
+export async function searchCantonCrmProspects(query:string){
+ assertCantonLive();
+ const {db,org}=await context();
+ const q=String(query??"").trim().slice(0,120);
+ if(q.length<2) return [];
+ const pattern="%"+q.replace(/[%_]/g,"")+"%";
+ const fields=["full_name","email","phone","reference"] as const;
+ const results=await Promise.all(fields.map(fieldName=>
+  db.from("crm_clients")
+   .select("id,reference,full_name,email,phone")
+   .eq("organization_id",org)
+   .ilike(fieldName,pattern)
+   .order("created_at",{ascending:false})
+   .limit(8)
+ ));
+ const merged=new Map<string,{id:string;reference:string|null;full_name:string;email:string|null;phone:string|null}>();
+ for(const result of results){
+  for(const row of result.data||[]) if(!merged.has(row.id)) merged.set(row.id,row);
+ }
+ return [...merged.values()].slice(0,20);
+}
+
 export async function createCantonCrmReferral(f:FormData){
  assertCantonLive();
  const ctx=await context();
@@ -66,6 +89,7 @@ export async function createCantonCrmReferral(f:FormData){
  const {data:client}=await db.from("crm_clients").select("id,full_name,email,phone")
   .eq("id",clientId).eq("organization_id",org).maybeSingle();
  if(!client) fail("CRM prospect not found");
+ if(!client.email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(client.email))) fail("This CRM prospect needs a valid email address before a commercial visit can be scheduled");
  const crmClient=client!;
  let visitor:{id:string;crm_client_id:string|null}|null=null;
  const {data:linked}=await db.from("canton_visitors").select("id,crm_client_id")
@@ -112,6 +136,8 @@ export async function createCantonCrmReferral(f:FormData){
   const {data:member}=await db.from("organization_members").select("user_id")
    .eq("organization_id",org).eq("user_id",hostUserId).eq("is_active",true).maybeSingle();
   if(!member) fail("Canton host must be an active organization member");
+  const {data:siteAssignment}=await db.from("visitor_site_staff").select("user_id").eq("site_id",resolvedSiteId).eq("user_id",hostUserId).eq("is_active",true).maybeSingle();
+  if(!siteAssignment) fail("The selected host is not assigned to this visitor site");
   const {data:profile}=await db.from("profiles").select("full_name,email").eq("id",hostUserId).maybeSingle();
   resolvedHostUserId=hostUserId;
   hostName=profile?.full_name||profile?.email||"Team member";
@@ -133,7 +159,8 @@ export async function createCantonAppointment(f:FormData){
  const name=field(f,"name"), rawPhone=field(f,"phone",35);
  const phone=rawPhone.replace(/[^+0-9]/g,"")||null;
  const email=field(f,"email",200).toLowerCase()||null;
- if(email&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) fail("Please enter a valid email address");
+ if(!email) fail("Email is required for visitor registration");
+ if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) fail("Please enter a valid email address");
  const department=field(f,"department").toUpperCase();
  const purpose=field(f,"purpose",100)||"other";
  const scheduled=field(f,"scheduled");
@@ -149,7 +176,7 @@ export async function createCantonAppointment(f:FormData){
   resolvedSiteId=hq?.id||null;
  }
  await requireVisitorSiteAccess(ctx,resolvedSiteId);
- if(!name || (!phone&&!email) || !depts.has(department)) fail("Name, phone or email, and department are required");
+ if(!name || !email || !depts.has(department)) fail("Name, email, and department are required");
  if(department==="DIRECTION" && !seniorRoles.has(role)) fail("Only the organization administration can schedule confidential direction visits");
  if(scheduled&&!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(scheduled)) fail("Invalid Canton appointment date");
  let matched: {id:string}|null=null;
@@ -230,6 +257,8 @@ export async function createCantonAppointment(f:FormData){
   const {data:hostMember}=await db.from("organization_members").select("user_id")
    .eq("organization_id",org).eq("user_id",hostUserId).eq("is_active",true).maybeSingle();
   if(!hostMember) fail("Host must be an active organization member");
+  const {data:siteAssignment}=await db.from("visitor_site_staff").select("user_id").eq("site_id",resolvedSiteId).eq("user_id",hostUserId).eq("is_active",true).maybeSingle();
+  if(!siteAssignment) fail("The selected host is not assigned to this visitor site");
   const {data:hostProfile}=await db.from("profiles").select("full_name,email").eq("id",hostUserId).maybeSingle();
   resolvedHostUserId=hostUserId;
   hostName=hostProfile?.full_name||hostProfile?.email||hostName||"Team member";
