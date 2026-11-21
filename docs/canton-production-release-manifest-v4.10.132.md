@@ -208,3 +208,26 @@ GO only when:
 - smoke test passes.
 
 Until then: NO-GO.
+
+
+## Production migration status
+
+Completed and verified on production Supabase project `jjbuxrlvxnlnrjcorpwt`.
+
+Status:
+- Canton/Visitor migrations 100-131 applied successfully in the approved production sequence;
+- QA/stage-only migrations were not applied;
+- Canton HQ seeded;
+- Canton Main Reception seeded and linked to Canton HQ;
+- RLS enabled on all Canton/Visitor tables;
+- anon/authenticated have no direct Canton/Visitor table grants;
+- sensitive Canton RPCs are not executable by anon/authenticated;
+- service_role access verified;
+- Supabase Security Advisor shows only expected RLS-without-policy INFO findings for server-only tables;
+- Supabase Performance Advisor shows only expected unused-index INFO findings on the fresh module;
+- production rollback smoke test passed with zero persisted test rows;
+- CANTON_PRODUCTION_DATABASE_READY=true;
+- CANTON_VISITOR_ENABLE_LIVE=false;
+- CANTON_PRODUCTION_RELEASE_APPROVED=false.
+
+The production database is ready, but the application release remains fail-closed until the staged production build and application smoke test pass.
