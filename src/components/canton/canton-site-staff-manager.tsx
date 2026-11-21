@@ -3,7 +3,7 @@
 import {useMemo,useState} from "react";
 import {bulkManageVisitorSiteStaff,assignVisitorTeamToSite,manageVisitorSiteStaff} from "@/app/actions/canton-visitors";
 
-type Member={userId:string;name:string;email?:string|null;orgRole:string;accessRole?:string|null};
+type Member={userId:string;name:string;email?:string|null;city?:string|null;country?:string|null;orgRole:string;accessRole?:string|null};
 type Team={id:string;name:string;department?:string|null;userIds:string[]};
 
 export function CantonSiteStaffManager({siteId,members,teams,locale}:{siteId:string;members:Member[];teams:Team[];locale:"fr"|"en"}){
@@ -17,16 +17,21 @@ export function CantonSiteStaffManager({siteId,members,teams,locale}:{siteId:str
  const [teamRole,setTeamRole]=useState("host");
  const [teamSelected,setTeamSelected]=useState<Set<string>>(new Set());
  const [teamMemberRole,setTeamMemberRole]=useState("host");
+ const [showExternal,setShowExternal]=useState(false);
 
- const filtered=useMemo(()=>members.filter(m=>{
-  const hay=(m.name+" "+(m.email||"")+" "+m.orgRole+" "+(m.accessRole||"")).toLowerCase();
+ const localMembers=useMemo(()=>members.filter(m=>!!m.accessRole),[members]);
+ const externalMembers=useMemo(()=>members.filter(m=>!m.accessRole),[members]);
+ const sourceMembers=showExternal?externalMembers:localMembers;
+
+ const filtered=useMemo(()=>sourceMembers.filter(m=>{
+  const hay=(m.name+" "+(m.email||"")+" "+(m.city||"")+" "+(m.country||"")+" "+m.orgRole+" "+(m.accessRole||"")).toLowerCase();
   if(search&&!hay.includes(search.toLowerCase())) return false;
   if(orgRole!=="all"&&m.orgRole!==orgRole) return false;
   if(accessFilter==="assigned"&&!m.accessRole) return false;
   if(accessFilter==="unassigned"&&m.accessRole) return false;
   if(["reception","host","manager"].includes(accessFilter)&&m.accessRole!==accessFilter) return false;
   return true;
- }),[members,search,orgRole,accessFilter]);
+ }),[sourceMembers,search,orgRole,accessFilter]);
 
  const selectedTeam=useMemo(()=>teams.find(t=>t.id===teamId)||null,[teams,teamId]);
  const selectedTeamMembers=useMemo(()=>selectedTeam?members.filter(m=>selectedTeam.userIds.includes(m.userId)):[],[selectedTeam,members]);
@@ -52,8 +57,18 @@ export function CantonSiteStaffManager({siteId,members,teams,locale}:{siteId:str
    <div className="rounded-lg border bg-white p-3"><div className="text-xs text-slate-500">Managers</div><div className="text-2xl font-bold">{managerCount}</div></div>
   </div>
 
+  <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-slate-50 p-3">
+   <div>
+    <div className="text-sm font-semibold">{showExternal?(fr?"Ajouter un employé d’un autre site":"Add staff from another site"):(fr?"Équipe locale du site":"Local site team")}</div>
+    <div className="text-xs text-slate-500">{showExternal?(fr?"Recherche dans les employés non encore affectés à ce site.":"Search staff not yet assigned to this site."):(fr?"Seuls les employés déjà affectés à ce site sont affichés par défaut.":"Only staff already assigned to this site are shown by default.")}</div>
+   </div>
+   <button type="button" onClick={()=>{setShowExternal(v=>!v);setSelected(new Set());setSearch("");setAccessFilter("all")}} className="rounded-lg border bg-white px-3 py-2 text-xs font-semibold">
+    {showExternal?(fr?"← Retour à l’équipe locale":"← Back to local team"):(fr?"Ajouter depuis un autre site":"Add from another site")}
+   </button>
+  </div>
+
   <div className="grid gap-2 lg:grid-cols-[1.6fr_1fr_1fr]">
-   <input value={search} onChange={e=>setSearch(e.target.value)} placeholder={fr?"Rechercher nom ou email…":"Search name or email…"} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"/>
+   <input value={search} onChange={e=>setSearch(e.target.value)} placeholder={fr?"Rechercher nom, email, ville ou pays…":"Search name, email, city or country…"} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"/>
    <select value={orgRole} onChange={e=>setOrgRole(e.target.value)} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm">
     <option value="all">{fr?"Tous les rôles organisation":"All organization roles"}</option><option value="owner">Owner</option><option value="admin">Admin</option><option value="manager">Manager</option><option value="hr">HR</option><option value="employee">Employee</option>
    </select>
@@ -118,7 +133,7 @@ export function CantonSiteStaffManager({siteId,members,teams,locale}:{siteId:str
    <div className="mt-3 max-h-72 space-y-2 overflow-y-auto">
     {selectedTeamMembers.map(m=><label key={m.userId} className="grid cursor-pointer gap-2 rounded-lg border bg-white p-3 sm:grid-cols-[auto_1.5fr_.7fr] sm:items-center">
      <input type="checkbox" checked={teamSelected.has(m.userId)} onChange={()=>toggleTeamMember(m.userId)}/>
-     <div><div className="font-medium">{m.name}</div><div className="text-xs text-slate-500">{m.email||""}{m.email?" · ":""}{m.orgRole}</div></div>
+     <div><div className="font-medium">{m.name}</div><div className="text-xs text-slate-500">{m.email||""}{m.email?" · ":""}{m.orgRole}{m.city||m.country?" · ":""}{[m.city,m.country].filter(Boolean).join(", ")}</div></div>
      <div className="sm:text-right">{m.accessRole?<span className="rounded bg-emerald-100 px-2 py-1 text-xs font-semibold text-emerald-900">{m.accessRole}</span>:<span className="text-xs text-slate-400">{fr?"Aucun accès local":"No local access"}</span>}</div>
     </label>)}
     {!selectedTeamMembers.length&&<div className="rounded-lg border border-dashed bg-white p-4 text-center text-sm text-slate-500">{fr?"Aucun membre actif de cette équipe n’est disponible dans l’organisation.":"No active team member is available in the organization."}</div>}
