@@ -1,13 +1,14 @@
 import {cantonLiveEnabled} from "@/lib/canton/feature-gate";
 import {getI18n} from "@/i18n/server";
 import {CantonLanguageSwitch} from "@/components/canton/canton-language-switch";
+import {CantonSiteStaffManager} from "@/components/canton/canton-site-staff-manager";
 import Link from "next/link";
 import {headers} from "next/headers";
 import {createCantonQrSite,reviewCantonQrIntake,updateCantonQrSiteAddress} from "@/app/actions/canton-qr";
 import {redirect} from "next/navigation";
 import {createClient} from "@/lib/supabase/server";
 import {createAdminClient} from "@/lib/supabase/admin";
-import {createCantonAppointment,createCantonCrmReferral,updateCantonVisit,manageCantonReceptionStaff,assignCantonFollowUp,completeCantonFollowUp,createCantonNextAction,completeCantonNextAction,simulateCantonFeedbackInvitations,sendCantonQaEmailTest,markCantonArrivalAlertRead,saveCantonVisitDebrief,qualifyCantonLegacyProspect,createCantonSlaRecovery,completeCantonSlaRecovery,createVisitorSite,updateVisitorSite,manageVisitorSiteStaff} from "@/app/actions/canton-visitors";
+import {createCantonAppointment,createCantonCrmReferral,updateCantonVisit,manageCantonReceptionStaff,assignCantonFollowUp,completeCantonFollowUp,createCantonNextAction,completeCantonNextAction,simulateCantonFeedbackInvitations,sendCantonQaEmailTest,markCantonArrivalAlertRead,saveCantonVisitDebrief,qualifyCantonLegacyProspect,createCantonSlaRecovery,completeCantonSlaRecovery,createVisitorSite,updateVisitorSite} from "@/app/actions/canton-visitors";
 export const dynamic="force-dynamic";
 export default async function CantonVisitorPage({searchParams}:{searchParams:Promise<{error?:string;success?:string;q?:string;view?:string;site?:string;filter?:string}>}){
  const {error,success,q="",view="",site="",filter=""}=await searchParams;
@@ -27,7 +28,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
  const {data:reception}=await db.from("canton_reception_staff").select("user_id").eq("organization_id",membership.organization_id).eq("user_id",user.id).maybeSingle();
  const isReception=!!reception;
  const {data:members}=(isSenior||membership.role==="manager")?await db.from("organization_members").select("user_id,role").eq("organization_id",membership.organization_id).eq("is_active",true).limit(200):{data:[]};
- const {data:hostMembers}=await db.from("organization_members").select("user_id,role").eq("organization_id",membership.organization_id).eq("is_active",true).limit(200);
+ const {data:hostMembers}=await db.from("organization_members").select("user_id,role").eq("organization_id",membership.organization_id).eq("is_active",true).limit(500);
  const {data:crmProspects}=await db.from("crm_clients").select("id,reference,full_name,email,phone")
   .eq("organization_id",membership.organization_id).order("created_at",{ascending:false}).limit(100);
  const {data:staffAssignments}=isSenior?await db.from("canton_reception_staff").select("user_id").eq("organization_id",membership.organization_id):{data:[]};
@@ -36,6 +37,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
   .eq("organization_id",membership.organization_id)
   .eq("is_active",true)
   .order("is_hq",{ascending:false}).order("name",{ascending:true});
+ const isManager=membership.role==="manager" || membership.role==="hr";
  const {data:mySiteAssignments}=!isSenior?await db.from("visitor_site_staff")
   .select("site_id,access_role")
   .eq("user_id",user.id).eq("is_active",true):{data:[]};
@@ -57,8 +59,24 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
   .in("site_id",(visitorSites||[]).map(s=>s.id))
   .eq("is_active",true):{data:[]};
  const siteStaffMap=new Map((siteStaff||[]).map(x=>[x.site_id+":"+x.user_id,x]));
+ const {data:teams}=isSenior?await db.from("teams")
+  .select("id,name,department")
+  .eq("organization_id",membership.organization_id)
+  .eq("is_active",true)
+  .order("name",{ascending:true}):{data:[]};
+ const teamIds=(teams||[]).map(t=>t.id);
+ const {data:teamMemberRows}=teamIds.length?await db.from("team_members")
+  .select("team_id,user_id")
+  .in("team_id",teamIds):{data:[]};
+ const teamMembersMap=new Map<string,string[]>();
+ for(const row of teamMemberRows||[]){
+  const list=teamMembersMap.get(row.team_id)||[];
+  list.push(row.user_id);
+  teamMembersMap.set(row.team_id,list);
+ }
+ const visitorTeams=(teams||[]).map(t=>({id:t.id,name:t.name,department:t.department,userIds:teamMembersMap.get(t.id)||[]}));
 
- const isManager=membership.role==="manager" || membership.role==="hr";
+
  const allowedViews=["dashboard","reception","appointments","commercial","feedback","admin"] as const;
  type CantonView=(typeof allowedViews)[number];
  const requestedView=allowedViews.includes(view as CantonView)?view as CantonView:"dashboard";
@@ -428,25 +446,32 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
 
       <details className="mt-4 rounded-lg border bg-slate-50">
        <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-slate-800">{fr?"Équipe locale & droits":"Local team & access rights"}</summary>
-       <div className="space-y-2 border-t p-3">
-        {(members||[]).map(m=>{const key=s.id+":"+m.user_id;const assigned=siteStaffMap.get(key);return <div key={m.user_id} className="grid gap-2 rounded-lg bg-white p-3 md:grid-cols-[1.4fr_1fr_auto] md:items-center">
-         <div><div className="font-medium">{profileMap.get(m.user_id)?.full_name||profileMap.get(m.user_id)?.email||m.user_id}</div><div className="text-xs text-slate-500">{m.role}</div></div>
-         <div className="text-sm">{assigned?<span className="rounded bg-emerald-100 px-2 py-1 text-xs font-semibold text-emerald-900">{assigned.access_role}</span>:<span className="text-slate-400">{fr?"Aucun accès local":"No local access"}</span>}</div>
-         <form action={manageVisitorSiteStaff} className="flex flex-wrap gap-2">
-          <input type="hidden" name="siteId" value={s.id}/><input type="hidden" name="userId" value={m.user_id}/>
-          <select name="accessRole" defaultValue={assigned?.access_role||"host"} className="rounded border border-slate-300 bg-white px-2 py-2 text-xs"><option value="reception">{fr?"Réception":"Reception"}</option><option value="host">Host</option><option value="manager">Manager</option></select>
-          <button name="operation" value="grant" className="rounded bg-indigo-700 px-3 py-2 text-xs font-semibold text-white">{assigned?(fr?"Modifier":"Update"):(fr?"Attribuer":"Assign")}</button>
-          {assigned&&<button name="operation" value="revoke" className="rounded bg-rose-100 px-3 py-2 text-xs font-semibold text-rose-900">{fr?"Retirer":"Remove"}</button>}
-         </form>
-        </div>})}
-       </div>
+       <CantonSiteStaffManager
+        siteId={s.id}
+        locale={fr?"fr":"en"}
+        teams={visitorTeams}
+        members={(members||[]).map(m=>{const p=profileMap.get(m.user_id);const assigned=siteStaffMap.get(s.id+":"+m.user_id);return {
+         userId:m.user_id,
+         name:p?.full_name||p?.email||m.user_id,
+         email:p?.email||null,
+         orgRole:m.role,
+         accessRole:assigned?.access_role||null
+        }})}
+       />
       </details>
      </article>)}
     </div>
    </section>
 
-   <section className="rounded-xl border bg-white p-5"><h2 className="mb-2 text-lg font-semibold">{fr?"Accès réception global (compatibilité Canton)":"Global reception access (Canton compatibility)"}</h2><p className="mb-3 text-sm text-slate-500">{fr?"Autorisez les employés à enregistrer les arrivées et départs. Les visites de direction restent confidentielles.":"Assign staff to check in and check out standard visits. Confidential direction visits remain restricted."}</p>
-  <div className="space-y-2">{(members||[]).map(m=><div className="flex flex-wrap items-center justify-between gap-2 border-b py-2 text-sm" key={m.user_id}><span>{profileMap.get(m.user_id)?.full_name||profileMap.get(m.user_id)?.email||m.user_id} <span className="text-xs text-slate-500">({m.role})</span></span><form action={manageCantonReceptionStaff}><input type="hidden" name="userId" value={m.user_id}/><button name="operation" value={assignedIds.has(m.user_id)?"revoke":"grant"} className={assignedIds.has(m.user_id)?"rounded bg-red-100 px-3 py-1":"rounded bg-emerald-100 px-3 py-1"}>{assignedIds.has(m.user_id)?(fr?"Retirer l’accès réception":"Remove reception access"):(fr?"Autoriser la réception":"Grant reception access")}</button></form></div>)}</div></section>
+   <details className="rounded-xl border bg-white">
+    <summary className="cursor-pointer p-5">
+     <div className="font-semibold">{fr?"Accès global exceptionnel":"Exceptional global access"}</div>
+     <div className="mt-1 text-sm font-normal text-slate-500">{fr?"Compatibilité historique Canton. À réserver au HQ, aux administrateurs ou au support central qui doivent intervenir sur tous les sites.":"Legacy Canton compatibility. Reserve for HQ administrators or central support requiring access across all sites."}</div>
+    </summary>
+    <div className="border-t p-5">
+     <div className="space-y-2">{(members||[]).map(m=><div className="flex flex-wrap items-center justify-between gap-2 border-b py-2 text-sm" key={m.user_id}><span>{profileMap.get(m.user_id)?.full_name||profileMap.get(m.user_id)?.email||m.user_id} <span className="text-xs text-slate-500">({m.role})</span></span><form action={manageCantonReceptionStaff}><input type="hidden" name="userId" value={m.user_id}/><button name="operation" value={assignedIds.has(m.user_id)?"revoke":"grant"} className={assignedIds.has(m.user_id)?"rounded bg-red-100 px-3 py-1":"rounded bg-emerald-100 px-3 py-1"}>{assignedIds.has(m.user_id)?(fr?"Retirer l’accès global":"Remove global access"):(fr?"Autoriser globalement":"Grant global access")}</button></form></div>)}</div>
+    </div>
+   </details>
   </section>}
 
 
