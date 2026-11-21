@@ -9,14 +9,14 @@ import {sendCantonQaFeedbackEmail} from "@/lib/canton/qa-email-delivery";
 
 const depts = new Set(["DIG","TCF","DIRECTION","OTHER"]);
 const roles = new Set(["owner","admin","manager","employee","hr"]);
-const route = "/canton-pilot";
+const route = "/canton";
 const seniorRoles = new Set(["owner","admin"]);
 const field=(f:FormData,k:string,n=180)=>String(f.get(k)??"").trim().slice(0,n);
 const fail=(message:string):never=>redirect(route+"?error="+encodeURIComponent(message));
 async function context(){
  const supabase=await createClient();
  const {data:{user}}=await supabase.auth.getUser();
- if(!user) redirect("/canton-pilot/login");
+ if(!user) redirect("/login?next=/canton");
  const db=createAdminClient();
  const {data:m,error}=await db.from("organization_members").select("organization_id,role")
  .eq("user_id",user.id).eq("is_active",true).limit(1).maybeSingle();
@@ -400,6 +400,57 @@ export async function manageVisitorSiteStaff(f:FormData){
  }else fail("Invalid operation");
  revalidatePath("/canton/admin");
  redirect("/canton/admin?success="+encodeURIComponent("Site staff updated"));
+}
+
+
+export async function bulkManageVisitorSiteStaff(f:FormData){
+ assertCantonLive();
+ const {db,org,role}=await context();
+ if(!seniorRoles.has(role)) fail("Only administrators can manage site staff");
+ const siteId=field(f,"siteId",40), accessRole=field(f,"accessRole",20), operation=field(f,"operation",20);
+ const userIds=[...new Set(f.getAll("userIds").map(v=>String(v)).filter(v=>/^[0-9a-f-]{36}$/i.test(v)))].slice(0,500);
+ if(!/^[0-9a-f-]{36}$/i.test(siteId)||!userIds.length) fail("Select at least one valid staff member");
+ if(!["reception","host","manager"].includes(accessRole)) fail("Invalid site access role");
+ const {data:site}=await db.from("visitor_sites").select("id").eq("id",siteId).eq("organization_id",org).eq("is_active",true).maybeSingle();
+ if(!site) fail("Visitor site not found or inactive");
+ const {data:activeMembers}=await db.from("organization_members").select("user_id")
+  .eq("organization_id",org).eq("is_active",true).in("user_id",userIds);
+ const activeIds=[...new Set((activeMembers||[]).map(m=>m.user_id))];
+ if(!activeIds.length) fail("No active organization members selected");
+ if(operation==="grant"){
+  const rows=activeIds.map(user_id=>({site_id:siteId,user_id,access_role:accessRole,is_active:true}));
+  const {error}=await db.from("visitor_site_staff").upsert(rows,{onConflict:"site_id,user_id"});
+  if(error) fail("Could not assign selected site staff");
+ }else if(operation==="revoke"){
+  const {error}=await db.from("visitor_site_staff").delete().eq("site_id",siteId).in("user_id",activeIds);
+  if(error) fail("Could not remove selected site staff");
+ }else fail("Invalid bulk operation");
+ revalidatePath("/canton/admin");
+ redirect("/canton/admin?site="+encodeURIComponent(siteId)+"&success="+encodeURIComponent("Site staff updated in bulk"));
+}
+
+export async function assignVisitorTeamToSite(f:FormData){
+ assertCantonLive();
+ const {db,org,role}=await context();
+ if(!seniorRoles.has(role)) fail("Only administrators can manage site staff");
+ const siteId=field(f,"siteId",40),teamId=field(f,"teamId",40),accessRole=field(f,"accessRole",20);
+ if(!/^[0-9a-f-]{36}$/i.test(siteId)||!/^[0-9a-f-]{36}$/i.test(teamId)) fail("Invalid site or team");
+ if(!["reception","host","manager"].includes(accessRole)) fail("Invalid site access role");
+ const {data:site}=await db.from("visitor_sites").select("id").eq("id",siteId).eq("organization_id",org).eq("is_active",true).maybeSingle();
+ const {data:team}=await db.from("teams").select("id").eq("id",teamId).eq("organization_id",org).eq("is_active",true).maybeSingle();
+ if(!site||!team) fail("Site or team is not active");
+ const {data:teamMembers}=await db.from("team_members").select("user_id").eq("team_id",teamId);
+ const ids=[...new Set((teamMembers||[]).map(m=>m.user_id))];
+ if(!ids.length) fail("This team has no members");
+ const {data:activeMembers}=await db.from("organization_members").select("user_id")
+  .eq("organization_id",org).eq("is_active",true).in("user_id",ids);
+ const activeIds=[...new Set((activeMembers||[]).map(m=>m.user_id))];
+ if(!activeIds.length) fail("This team has no active organization members");
+ const rows=activeIds.map(user_id=>({site_id:siteId,user_id,access_role:accessRole,is_active:true}));
+ const {error}=await db.from("visitor_site_staff").upsert(rows,{onConflict:"site_id,user_id"});
+ if(error) fail("Could not assign team to visitor site");
+ revalidatePath("/canton/admin");
+ redirect("/canton/admin?site="+encodeURIComponent(siteId)+"&success="+encodeURIComponent("Team assigned to visitor site"));
 }
 
 export async function manageCantonReceptionStaff(f:FormData) {
