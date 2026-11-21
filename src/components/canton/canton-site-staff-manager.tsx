@@ -15,6 +15,8 @@ export function CantonSiteStaffManager({siteId,members,teams,locale}:{siteId:str
  const [bulkRole,setBulkRole]=useState("host");
  const [teamId,setTeamId]=useState("");
  const [teamRole,setTeamRole]=useState("host");
+ const [teamSelected,setTeamSelected]=useState<Set<string>>(new Set());
+ const [teamMemberRole,setTeamMemberRole]=useState("host");
 
  const filtered=useMemo(()=>members.filter(m=>{
   const hay=(m.name+" "+(m.email||"")+" "+m.orgRole+" "+(m.accessRole||"")).toLowerCase();
@@ -26,6 +28,10 @@ export function CantonSiteStaffManager({siteId,members,teams,locale}:{siteId:str
   return true;
  }),[members,search,orgRole,accessFilter]);
 
+ const selectedTeam=useMemo(()=>teams.find(t=>t.id===teamId)||null,[teams,teamId]);
+ const selectedTeamMembers=useMemo(()=>selectedTeam?members.filter(m=>selectedTeam.userIds.includes(m.userId)):[],[selectedTeam,members]);
+ const allTeamSelected=selectedTeamMembers.length>0&&selectedTeamMembers.every(m=>teamSelected.has(m.userId));
+
  const assignedCount=members.filter(m=>!!m.accessRole).length;
  const receptionCount=members.filter(m=>m.accessRole==="reception").length;
  const managerCount=members.filter(m=>m.accessRole==="manager").length;
@@ -34,6 +40,9 @@ export function CantonSiteStaffManager({siteId,members,teams,locale}:{siteId:str
 
  function toggle(id:string){const next=new Set(selected);if(next.has(id))next.delete(id);else next.add(id);setSelected(next)}
  function toggleAll(){const next=new Set(selected);if(allVisibleSelected)filtered.forEach(m=>next.delete(m.userId));else filtered.forEach(m=>next.add(m.userId));setSelected(next)}
+ function toggleTeamMember(id:string){const next=new Set(teamSelected);if(next.has(id))next.delete(id);else next.add(id);setTeamSelected(next)}
+ function toggleAllTeam(){const next=new Set(teamSelected);if(allTeamSelected)selectedTeamMembers.forEach(m=>next.delete(m.userId));else selectedTeamMembers.forEach(m=>next.add(m.userId));setTeamSelected(next)}
+ function changeTeam(id:string){setTeamId(id);setTeamSelected(new Set())}
 
  return <div className="space-y-4 border-t p-4">
   <div className="grid gap-3 sm:grid-cols-4">
@@ -71,14 +80,50 @@ export function CantonSiteStaffManager({siteId,members,teams,locale}:{siteId:str
    <div className="mb-2 text-sm font-semibold text-amber-950">{fr?"Affecter une équipe existante":"Assign an existing team"}</div>
    <form action={assignVisitorTeamToSite} className="flex flex-wrap gap-2">
     <input type="hidden" name="siteId" value={siteId}/>
-    <select name="teamId" value={teamId} onChange={e=>setTeamId(e.target.value)} className="min-w-56 rounded-lg border bg-white px-3 py-2 text-sm" required>
+    <select name="teamId" value={teamId} onChange={e=>changeTeam(e.target.value)} className="min-w-56 rounded-lg border bg-white px-3 py-2 text-sm" required>
      <option value="">{fr?"Choisir une équipe…":"Choose a team…"}</option>
      {teams.map(t=><option key={t.id} value={t.id}>{t.name}{t.department?" · "+t.department:""} {"("+t.userIds.length+")"}</option>)}
     </select>
     <select name="accessRole" value={teamRole} onChange={e=>setTeamRole(e.target.value)} className="rounded-lg border bg-white px-3 py-2 text-sm"><option value="reception">{fr?"Réception":"Reception"}</option><option value="host">Host</option><option value="manager">Manager</option></select>
     <button disabled={!teamId} className="rounded-lg bg-amber-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40">{fr?"Affecter l’équipe":"Assign team"}</button>
    </form>
+   <p className="mt-2 text-xs text-amber-900">{fr?"Le rôle choisi ici est le rôle initial appliqué à tous les membres lors de l’affectation. Vous pouvez ensuite répartir les rôles ci-dessous.":"The role chosen here is the initial role applied to every member when the team is assigned. You can then distribute roles below."}</p>
   </div>
+
+  {selectedTeam&&<div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3">
+   <div className="flex flex-wrap items-start justify-between gap-3">
+    <div>
+     <div className="text-sm font-semibold text-emerald-950">{fr?"Répartir les rôles dans cette équipe":"Distribute roles within this team"}</div>
+     <div className="mt-1 text-xs text-emerald-800">{selectedTeam.name} · {selectedTeamMembers.length} {fr?"membre(s) actif(s)":"active member(s)"}</div>
+    </div>
+    <div className="flex flex-wrap items-center gap-2">
+     <button type="button" onClick={toggleAllTeam} disabled={!selectedTeamMembers.length} className="rounded-lg border bg-white px-3 py-2 text-xs font-semibold disabled:opacity-40">{allTeamSelected?(fr?"Tout désélectionner":"Clear all"):(fr?"Sélectionner toute l’équipe":"Select whole team")}</button>
+     <span className="text-xs font-semibold text-emerald-950">{teamSelected.size} {fr?"sélectionné(s)":"selected"}</span>
+    </div>
+   </div>
+
+   <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg bg-white p-3">
+    <span className="text-xs font-semibold text-slate-700">{fr?"Rôle à appliquer":"Role to apply"}</span>
+    <select value={teamMemberRole} onChange={e=>setTeamMemberRole(e.target.value)} className="rounded-lg border bg-white px-3 py-2 text-sm">
+     <option value="reception">{fr?"Réception":"Reception"}</option><option value="host">Host</option><option value="manager">Manager</option>
+    </select>
+    <form action={bulkManageVisitorSiteStaff}>
+     <input type="hidden" name="siteId" value={siteId}/>
+     <input type="hidden" name="accessRole" value={teamMemberRole}/>
+     {[...teamSelected].map(id=><input key={id} type="hidden" name="userIds" value={id}/>)}
+     <button name="operation" value="grant" disabled={!teamSelected.size} className="rounded-lg bg-emerald-700 px-4 py-2 text-xs font-semibold text-white disabled:opacity-40">{fr?"Appliquer le rôle":"Apply role"}</button>
+    </form>
+   </div>
+
+   <div className="mt-3 max-h-72 space-y-2 overflow-y-auto">
+    {selectedTeamMembers.map(m=><label key={m.userId} className="grid cursor-pointer gap-2 rounded-lg border bg-white p-3 sm:grid-cols-[auto_1.5fr_.7fr] sm:items-center">
+     <input type="checkbox" checked={teamSelected.has(m.userId)} onChange={()=>toggleTeamMember(m.userId)}/>
+     <div><div className="font-medium">{m.name}</div><div className="text-xs text-slate-500">{m.email||""}{m.email?" · ":""}{m.orgRole}</div></div>
+     <div className="sm:text-right">{m.accessRole?<span className="rounded bg-emerald-100 px-2 py-1 text-xs font-semibold text-emerald-900">{m.accessRole}</span>:<span className="text-xs text-slate-400">{fr?"Aucun accès local":"No local access"}</span>}</div>
+    </label>)}
+    {!selectedTeamMembers.length&&<div className="rounded-lg border border-dashed bg-white p-4 text-center text-sm text-slate-500">{fr?"Aucun membre actif de cette équipe n’est disponible dans l’organisation.":"No active team member is available in the organization."}</div>}
+   </div>
+  </div>}
 
   <div className="max-h-[520px] space-y-2 overflow-y-auto pr-1">
    {filtered.map(m=><div key={m.userId} className="grid gap-2 rounded-lg border bg-white p-3 md:grid-cols-[auto_1.5fr_.8fr_1.2fr] md:items-center">
