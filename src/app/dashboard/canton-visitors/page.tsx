@@ -511,7 +511,17 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
    {!invitationQueue?.length&&<p className="mt-4 text-sm text-slate-700">{fr?"Aucune invitation programmée.":"No invitations scheduled."}</p>}
   </section>}
 
-  <section className="rounded-xl border bg-white p-5">
+  <details className="rounded-xl border bg-white">
+   <summary className="cursor-pointer list-none p-5">
+    <div className="flex flex-wrap items-center justify-between gap-3">
+     <div>
+      <h2 className="text-lg font-semibold">{fr?"QR & enregistrement sur place":"QR & on-site registration"}</h2>
+      <p className="mt-1 text-sm font-normal text-slate-500">{fr?"Ouvrez cette section uniquement pour créer, afficher ou gérer les QR d’arrivée et de feedback.":"Open this section only when you need to create, display, or manage arrival and feedback QR codes."}</p>
+     </div>
+     <span className="rounded-lg border bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700">{fr?"Afficher les QR":"Show QR codes"} ↓</span>
+    </div>
+   </summary>
+   <div className="border-t p-5">
    <h2 className="text-lg font-semibold">{fr?"Deux QR Codes":"Two QR codes"}</h2><p className="mb-4 text-sm text-slate-500">{fr?"1. Le visiteur scanne le QR d’arrivée et la réception confirme. 2. Au départ, il donne son avis par QR avec son nom et quatre chiffres du téléphone, ou anonymement. Aucun code à mémoriser.":"1. Visitor scans the arrival QR and reception confirms. 2. After checkout, visitor scans the feedback QR and enters their name and last four phone digits, or responds anonymously. No visit code."}</p>
    {isSenior&&<form action={createCantonQrSite} className="mb-4 flex flex-wrap gap-2"><label className="min-w-[200px] flex-1 text-sm">{fr?"Nouveau point d’accueil":"New reception location"}<input required className="mt-1 w-full rounded border px-3 py-2" name="label" placeholder="Canton Main Reception"/></label><label className="min-w-[220px] flex-1 text-sm">{fr?"Site opérationnel":"Operational site"}<select required name="visitorSiteId" defaultValue={selectedSiteId==="all"?(hqSite?.id||""):selectedSiteId} className="mt-1 w-full rounded border px-3 py-2">{(allVisitorSites||[]).map(s=><option key={s.id} value={s.id}>{s.name}{s.is_hq?" · HQ":""}</option>)}</select></label><label className="min-w-[240px] flex-[2] text-sm">{fr?"Adresse physique du bureau (vérifiée)":"Verified physical office address"}<input name="streetAddress" className="mt-1 w-full rounded border px-3 py-2" placeholder={fr?"Adresse, ville, pays, code postal":"Street, city, country, postal code"}/></label><button className="self-end rounded bg-indigo-700 px-4 py-2 text-white">{fr?"Créer les QR du site":"Create site QR codes"}</button></form>}
    <div className="grid gap-4 md:grid-cols-2">{(sites||[]).filter(x=>x.enabled).map(site=>{
@@ -528,7 +538,8 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
       {isSenior&&<form action={updateCantonQrSiteAddress} className="mt-3 space-y-2 border-t pt-3"><input type="hidden" name="site" value={site.id}/><label className="block text-sm">{fr?"Adresse du bureau pour Google Maps":"Office address for Google Maps"}<input required minLength={8} maxLength={300} name="streetAddress" defaultValue={site.street_address||""} className={input} placeholder={fr?"Adresse exacte du bureau":"Exact office address"}/></label><button className="rounded bg-indigo-700 px-3 py-2 text-sm text-white">{fr?"Enregistrer l’adresse":"Save address"}</button></form>}
      </div>;
    })}</div>
-  </section>
+   </div>
+  </details>
   {(isSenior||isManager||isReception)&&<section data-canton-view="reception" className="rounded-xl border bg-white p-5"><h2 className="text-lg font-semibold">{fr?"Arrivées QR à valider (":"QR arrivals pending approval ("}{(requests||[]).length})</h2><p className="mb-3 text-xs text-slate-500">{fr?"Vérifiez l’identité en personne avant de confirmer. Super Leader recherche automatiquement un rendez-vous existant afin d’éviter les doublons.":"Confirm identity in person before approval. Super Leader automatically looks for an existing appointment to avoid duplicate visits."}</p>
    <div className="space-y-3">{(requests||[]).map(q=>{
      const email=(q.email||"").toLowerCase();
@@ -588,7 +599,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
    <div className="mt-4 space-y-4">
     {(visits||[]).filter(v=>v.status==="completed"&&["DIG","TCF"].includes(v.department)&&!v.debriefed_at&&(isSenior||isManager||v.host_user_id===user.id||v.announced_by===user.id)).map(v=><article key={v.id} className="rounded-xl border bg-white p-4">
      <div className="mb-3"><div className="font-semibold">{map.get(v.visitor_id)?.full_name||(fr?"Visiteur":"Visitor")} · {v.department}</div><div className="text-sm text-slate-600">{v.purpose} · {v.host_name||"—"}</div></div>
-     <form action={saveCantonVisitDebrief} className="grid gap-3 md:grid-cols-2">
+     <form action={saveCantonVisitDebrief} className="grid gap-3 md:grid-cols-2"><input type="hidden" name="returnTo" value={currentReturnPath}/>
       <input type="hidden" name="id" value={v.id}/>
       <label className="text-sm font-medium">{fr?"Niveau d’intérêt *":"Interest level *"}<select name="interest" required defaultValue="" className={input}><option value="" disabled>{fr?"Sélectionner":"Select"}</option><option value="hot">🔥 Hot</option><option value="warm">🟠 Warm</option><option value="cold">🔵 Cold</option><option value="non_commercial">{fr?"Non commercial":"Non-commercial"}</option></select></label>
       <label className="text-sm font-medium">{fr?"Résultat de la visite *":"Visit outcome *"}<select name="outcome" required defaultValue="" className={input}><option value="" disabled>{fr?"Sélectionner":"Select"}</option><option value="information_only">{fr?"Information seulement":"Information only"}</option><option value="follow_up_requested">{fr?"Suivi demandé":"Follow-up requested"}</option><option value="proposal_requested">{fr?"Proposition demandée":"Proposal requested"}</option><option value="next_appointment">{fr?"Prochain rendez-vous":"Next appointment"}</option><option value="ready_to_buy">{fr?"Prêt à acheter / avancer":"Ready to buy / proceed"}</option><option value="not_interested">{fr?"Pas intéressé":"Not interested"}</option><option value="other">{fr?"Autre":"Other"}</option></select></label>
@@ -635,7 +646,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
     <div className="font-semibold">{map.get(v.visitor_id)?.full_name||(fr?"Visiteur":"Visitor")} · {v.department}</div>
     <div>{fr?"Résultat : ":"Outcome: "}{({contacted:fr?"Contact établi":"Contacted",appointment_scheduled:fr?"Rendez-vous fixé":"Appointment scheduled",proposal_sent:fr?"Proposition envoyée":"Proposal sent",sale_closed:fr?"Vente conclue":"Sale closed",no_response:fr?"Sans réponse":"No response",not_interested:fr?"Pas intéressé":"Not interested",other:fr?"Autre":"Other"} as Record<string,string>)[v.follow_up_outcome]||v.follow_up_outcome}</div>
     <p className="mt-1 text-slate-700">{v.follow_up_result_note}</p>
-    {(v.department==="DIG"||v.department==="TCF")&&(isSenior||isManager||v.follow_up_owner_id===user.id)&&!visibleNextActions.some(x=>x.appointment_id===v.id&&x.status==="open")&&<form action={createCantonNextAction} className="mt-3 flex flex-wrap items-end gap-2 rounded-lg border border-indigo-200 bg-white p-3">
+    {(v.department==="DIG"||v.department==="TCF")&&(isSenior||isManager||v.follow_up_owner_id===user.id)&&!visibleNextActions.some(x=>x.appointment_id===v.id&&x.status==="open")&&<form action={createCantonNextAction} className="mt-3 flex flex-wrap items-end gap-2 rounded-lg border border-indigo-200 bg-white p-3"><input type="hidden" name="returnTo" value={currentReturnPath}/>
       <input type="hidden" name="appointmentId" value={v.id}/>
       <label className="min-w-[200px] flex-1 text-sm">{fr?"Prochaine action *":"Next action *"}<input name="actionText" required minLength={5} maxLength={800} className={input} placeholder={fr?"Ex. Relancer après lecture du contrat":"E.g. Follow up after contract review"}/></label>
       <label className="text-sm">{fr?"Date de rappel *":"Follow-up date *"}<input type="date" name="dueDate" required className={input}/></label>
@@ -716,7 +727,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
        {action.due_date<today&&<span className="ml-2 rounded bg-rose-100 px-2 py-1 font-semibold text-rose-900">{fr?"En retard":"Overdue"}</span>}
        {action.due_date>today&&<span className="ml-2 rounded bg-slate-100 px-2 py-1 font-semibold text-slate-700">{fr?"À venir":"Upcoming"}</span>}
       </p>
-      {(isSenior||isManager||action.assigned_to===user.id)&&<form action={completeCantonNextAction} className="mt-3 flex flex-wrap items-end gap-2"><input type="hidden" name="actionId" value={action.id}/>
+      {(isSenior||isManager||action.assigned_to===user.id)&&<form action={completeCantonNextAction} className="mt-3 flex flex-wrap items-end gap-2"><input type="hidden" name="returnTo" value={currentReturnPath}/><input type="hidden" name="actionId" value={action.id}/>
        <label className="min-w-[240px] flex-1 text-sm">{fr?"Compte rendu de la nouvelle action *":"Next action completion note *"}<input required minLength={5} maxLength={1000} name="completionNote" className={input}/></label>
        <button className="rounded-lg bg-emerald-700 px-3 py-2 text-sm font-semibold text-white">{fr?"Enregistrer et terminer":"Save and complete"}</button>
       </form>}
@@ -738,14 +749,14 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
    <div className="space-y-3">{(visits||[]).filter(v=>v.status==="completed" && (v.department!=="DIRECTION"||isSenior)).map(v=>
     <div key={v.id} className="rounded-lg border p-3">
       <p className="mb-2 font-semibold">{map.get(v.visitor_id)?.full_name||(fr?"Visiteur":"Visitor")} · {v.department} · {v.follow_up_status==="open"?(fr?"Ouvert":"Open"):v.follow_up_status==="completed"?(fr?"Terminé":"Completed"):(fr?"Non attribué":"Not assigned")}</p>
-      <form action={assignCantonFollowUp} className="flex flex-wrap items-end gap-2">
+      <form action={assignCantonFollowUp} className="flex flex-wrap items-end gap-2"><input type="hidden" name="returnTo" value={currentReturnPath}/>
        <input type="hidden" name="id" value={v.id}/>
        <label className="flex-1 text-sm">{fr?"Collaborateur responsable":"Responsible employee"}<select name="ownerId" required className={input} defaultValue={v.follow_up_owner_id||""}><option value="">{fr?"Choisir un collaborateur":"Choose team member"}</option>{(members||[]).map(m=><option value={m.user_id} key={m.user_id}>{profileMap.get(m.user_id)?.full_name||profileMap.get(m.user_id)?.email||m.user_id}</option>)}</select></label>
        <label className="text-sm">{fr?"Échéance":"Due date"}<input name="dueDate" type="date" className={input} required defaultValue={v.follow_up_due_date||""}/></label>
        <label className="min-w-[150px] flex-1 text-sm">{fr?"Prochaine action":"Next action"}<input name="note" className={input} maxLength={1000} defaultValue={v.follow_up_note||""} placeholder={fr?"Appeler le visiteur pour la suite":"Call visitor about next steps"}/></label>
        <button className="rounded-lg bg-indigo-700 px-3 py-2 text-white">{fr?"Attribuer":"Assign"}</button>
       </form>
-      {v.follow_up_status==="open"&&<form action={completeCantonFollowUp} className="mt-2"><input type="hidden" name="id" value={v.id}/><button className="rounded bg-green-100 px-3 py-2 text-sm">{fr?"Clôturer le suivi":"Mark follow-up completed"}</button></form>}
+      {v.follow_up_status==="open"&&<form action={completeCantonFollowUp} className="mt-2"><input type="hidden" name="returnTo" value={currentReturnPath}/><input type="hidden" name="id" value={v.id}/><button className="rounded bg-green-100 px-3 py-2 text-sm">{fr?"Clôturer le suivi":"Mark follow-up completed"}</button></form>}
     </div>
    )}</div>
   </section>}
