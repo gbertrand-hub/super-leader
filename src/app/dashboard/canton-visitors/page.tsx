@@ -18,7 +18,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
  const qrImage=(url:string)=>"https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=10&data="+encodeURIComponent(url);
  const supabase=await createClient();
  const {data:{user}}=await supabase.auth.getUser();
- if(!user) redirect("/canton-pilot/login");
+ if(!user) redirect("/login?next=/canton");
  const db=createAdminClient();
  const {data:membership}=await db.from("organization_members").select("organization_id,role")
  .eq("user_id",user.id).eq("is_active",true).limit(1).maybeSingle();
