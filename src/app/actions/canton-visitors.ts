@@ -677,10 +677,14 @@ export async function assignCantonFollowUp(f:FormData){
  const {data:member}=await db.from("organization_members").select("user_id")
   .eq("organization_id",org).eq("user_id",ownerId).eq("is_active",true).maybeSingle();
  if(!member)fail("Follow-up owner must be active in this organization");
- const {data:visit}=await db.from("canton_appointments").select("status,department")
+ const {data:visit}=await db.from("canton_appointments").select("status,department,site_id")
   .eq("id",id).eq("organization_id",org).maybeSingle();
  if(!visit||visit.status!=="completed")throw new Error("Complete the visit before assigning follow-up");
  if(visit.department==="DIRECTION" && role==="manager")fail("Confidential direction visits require admin");
+ if(!visit.site_id)fail("This visit has no active visitor site");
+ const {data:siteOwner}=await db.from("visitor_site_staff").select("user_id")
+  .eq("site_id",visit.site_id).eq("user_id",ownerId).eq("is_active",true).maybeSingle();
+ if(!siteOwner)fail("Follow-up owner must belong to the same visitor site");
  const {data:changed,error}=await db.from("canton_appointments").update({
   follow_up_required:true,follow_up_status:"open",follow_up_owner_id:ownerId,
   follow_up_note:note||null,follow_up_due_date:dueDate,follow_up_completed_at:null,
