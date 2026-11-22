@@ -370,6 +370,7 @@ export async function submitCantonFeedback(f:FormData){
 
 export async function createVisitorSite(f:FormData){
  assertCantonLive();
+ const returnTo=safeCantonReturn(field(f,"returnTo",500));
  const {db,org,role}=await context();
  if(!seniorRoles.has(role)) fail("Only administrators can manage visitor sites");
  const name=field(f,"name",180), code=field(f,"code",40).toUpperCase().replace(/[^A-Z0-9_]/g,"_");
@@ -381,11 +382,12 @@ export async function createVisitorSite(f:FormData){
  });
  if(error) fail(error.code==="23505"?"A visitor site with this code already exists":"Could not create visitor site");
  revalidatePath("/canton/admin");
- redirect("/canton/admin?success="+encodeURIComponent("Visitor site created"));
+ redirect(withMessage(returnTo,"success","Visitor site created"));
 }
 
 export async function updateVisitorSite(f:FormData){
  assertCantonLive();
+ const returnTo=safeCantonReturn(field(f,"returnTo",500));
  const {db,org,role}=await context();
  if(!seniorRoles.has(role)) fail("Only administrators can manage visitor sites");
  const id=field(f,"siteId",40), operation=field(f,"operation",30);
@@ -404,7 +406,7 @@ export async function updateVisitorSite(f:FormData){
   const {error}=await db.from("visitor_sites").update({is_active:!currentSite.is_active,updated_at:new Date().toISOString()}).eq("id",id).eq("organization_id",org);
   if(error) fail("Could not update visitor site status");
  }else if(operation==="make_hq"){
-  if(currentSite.is_hq) redirect("/canton/admin?site="+encodeURIComponent(id)+"&success="+encodeURIComponent("This site is already HQ"));
+  if(currentSite.is_hq) redirect(withMessage(returnTo,"success","This site is already HQ"));
   const {error:clearError}=await db.from("visitor_sites").update({is_hq:false,updated_at:new Date().toISOString()}).eq("organization_id",org).eq("is_hq",true);
   if(clearError) fail("Could not change HQ");
   const {error}=await db.from("visitor_sites").update({is_hq:true,is_active:true,updated_at:new Date().toISOString()}).eq("id",id).eq("organization_id",org);
@@ -412,11 +414,12 @@ export async function updateVisitorSite(f:FormData){
  }else fail("Invalid site operation");
  revalidatePath("/canton/admin");
  revalidatePath("/canton");
- redirect("/canton/admin?site="+encodeURIComponent(id)+"&success="+encodeURIComponent("Visitor site updated"));
+ redirect(withMessage(returnTo,"success","Visitor site updated"));
 }
 
 export async function manageVisitorSiteStaff(f:FormData){
  assertCantonLive();
+ const returnTo=safeCantonReturn(field(f,"returnTo",500));
  const {db,org,role}=await context();
  if(!seniorRoles.has(role)) fail("Only administrators can manage site staff");
  const siteId=field(f,"siteId",40), userId=field(f,"userId",40), accessRole=field(f,"accessRole",20), operation=field(f,"operation",20);
@@ -433,12 +436,13 @@ export async function manageVisitorSiteStaff(f:FormData){
   if(error) fail("Could not remove site staff");
  }else fail("Invalid operation");
  revalidatePath("/canton/admin");
- redirect("/canton/admin?site="+encodeURIComponent(siteId)+"&success="+encodeURIComponent("Site staff updated"));
+ redirect(withMessage(returnTo,"success","Site staff updated"));
 }
 
 
 export async function bulkManageVisitorSiteStaff(f:FormData){
  assertCantonLive();
+ const returnTo=safeCantonReturn(field(f,"returnTo",500));
  const {db,org,role}=await context();
  if(!seniorRoles.has(role)) fail("Only administrators can manage site staff");
  const siteId=field(f,"siteId",40), accessRole=field(f,"accessRole",20), operation=field(f,"operation",20);
@@ -460,11 +464,12 @@ export async function bulkManageVisitorSiteStaff(f:FormData){
   if(error) fail("Could not remove selected site staff");
  }else fail("Invalid bulk operation");
  revalidatePath("/canton/admin");
- redirect("/canton/admin?site="+encodeURIComponent(siteId)+"&success="+encodeURIComponent("Site staff updated in bulk"));
+ redirect(withMessage(returnTo,"success","Site staff updated in bulk"));
 }
 
 export async function assignVisitorTeamToSite(f:FormData){
  assertCantonLive();
+ const returnTo=safeCantonReturn(field(f,"returnTo",500));
  const {db,org,role}=await context();
  if(!seniorRoles.has(role)) fail("Only administrators can manage site staff");
  const siteId=field(f,"siteId",40),teamId=field(f,"teamId",40),accessRole=field(f,"accessRole",20);
@@ -484,11 +489,12 @@ export async function assignVisitorTeamToSite(f:FormData){
  const {error}=await db.from("visitor_site_staff").upsert(rows,{onConflict:"site_id,user_id"});
  if(error) fail("Could not assign team to visitor site");
  revalidatePath("/canton/admin");
- redirect("/canton/admin?site="+encodeURIComponent(siteId)+"&success="+encodeURIComponent("Team assigned to visitor site"));
+ redirect(withMessage(returnTo,"success","Team assigned to visitor site"));
 }
 
 export async function manageCantonReceptionStaff(f:FormData) {
  assertCantonLive();
+ const returnTo=safeCantonReturn(field(f,"returnTo",500));
  const {db,org,user,role}=await context();
  if(!seniorRoles.has(role)) fail("Only administrators can manage reception staff");
  const memberId=field(f,"userId",40),operation=field(f,"operation");
@@ -503,7 +509,7 @@ export async function manageCantonReceptionStaff(f:FormData) {
   if(error) fail("Reception permission could not be revoked");
  } else fail("Invalid operation");
  revalidatePath(route);
- redirect(route+"?success="+encodeURIComponent("Reception access updated"));
+ redirect(withMessage(returnTo,"success","Reception access updated"));
 }
 
 export async function qualifyCantonLegacyProspect(f:FormData){
@@ -753,18 +759,7 @@ export async function reassignCantonNextAction(f:FormData){
   p_reassigned_by:user.id,
   p_reason:reason
  });
- if(error){
-  // QA compatibility: the isolated Canton staging database may not yet have
-  // the production audit RPC. Keep the reassignment testable there without
-  // weakening production behavior.
-  const missingRpc=String(error.code||"")==="PGRST202"||/canton_reassign_next_action/i.test(String(error.message||""));
-  if(!missingRpc) reassignFail("Could not reassign next action");
-  const {data:changed,error:updateError}=await db.from("canton_next_actions")
-   .update({assigned_to:assignedTo})
-   .eq("id",actionId).eq("organization_id",org).eq("status","open").eq("assigned_to",openAction.assigned_to)
-   .select("id");
-  if(updateError||!changed?.length) reassignFail("Could not reassign next action");
- }
+ if(error) reassignFail("Could not reassign next action");
  revalidatePath(route);
  redirect(withMessage(returnTo,"success","Next commercial action reassigned"));
 }
