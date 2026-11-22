@@ -52,7 +52,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
  const hqSite=(allVisitorSites||[]).find(s=>s.is_hq)||null;
  const selectedSiteId=site==="all"&&isSenior?"all":siteById.has(site)?site:(isSenior?"all":visitorSites?.[0]?.id||hqSite?.id||"all");
  const memberIds=[...new Set([...(members||[]).map(m=>m.user_id),...(hostMembers||[]).map(m=>m.user_id)])];
- const {data:memberProfiles}=memberIds.length?await db.from("profiles").select("id,full_name,email,city,country").in("id",memberIds):{data:[]};
+ const {data:memberProfiles}=memberIds.length?await db.from("profiles").select("id,full_name,email").in("id",memberIds):{data:[]};
  const profileMap=new Map((memberProfiles||[]).map(p=>[p.id,p]));
  const assignedIds=new Set((staffAssignments||[]).map(p=>p.user_id));
  const {data:siteStaff}=(isSenior||isManager)?await db.from("visitor_site_staff")
@@ -465,8 +465,8 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
          userId:m.user_id,
          name:p?.full_name||p?.email||m.user_id,
          email:p?.email||null,
-         city:p?.city||null,
-         country:p?.country||null,
+         city:null,
+         country:null,
          orgRole:m.role,
          accessRole:assigned?.access_role||null
         }})}
