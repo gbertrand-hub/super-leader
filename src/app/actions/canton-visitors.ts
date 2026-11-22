@@ -749,8 +749,11 @@ export async function reassignCantonNextAction(f:FormData){
  if(!visit||!["DIG","TCF"].includes(visit.department)) return reassignFail("Only DIG / TCF commercial actions can be reassigned here");
  const commercialVisit=visit;
  if(!commercialVisit.site_id) return reassignFail("This visit has no active Canton site");
+ const {data:visitSite}=await db.from("visitor_sites").select("id")
+  .eq("id",commercialVisit.site_id).eq("organization_id",org).eq("is_active",true).maybeSingle();
+ if(!visitSite) return reassignFail("This visit site is not active in the organization");
  const {data:siteAssignee}=await db.from("visitor_site_staff").select("user_id")
-  .eq("organization_id",org).eq("site_id",commercialVisit.site_id).eq("user_id",assignedTo).eq("is_active",true).maybeSingle();
+  .eq("site_id",commercialVisit.site_id).eq("user_id",assignedTo).eq("is_active",true).maybeSingle();
  if(!siteAssignee) reassignFail("The new assignee must belong to the same Canton site team");
  const {error}=await db.rpc("canton_reassign_next_action",{
   p_organization_id:org,
