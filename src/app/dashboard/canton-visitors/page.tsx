@@ -335,19 +335,19 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
 
   <div data-canton-view="dashboard" className="space-y-3">
    <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">{[
-    {label:fr?"Aujourd’hui":"Today",value:todayRows.length,href:"/canton/reception"},
-    {label:fr?"Attendus":"Expected",value:count(v=>v.status==="scheduled"),href:"/canton/reception?filter=expected"},
-    {label:fr?"Sur place":"On site",value:count(v=>["arrived","in_progress"].includes(v.status)),href:"/canton/reception?filter=on_site"},
-    {label:fr?"Terminées":"Completed",value:count(v=>v.status==="completed"),href:"/canton/appointments?filter=completed"},
-    {label:fr?"Avis":"Feedback",value:(feedback||[]).length,href:"/canton/feedback"},
-    {label:fr?"Taux de réponse":"Response rate",value:feedbackResponseRate,href:"/canton/feedback"},
-    {label:fr?"Note moyenne":"Avg. rating",value:ratingAverage,href:"/canton/feedback"},
-    {label:fr?"Attention requise":"Attention needed",value:pendingFeedback,href:"/canton/feedback?filter=attention"},
-    {label:fr?"Suivis ouverts":"Follow-ups open",value:pendingHandoffs,href:"/canton/commercial?filter=open"},
-    {label:fr?"Sans responsable":"Unassigned follow-ups",value:unassignedFollowUps.length,href:"/canton/commercial?filter=unassigned"},
-    {label:fr?"Prochaines actions":"Next actions",value:openNextActions.length,href:"/canton/commercial?filter=actions"},
-    {label:fr?"À faire aujourd’hui":"Due today",value:nextActionsToday.length,href:"/canton/commercial?filter=due_today"},
-    {label:fr?"En retard":"Overdue",value:overdueNextActions.length,href:"/canton/commercial?filter=overdue"}
+    {label:fr?"Aujourd’hui":"Today",value:todayRows.length,href:"/dashboard/canton-visitors?view=reception"},
+    {label:fr?"Attendus":"Expected",value:count(v=>v.status==="scheduled"),href:"/dashboard/canton-visitors?view=reception&filter=expected"},
+    {label:fr?"Sur place":"On site",value:count(v=>["arrived","in_progress"].includes(v.status)),href:"/dashboard/canton-visitors?view=reception&filter=on_site"},
+    {label:fr?"Terminées":"Completed",value:count(v=>v.status==="completed"),href:"/dashboard/canton-visitors?view=appointments&filter=completed"},
+    {label:fr?"Avis":"Feedback",value:(feedback||[]).length,href:"/dashboard/canton-visitors?view=feedback"},
+    {label:fr?"Taux de réponse":"Response rate",value:feedbackResponseRate,href:"/dashboard/canton-visitors?view=feedback"},
+    {label:fr?"Note moyenne":"Avg. rating",value:ratingAverage,href:"/dashboard/canton-visitors?view=feedback"},
+    {label:fr?"Attention requise":"Attention needed",value:pendingFeedback,href:"/dashboard/canton-visitors?view=feedback&filter=attention"},
+    {label:fr?"Suivis ouverts":"Follow-ups open",value:pendingHandoffs,href:"/dashboard/canton-visitors?view=commercial&filter=open"},
+    {label:fr?"Sans responsable":"Unassigned follow-ups",value:unassignedFollowUps.length,href:"/dashboard/canton-visitors?view=commercial&filter=unassigned"},
+    {label:fr?"Prochaines actions":"Next actions",value:openNextActions.length,href:"/dashboard/canton-visitors?view=commercial&filter=actions"},
+    {label:fr?"À faire aujourd’hui":"Due today",value:nextActionsToday.length,href:"/dashboard/canton-visitors?view=commercial&filter=due_today"},
+    {label:fr?"En retard":"Overdue",value:overdueNextActions.length,href:"/dashboard/canton-visitors?view=commercial&filter=overdue"}
    ].map(card=><Link key={card.label} href={card.href} className="group rounded-xl border bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:border-indigo-300 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-indigo-500">
     <div className="flex items-start justify-between gap-2"><div className="text-sm text-slate-500">{card.label}</div><span aria-hidden className="text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-indigo-600">→</span></div>
     <div className="mt-1 text-2xl font-bold">{card.value}</div>
@@ -366,11 +366,11 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
      <span className="rounded-full bg-emerald-50 px-3 py-1 font-semibold text-emerald-800">{fr?"Sur place":"On site"}: {count(v=>["arrived","in_progress"].includes(v.status))}</span>
     </div>
    </div>
-   <form method="get" action="/canton/reception" className="mt-4 flex flex-col gap-2 rounded-xl bg-slate-50 p-3 sm:flex-row">
+   <form method="get" action="/dashboard/canton-visitors" className="mt-4 flex flex-col gap-2 rounded-xl bg-slate-50 p-3 sm:flex-row"><input type="hidden" name="view" value="reception"/><input type="hidden" name="site" value={selectedSiteId}/>
     <label className="sr-only" htmlFor="canton-reception-search">{fr?"Rechercher un visiteur":"Search for a visitor"}</label>
     <input id="canton-reception-search" name="q" defaultValue={q} className="min-h-11 flex-1 rounded-lg border border-slate-300 bg-white px-4 text-base" placeholder={fr?"Rechercher : nom, téléphone, email ou responsable…":"Search: name, phone, email or host…"}/>
     <button className="min-h-11 rounded-lg bg-slate-900 px-5 font-semibold text-white">{fr?"Rechercher":"Search"}</button>
-    {receptionSearch&&<Link href="/canton/reception" className="min-h-11 rounded-lg border bg-white px-4 py-3 text-center text-sm font-medium">{fr?"Effacer":"Clear"}</Link>}
+    {receptionSearch&&<Link href={"/dashboard/canton-visitors?view=reception&site="+encodeURIComponent(selectedSiteId)} className="min-h-11 rounded-lg border bg-white px-4 py-3 text-center text-sm font-medium">{fr?"Effacer":"Clear"}</Link>}
    </form>
    {receptionSearch&&<p className="mt-2 text-xs text-slate-600">{receptionRows.length} {fr?"résultat(s) aujourd’hui pour":"result(s) today for"} <strong>“{q}”</strong></p>}
    <div className="mt-4 grid gap-3">
@@ -586,7 +586,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
    <p className="mb-3 rounded-lg bg-indigo-50 p-3 text-xs font-medium text-indigo-900">{fr?"Pour enregistrer une visite dans un autre bureau, changez d’abord le site actif en haut de la page.":"To register a visit at another office, first change the active site at the top of the page."}</p>
    <input form="canton-appointment-form" type="hidden" name="siteId" value={effectiveSiteId}/>
    <p className="mb-3 text-xs text-slate-500">{fr?"L’email est obligatoire pour identifier le visiteur et permettre le suivi commercial. Le téléphone reste fortement recommandé. Les doublons exacts sont bloqués.":"Email is required to identify the visitor and support commercial follow-up. Phone remains strongly recommended. Exact duplicate appointments are blocked."}</p>
-   <form action={createCantonAppointment} className="grid gap-3 md:grid-cols-3">
+   <form id="canton-appointment-form" action={createCantonAppointment} className="grid gap-3 md:grid-cols-3"><input type="hidden" name="returnTo" value={currentReturnPath}/>
     <label className="text-sm">{fr?"Nom complet *":"Full name *"}<input className={input} name="name" required maxLength={180}/></label>
     <label className="text-sm">{fr?"Téléphone":"Telephone"}<input className={input} name="phone" type="tel" placeholder="+1 555 123 4567"/></label>
     <label className="text-sm">Email *<input className={input} name="email" type="email" required/></label>
