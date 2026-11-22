@@ -44,10 +44,9 @@ export default async function CantonQrPoster({searchParams}:{searchParams:Promis
     <img src={qrImage(feedbackUrl)} width={520} height={520} alt={fr?"QR feedback":"Feedback QR"} className="mx-auto mt-5 w-full max-w-[520px]"/>
    </section>
   </div>
-  <div className="mt-8 flex justify-center print:hidden">
-   <button onClick={()=>{}} className="hidden"/>
-   <script dangerouslySetInnerHTML={{__html:"window.addEventListener('load',()=>setTimeout(()=>window.print(),250));"}}/>
-   <button type="button" className="rounded-xl bg-slate-900 px-5 py-3 font-bold text-white" onClick={undefined}>{fr?"Utilisez Ctrl+P si la fenêtre d’impression ne s’ouvre pas":"Use Ctrl+P if the print dialog does not open"}</button>
+  <div className="mt-8 text-center text-sm text-slate-500 print:hidden">
+   {fr?"La fenêtre d’impression s’ouvre automatiquement. Sinon, utilisez Ctrl+P.":"The print dialog opens automatically. If not, use Ctrl+P."}
   </div>
+  <script dangerouslySetInnerHTML={{__html:"window.addEventListener('load',()=>setTimeout(()=>window.print(),250));"}}/>
  </main>;
 }
