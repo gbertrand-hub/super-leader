@@ -3,6 +3,7 @@ import {getI18n} from "@/i18n/server";
 import {CantonLanguageSwitch} from "@/components/canton/canton-language-switch";
 import {CantonSiteStaffManager} from "@/components/canton/canton-site-staff-manager";
 import {CantonCrmProspectPicker} from "@/components/canton/canton-crm-prospect-picker";
+import {CantonQrActions} from "@/components/canton/canton-qr-actions";
 import Link from "next/link";
 import {headers} from "next/headers";
 import {createCantonQrSite,reviewCantonQrIntake,updateCantonQrSiteAddress} from "@/app/actions/canton-qr";
@@ -118,7 +119,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
    : visitQuery.or(`announced_by.eq.${user.id},follow_up_owner_id.eq.${user.id},host_user_id.eq.${user.id}`).neq("department","DIRECTION");
  }
  const {data:visits,error:queryError}=await visitQuery.order("created_at",{ascending:false}).limit(150);
- const {data:sites}=(isSenior||isManager||isReception)?await db.from("canton_qr_sites").select("id,label,enabled,street_address").eq("organization_id",membership.organization_id).order("created_at",{ascending:false}):{data:[]};
+ const {data:sites}=(isSenior||isManager||isReception)?await db.from("canton_qr_sites").select("id,label,enabled,street_address,visitor_site_id").eq("organization_id",membership.organization_id).order("created_at",{ascending:false}):{data:[]};
  const {data:requests}=isSenior||isManager||isReception?await db.from("canton_intake_requests").select("id,full_name,department,purpose,email,phone,created_at").eq("organization_id",membership.organization_id).eq("status","pending").order("created_at",{ascending:true}).limit(100):{data:[]};
  const visitorIds=[...new Set((visits||[]).map(v=>v.visitor_id))];
  const {data:people}=visitorIds.length?await db.from("canton_visitors").select("id,full_name,phone,email").eq("organization_id",membership.organization_id).in("id",visitorIds):{data:[]};
@@ -524,21 +525,29 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
    </summary>
    <div className="border-t p-5">
    <h2 className="text-lg font-semibold">{fr?"Deux QR Codes":"Two QR codes"}</h2><p className="mb-4 text-sm text-slate-500">{fr?"1. Le visiteur scanne le QR d’arrivée et la réception confirme. 2. Au départ, il donne son avis par QR avec son nom et quatre chiffres du téléphone, ou anonymement. Aucun code à mémoriser.":"1. Visitor scans the arrival QR and reception confirms. 2. After checkout, visitor scans the feedback QR and enters their name and last four phone digits, or responds anonymously. No visit code."}</p>
-   {isSenior&&<form action={createCantonQrSite} className="mb-4 flex flex-wrap gap-2"><label className="min-w-[200px] flex-1 text-sm">{fr?"Nouveau point d’accueil":"New reception location"}<input required className="mt-1 w-full rounded border px-3 py-2" name="label" placeholder="Canton Main Reception"/></label><label className="min-w-[220px] flex-1 text-sm">{fr?"Site opérationnel":"Operational site"}<select required name="visitorSiteId" defaultValue={selectedSiteId==="all"?(hqSite?.id||""):selectedSiteId} className="mt-1 w-full rounded border px-3 py-2">{(allVisitorSites||[]).map(s=><option key={s.id} value={s.id}>{s.name}{s.is_hq?" · HQ":""}</option>)}</select></label><label className="min-w-[240px] flex-[2] text-sm">{fr?"Adresse physique du bureau (vérifiée)":"Verified physical office address"}<input name="streetAddress" className="mt-1 w-full rounded border px-3 py-2" placeholder={fr?"Adresse, ville, pays, code postal":"Street, city, country, postal code"}/></label><button className="self-end rounded bg-indigo-700 px-4 py-2 text-white">{fr?"Créer les QR du site":"Create site QR codes"}</button></form>}
-   <div className="grid gap-4 md:grid-cols-2">{(sites||[]).filter(x=>x.enabled).map(site=>{
-     const arrivalUrl=origin+"/canton-checkin?site="+encodeURIComponent(site.id);
-     const feedbackUrl=origin+"/canton-feedback-qr?site="+encodeURIComponent(site.id);
-     return <div className="rounded-lg border p-4" key={site.id}>
-      <h3 className="font-semibold">{site.label}</h3>
-      {origin?<div className="grid gap-4 lg:grid-cols-2">
-       <div><p className="mt-2 text-xs font-semibold uppercase tracking-wide text-slate-500">{fr?"QR arrivée":"Arrival QR"}</p><img src={qrImage(arrivalUrl)} width={220} height={220} alt={"QR registration for "+site.label} className="mx-auto my-3"/><a href={arrivalUrl} target="_blank" rel="noreferrer" className="break-all text-sm text-indigo-700 underline">{fr?"Ouvrir le formulaire d’arrivée":"Open registration form"}</a></div>
-       <div><p className="mt-2 text-xs font-semibold uppercase tracking-wide text-slate-500">{fr?"QR feedback":"Feedback QR"}</p><img src={qrImage(feedbackUrl)} width={220} height={220} alt={"QR feedback for "+site.label} className="mx-auto my-3"/><a href={feedbackUrl} target="_blank" rel="noreferrer" className="break-all text-sm text-indigo-700 underline">{fr?"Ouvrir le formulaire d’avis":"Open feedback form"}</a></div>
-      </div>:<p>{fr?"QR indisponible sur cet hôte":"QR unavailable on unknown host"}</p>}
-      <p className="mt-2 text-xs text-slate-500">{fr?"Le feedback est rattaché à ce site sans exposer l’organisation au visiteur.":"Feedback is scoped to this site without exposing organization details to the visitor."}</p>
-      {site.street_address&&<p className="mt-3 text-sm text-slate-600">{site.street_address}</p>}
-      {isSenior&&<form action={updateCantonQrSiteAddress} className="mt-3 space-y-2 border-t pt-3"><input type="hidden" name="site" value={site.id}/><label className="block text-sm">{fr?"Adresse du bureau pour Google Maps":"Office address for Google Maps"}<input required minLength={8} maxLength={300} name="streetAddress" defaultValue={site.street_address||""} className={input} placeholder={fr?"Adresse exacte du bureau":"Exact office address"}/></label><button className="rounded bg-indigo-700 px-3 py-2 text-sm text-white">{fr?"Enregistrer l’adresse":"Save address"}</button></form>}
+   {isSenior&&<form action={createCantonQrSite} className="mb-4 flex flex-wrap gap-2"><input type="hidden" name="returnTo" value={currentReturnPath}/><label className="min-w-[200px] flex-1 text-sm">{fr?"Nouveau point d’accueil":"New reception location"}<input required className="mt-1 w-full rounded border px-3 py-2" name="label" placeholder="Canton Main Reception"/></label><label className="min-w-[220px] flex-1 text-sm">{fr?"Site opérationnel":"Operational site"}<select required name="visitorSiteId" defaultValue={selectedSiteId==="all"?(hqSite?.id||""):selectedSiteId} className="mt-1 w-full rounded border px-3 py-2">{(allVisitorSites||[]).map(s=><option key={s.id} value={s.id}>{s.name}{s.is_hq?" · HQ":""}</option>)}</select></label><label className="min-w-[240px] flex-[2] text-sm">{fr?"Adresse physique du bureau (vérifiée)":"Verified physical office address"}<input name="streetAddress" className="mt-1 w-full rounded border px-3 py-2" placeholder={fr?"Adresse, ville, pays, code postal":"Street, city, country, postal code"}/></label><button className="self-end rounded bg-indigo-700 px-4 py-2 text-white">{fr?"Créer les QR du site":"Create site QR codes"}</button></form>}
+   {(()=>{
+     const visibleQrSites=(sites||[]).filter(x=>x.enabled&&(selectedSiteId==="all"||x.visitor_site_id===selectedSiteId));
+     if(!visibleQrSites.length) return <div className="rounded-xl border border-dashed border-indigo-300 bg-indigo-50 p-5 text-sm text-indigo-950">
+      <div className="font-semibold">{selectedSiteId==="all"?(fr?"Aucun point d’accueil QR actif.":"No active QR reception point."):(fr?"Aucun point d’accueil QR configuré pour ce site.":"No QR reception point is configured for this site.")}</div>
+      {isSenior&&<p className="mt-1 text-xs text-indigo-800">{fr?"Utilisez le formulaire ci-dessus pour créer le premier point d’accueil de ce bureau.":"Use the form above to create this office’s first QR reception point."}</p>}
      </div>;
-   })}</div>
+     return <div className="grid gap-4 md:grid-cols-2">{visibleQrSites.map(site=>{
+      const arrivalUrl=origin+"/canton-checkin?site="+encodeURIComponent(site.id);
+      const feedbackUrl=origin+"/canton-feedback-qr?site="+encodeURIComponent(site.id);
+      return <div className="rounded-lg border p-4" key={site.id}>
+       <div className="flex flex-wrap items-start justify-between gap-2"><h3 className="font-semibold">{site.label}</h3><span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-semibold text-slate-600">{siteById.get(site.visitor_site_id||"")?.name||fr?"Site":"Site"}</span></div>
+       {origin?<div className="grid gap-4 lg:grid-cols-2">
+        <div><p className="mt-2 text-xs font-semibold uppercase tracking-wide text-slate-500">{fr?"QR arrivée":"Arrival QR"}</p><img src={qrImage(arrivalUrl)} width={220} height={220} alt={"QR registration for "+site.label} className="mx-auto my-3"/><a href={arrivalUrl} target="_blank" rel="noreferrer" className="break-all text-sm text-indigo-700 underline">{fr?"Ouvrir le formulaire d’arrivée":"Open registration form"}</a></div>
+        <div><p className="mt-2 text-xs font-semibold uppercase tracking-wide text-slate-500">{fr?"QR feedback":"Feedback QR"}</p><img src={qrImage(feedbackUrl)} width={220} height={220} alt={"QR feedback for "+site.label} className="mx-auto my-3"/><a href={feedbackUrl} target="_blank" rel="noreferrer" className="break-all text-sm text-indigo-700 underline">{fr?"Ouvrir le formulaire d’avis":"Open feedback form"}</a></div>
+       </div>:<p>{fr?"QR indisponible sur cet hôte":"QR unavailable on unknown host"}</p>}
+       {origin&&<CantonQrActions locale={fr?"fr":"en"} label={site.label} arrivalUrl={arrivalUrl} feedbackUrl={feedbackUrl} posterHref={"/dashboard/canton-visitors/qr-poster?site="+encodeURIComponent(site.id)}/>}
+       <p className="mt-2 text-xs text-slate-500">{fr?"Le feedback est rattaché à ce site sans exposer l’organisation au visiteur.":"Feedback is scoped to this site without exposing organization details to the visitor."}</p>
+       {site.street_address&&<p className="mt-3 text-sm text-slate-600">{site.street_address}</p>}
+       {isSenior&&<form action={updateCantonQrSiteAddress} className="mt-3 space-y-2 border-t pt-3"><input type="hidden" name="returnTo" value={currentReturnPath}/><input type="hidden" name="site" value={site.id}/><label className="block text-sm">{fr?"Adresse du bureau pour Google Maps":"Office address for Google Maps"}<input required minLength={8} maxLength={300} name="streetAddress" defaultValue={site.street_address||""} className={input} placeholder={fr?"Adresse exacte du bureau":"Exact office address"}/></label><button className="rounded bg-indigo-700 px-3 py-2 text-sm text-white">{fr?"Enregistrer l’adresse":"Save address"}</button></form>}
+      </div>;
+     })}</div>;
+    })()}
    </div>
   </details>
   {(isSenior||isManager||isReception)&&<section data-canton-view="reception" className="rounded-xl border bg-white p-5"><h2 className="text-lg font-semibold">{fr?"Arrivées QR à valider (":"QR arrivals pending approval ("}{(requests||[]).length})</h2><p className="mb-3 text-xs text-slate-500">{fr?"Vérifiez l’identité en personne avant de confirmer. Super Leader recherche automatiquement un rendez-vous existant afin d’éviter les doublons.":"Confirm identity in person before approval. Super Leader automatically looks for an existing appointment to avoid duplicate visits."}</p>
