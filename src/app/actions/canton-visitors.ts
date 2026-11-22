@@ -468,6 +468,28 @@ export async function bulkManageVisitorSiteStaff(f:FormData){
  redirect(withMessage(returnTo,"success","Site staff updated in bulk"));
 }
 
+export async function createVisitorSiteTeam(f:FormData){
+ assertCantonLive();
+ const returnTo=safeCantonReturn(field(f,"returnTo",500));
+ const {db,org,user,role}=await context();
+ if(!seniorRoles.has(role)) fail("Only administrators can create site teams");
+ const siteId=field(f,"siteId",40);
+ const name=field(f,"name",120);
+ const department=field(f,"department",120)||null;
+ if(!/^[0-9a-f-]{36}$/i.test(siteId)||name.length<2) fail("Site and team name are required");
+ const {data:site}=await db.from("visitor_sites").select("id,name").eq("id",siteId).eq("organization_id",org).eq("is_active",true).maybeSingle();
+ if(!site) fail("Visitor site not found or inactive");
+ const {data:existing}=await db.from("teams").select("id").eq("organization_id",org).eq("name",name).eq("is_active",true).limit(1).maybeSingle();
+ if(existing) fail("An active team with this name already exists");
+ const {error}=await db.from("teams").insert({
+  organization_id:org,name,department,created_by:user.id,is_active:true,updated_at:new Date().toISOString()
+ });
+ if(error) fail("Could not create site team");
+ revalidatePath("/dashboard/team");
+ revalidatePath("/dashboard/canton-visitors");
+ redirect(withMessage(returnTo,"success","Site team created — add members and assign local roles"));
+}
+
 export async function assignVisitorTeamToSite(f:FormData){
  assertCantonLive();
  const returnTo=safeCantonReturn(field(f,"returnTo",500));
