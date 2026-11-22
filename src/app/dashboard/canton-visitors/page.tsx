@@ -460,6 +460,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
        <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-slate-800">{fr?"Équipe locale & droits":"Local team & access rights"}</summary>
        <CantonSiteStaffManager
         siteId={s.id}
+        siteName={s.name}
         returnTo={currentReturnPath}
         locale={fr?"fr":"en"}
         teams={visitorTeams}
