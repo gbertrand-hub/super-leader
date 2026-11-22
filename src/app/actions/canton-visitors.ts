@@ -878,6 +878,7 @@ export async function simulateCantonFeedbackInvitations(f:FormData){
  const {db,org,role}=ctx;
  if(!["owner","admin","manager"].includes(role))fail("Manager permission required");
  const siteId=field(f,"siteId",40);
+ const returnTo=safeCantonReturn(field(f,"returnTo",500));
  if(!/^[0-9a-f-]{36}$/i.test(siteId))fail("Select one visitor site before running the simulation");
  await requireVisitorSiteAccess(ctx,siteId);
  const {data:site}=await db.from("visitor_sites").select("id").eq("id",siteId).eq("organization_id",org).eq("is_active",true).maybeSingle();
@@ -887,8 +888,8 @@ export async function simulateCantonFeedbackInvitations(f:FormData){
  if(error)fail("Invitation simulation could not run");
  const item=Array.isArray(data)?data[0]:null;
  if(!item)fail("No simulation result");
- revalidatePath(route);
- redirect(route+"?success="+encodeURIComponent("Site-scoped simulation only — "+item.simulated+" prepared; "+item.cancelled+" cancelled; 0 external messages sent"));
+ revalidatePath(returnTo);
+ redirect(withMessage(returnTo,"success","Site-scoped simulation only — "+item.simulated+" prepared; "+item.cancelled+" cancelled; 0 external messages sent"));
 }
 
 /** Admin-only manual QA email dispatch. Real sending remains disabled unless explicit
