@@ -55,7 +55,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
  const {data:memberProfiles}=memberIds.length?await db.from("profiles").select("id,full_name,email,city,country").in("id",memberIds):{data:[]};
  const profileMap=new Map((memberProfiles||[]).map(p=>[p.id,p]));
  const assignedIds=new Set((staffAssignments||[]).map(p=>p.user_id));
- const {data:siteStaff}=isSenior?await db.from("visitor_site_staff")
+ const {data:siteStaff}=(isSenior||isManager)?await db.from("visitor_site_staff")
   .select("site_id,user_id,access_role,is_active")
   .in("site_id",(visitorSites||[]).map(s=>s.id))
   .eq("is_active",true):{data:[]};
@@ -719,21 +719,37 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
    <div className="mt-4 space-y-3">
     {[...openNextActions].sort((a,b)=>a.due_date.localeCompare(b.due_date)).map(action=>{
      const visit=(visits||[]).find(v=>v.id===action.appointment_id);
-     return <article key={action.id} className="rounded-lg border bg-white p-4">
-      <div className="font-semibold">{map.get(visit?.visitor_id||"")?.full_name||(fr?"Visiteur":"Visitor")} · {visit?.department}</div>
-      <p className="mt-1 text-sm">{action.action_text}</p>
-      <p className="mt-1 text-xs text-slate-700">{fr?"Responsable":"Owner"}: <strong>{profileMap.get(action.assigned_to)?.full_name||profileMap.get(action.assigned_to)?.email||action.assigned_to}</strong> · {fr?"Échéance":"Due"}: {action.due_date} {action.due_date<today?"⚠️":""}
-       {action.due_date===today&&<span className="ml-2 rounded bg-amber-100 px-2 py-1 font-semibold text-amber-900">{fr?"À faire aujourd’hui":"Due today"}</span>}
-       {action.due_date<today&&<span className="ml-2 rounded bg-rose-100 px-2 py-1 font-semibold text-rose-900">{fr?"En retard":"Overdue"}</span>}
-       {action.due_date>today&&<span className="ml-2 rounded bg-slate-100 px-2 py-1 font-semibold text-slate-700">{fr?"À venir":"Upcoming"}</span>}
-      </p>
-      {(isSenior||isManager)&&<form action={reassignCantonNextAction} className="mt-3 grid gap-2 rounded-lg border border-indigo-200 bg-indigo-50 p-3 md:grid-cols-[1fr_1.2fr_auto] md:items-end">
-       <input type="hidden" name="returnTo" value={currentReturnPath}/><input type="hidden" name="actionId" value={action.id}/>
-       <label className="text-sm">{fr?"Réaffecter à":"Reassign to"}<select name="assignedTo" required className={input} defaultValue=""><option value="">{fr?"Choisir un collaborateur":"Choose team member"}</option>{(members||[]).filter(m=>m.user_id!==action.assigned_to).map(m=><option value={m.user_id} key={m.user_id}>{profileMap.get(m.user_id)?.full_name||profileMap.get(m.user_id)?.email||m.user_id}</option>)}</select></label>
-       <label className="text-sm">{fr?"Motif de la réaffectation *":"Reassignment reason *"}<input name="reason" required minLength={5} maxLength={500} className={input} placeholder={fr?"Ex. Cécile indisponible aujourd’hui":"E.g. Cécile is unavailable today"}/></label>
-       <button className="rounded-lg bg-indigo-700 px-4 py-2 text-sm font-semibold text-white">{fr?"Réaffecter":"Reassign"}</button>
-      </form>}
-      {(isSenior||isManager||action.assigned_to===user.id)&&<form action={completeCantonNextAction} className="mt-3 flex flex-wrap items-end gap-2"><input type="hidden" name="returnTo" value={currentReturnPath}/><input type="hidden" name="actionId" value={action.id}/>
+     const visitSiteId=visit?.site_id||effectiveSiteId;
+     const sameSiteIds=new Set((siteStaff||[]).filter(x=>x.site_id===visitSiteId&&x.is_active).map(x=>x.user_id));
+     const reassignmentMembers=(members||[]).filter(m=>sameSiteIds.has(m.user_id)&&m.user_id!==action.assigned_to);
+     const currentOwner=profileMap.get(action.assigned_to)?.full_name||profileMap.get(action.assigned_to)?.email||action.assigned_to;
+     const visitSiteName=(allVisitorSites||[]).find(s=>s.id===visitSiteId)?.name||activeSite?.name||"Canton";
+     return <article key={action.id} className="rounded-xl border bg-white p-4 shadow-sm">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+       <div>
+        <div className="font-semibold">{map.get(visit?.visitor_id||"")?.full_name||(fr?"Visiteur":"Visitor")} · {visit?.department}</div>
+        <p className="mt-1 text-sm text-slate-700">{action.action_text}</p>
+       </div>
+       <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">{visitSiteName}</span>
+      </div>
+      <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-700">
+       <span className="rounded-full bg-indigo-50 px-3 py-1 font-semibold text-indigo-900">{fr?"Responsable":"Owner"}: {currentOwner}</span>
+       <span>{fr?"Échéance":"Due"}: {action.due_date}</span>
+       {action.due_date===today&&<span className="rounded bg-amber-100 px-2 py-1 font-semibold text-amber-900">{fr?"À faire aujourd’hui":"Due today"}</span>}
+       {action.due_date<today&&<span className="rounded bg-rose-100 px-2 py-1 font-semibold text-rose-900">{fr?"En retard":"Overdue"}</span>}
+       {action.due_date>today&&<span className="rounded bg-slate-100 px-2 py-1 font-semibold text-slate-700">{fr?"À venir":"Upcoming"}</span>}
+      </div>
+      {(isSenior||isManager)&&<details className="mt-3 rounded-lg border border-indigo-200 bg-indigo-50">
+       <summary className="cursor-pointer px-3 py-2 text-sm font-semibold text-indigo-900">{fr?"Changer de responsable":"Change owner"}</summary>
+       <form action={reassignCantonNextAction} className="grid gap-3 border-t border-indigo-200 p-3 md:grid-cols-[1fr_1.2fr_auto] md:items-end">
+        <input type="hidden" name="returnTo" value={currentReturnPath}/><input type="hidden" name="actionId" value={action.id}/>
+        <label className="text-sm">{fr?"Nouveau collaborateur — même site":"New team member — same site"}<select name="assignedTo" required className={input} defaultValue=""><option value="">{fr?"Choisir dans l’équipe locale":"Choose from local site team"}</option>{reassignmentMembers.map(m=><option value={m.user_id} key={m.user_id}>{profileMap.get(m.user_id)?.full_name||profileMap.get(m.user_id)?.email||m.user_id}</option>)}</select></label>
+        <label className="text-sm">{fr?"Motif *":"Reason *"}<input name="reason" required minLength={5} maxLength={500} className={input} placeholder={fr?"Ex. Cécile indisponible aujourd’hui":"E.g. Cécile is unavailable today"}/></label>
+        <button disabled={!reassignmentMembers.length} className="rounded-lg bg-indigo-700 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40">{fr?"Confirmer":"Confirm"}</button>
+        {!reassignmentMembers.length&&<p className="text-xs text-amber-800 md:col-span-3">{fr?"Aucun autre collaborateur actif n’est affecté à ce site. Ajoutez d’abord la personne dans Administration > équipe du site.":"No other active team member is assigned to this site. Add them first in Administration > site team."}</p>}
+       </form>
+      </details>}
+      {(isSenior||isManager||action.assigned_to===user.id)&&<form action={completeCantonNextAction} className="mt-3 flex flex-wrap items-end gap-2 border-t pt-3"><input type="hidden" name="returnTo" value={currentReturnPath}/><input type="hidden" name="actionId" value={action.id}/>
        <label className="min-w-[240px] flex-1 text-sm">{fr?"Compte rendu de la nouvelle action *":"Next action completion note *"}<input required minLength={5} maxLength={1000} name="completionNote" className={input}/></label>
        <button className="rounded-lg bg-emerald-700 px-3 py-2 text-sm font-semibold text-white">{fr?"Enregistrer et terminer":"Save and complete"}</button>
       </form>}
