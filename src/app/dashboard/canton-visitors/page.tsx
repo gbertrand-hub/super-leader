@@ -103,10 +103,10 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
  const currentReturnPath="/dashboard/canton-visitors?view="+encodeURIComponent(activeView)+(selectedSiteId!=="all"?"&site="+encodeURIComponent(selectedSiteId):"");
  const navItems=[
   {id:"dashboard" as CantonView,fr:"Tableau de bord",en:"Dashboard",show:true},
-  {id:"reception" as CantonView,fr:"Réception",en:"Reception",show:isSenior||isManager||isReception},
   {id:"appointments" as CantonView,fr:"Rendez-vous",en:"Appointments",show:true},
-  {id:"commercial" as CantonView,fr:"Suivi commercial",en:"Commercial follow-up",show:true},
+  {id:"reception" as CantonView,fr:"Réception",en:"Reception",show:isSenior||isManager||isReception},
   {id:"feedback" as CantonView,fr:"Feedback",en:"Feedback",show:isSenior||isManager},
+  {id:"commercial" as CantonView,fr:"Suivi commercial",en:"Commercial follow-up",show:true},
   {id:"admin" as CantonView,fr:"Administration",en:"Administration",show:isSenior}
  ].filter(x=>x.show);
  let visitQuery=db.from("canton_appointments")
@@ -493,11 +493,26 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
   </section>}
 
 
-  {(isSenior||isManager)&&<section className="rounded-xl border border-indigo-200 bg-indigo-50 p-5">
-   <h2 className="text-lg font-semibold">{fr?"Invitations de satisfaction (TEST)":"Feedback invitation queue (QA)"}</h2>
-   <p className="mt-2 text-sm text-slate-700">{fr?"Une invitation email est programmée 15 minutes après le départ uniquement avec l’accord du visiteur. Un avis reçu annule l’invitation en attente. ":"An email invitation is queued 15 minutes after checkout only with explicit consent. A submitted review cancels pending invitations. "}<strong>{fr?"La simulation n’envoie rien. Seul le test email autorisé par un administrateur peut expédier un vrai message à l’adresse QA. WhatsApp reste désactivé.":"Simulation sends nothing. Only an admin-approved email test may send a real message to the allowlisted QA address. WhatsApp remains disabled."}</strong></p>
-   <form action={simulateCantonFeedbackInvitations} className="mt-3 flex flex-wrap items-center gap-2"><input type="hidden" name="limit" value="20"/><button className="rounded-lg bg-indigo-700 px-4 py-2 text-sm font-semibold text-white">{fr?"Simuler les invitations à envoyer":"Simulate due invitations"}</button><span className="text-xs text-slate-700">{fr?"Simulation sécurisée : aucun message n’est envoyé.":"Safe simulation: no messages are sent."}</span></form>
-   {isSenior&&<p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">{fr?"Envoi email réel vers un destinataire QA explicitement autorisé uniquement. Désactivé tant que les paramètres QA ne sont pas configurés. Aucun envoi WhatsApp.":"Real email sending allowed only to one explicitly allowlisted QA recipient. Disabled until QA settings are configured. No WhatsApp sending."}</p>}
+  {activeView==="dashboard"&&(isSenior||isManager)&&<section className="rounded-xl border bg-white p-4">
+   <div className="flex flex-wrap items-center justify-between gap-3">
+    <div>
+     <h2 className="font-semibold text-slate-900">{fr?"Invitations satisfaction":"Feedback invitations"}</h2>
+     <p className="mt-1 text-sm text-slate-500">{invitationPending} {fr?"en attente":"pending"} · {invitationDue} {fr?"à traiter":"due"}</p>
+    </div>
+    <Link href={"/dashboard/canton-visitors?view=feedback"+(selectedSiteId!=="all"?"&site="+encodeURIComponent(selectedSiteId):"")} className="rounded-lg border bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100">{fr?"Voir":"View"}</Link>
+   </div>
+  </section>}
+
+  {(isSenior||isManager)&&activeView==="feedback"&&<section className="rounded-xl border border-indigo-200 bg-indigo-50 p-5">
+   <h2 className="text-lg font-semibold">{fr?"Invitations de satisfaction":"Feedback invitation queue"}</h2>
+   <p className="mt-2 text-sm text-slate-700">{fr?"Une invitation email est programmée 15 minutes après le départ uniquement avec l’accord du visiteur. Un avis reçu annule automatiquement l’invitation en attente.":"An email invitation is queued 15 minutes after checkout only with explicit consent. A submitted review automatically cancels the pending invitation."}</p>
+   {isSenior&&<details className="mt-3 rounded-lg border border-slate-200 bg-white">
+    <summary className="cursor-pointer px-3 py-2 text-sm font-semibold text-slate-700">{fr?"Outils de test administrateur":"Administrator test tools"}</summary>
+    <div className="border-t p-3">
+     <form action={simulateCantonFeedbackInvitations} className="flex flex-wrap items-center gap-2"><input type="hidden" name="limit" value="20"/><button className="rounded-lg bg-indigo-700 px-4 py-2 text-sm font-semibold text-white">{fr?"Simuler les invitations à envoyer":"Simulate due invitations"}</button><span className="text-xs text-slate-700">{fr?"Simulation sécurisée : aucun message n’est envoyé.":"Safe simulation: no messages are sent."}</span></form>
+     <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">{fr?"Les envois QA restent limités au destinataire explicitement autorisé. WhatsApp est désactivé tant que sa configuration n’est pas validée.":"QA sends remain limited to the explicitly allowlisted recipient. WhatsApp stays disabled until its configuration is approved."}</p>
+    </div>
+   </details>}
    <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-5">
     <div className="rounded-lg bg-white p-3"><div className="text-xs text-slate-600">{fr?"En attente":"Pending"}</div><div className="text-xl font-bold">{invitationPending}</div></div>
     <div className="rounded-lg bg-white p-3"><div className="text-xs text-slate-600">{fr?"À traiter":"Due"}</div><div className="text-xl font-bold">{invitationDue}</div></div>
