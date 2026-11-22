@@ -280,7 +280,17 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
     <form action={markCantonArrivalAlertRead}><input type="hidden" name="id" value={alert.id}/><button className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white">{fr?"J’ai vu":"Acknowledge"}</button></form>
    </article>)}</div>
   </section>}
-  {mySlaAlerts.length>0&&<section data-canton-view="dashboard commercial" className="rounded-2xl border-2 border-amber-300 bg-amber-50 p-5">
+  {activeView==="dashboard"&&(mySlaAlerts.length>0||managerEscalations.length>0||myOpenRecoveries.length>0)&&<section className="rounded-xl border bg-white p-4">
+   <div className="flex flex-wrap items-center justify-between gap-3">
+    <div>
+     <h2 className="font-semibold text-slate-900">{fr?"Suivi SLA commercial":"Commercial SLA monitoring"}</h2>
+     <p className="mt-1 text-sm text-slate-500">{mySlaAlerts.length} {fr?"alerte(s) personnelle(s)":"personal alert(s)"} · {managerEscalations.length} {fr?"escalade(s) manager":"manager escalation(s)"} · {myOpenRecoveries.length} {fr?"plan(s) de rattrapage":"recovery plan(s)"}</p>
+    </div>
+    <Link href={"/dashboard/canton-visitors?view=commercial"+(selectedSiteId!=="all"?"&site="+encodeURIComponent(selectedSiteId):"")} className="rounded-lg border bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100">{fr?"Voir le suivi commercial":"View commercial follow-up"}</Link>
+   </div>
+  </section>}
+
+  {mySlaAlerts.length>0&&<section data-canton-view="commercial" className="rounded-2xl border-2 border-amber-300 bg-amber-50 p-5">
    <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-wider text-amber-800">{fr?"Alerte commerciale personnelle":"My commercial alert"}</p><h2 className="mt-1 text-xl font-bold text-amber-950">{fr?"Prospects à traiter avant dépassement SLA":"Prospects requiring action before SLA breach"}</h2></div><span className="rounded-full bg-white px-3 py-1 text-sm font-bold text-amber-900">{mySlaAlerts.length}</span></div>
    <div className="mt-4 space-y-3">{mySlaAlerts.map(row=><article key={row.visit.id} className="rounded-xl border border-amber-200 bg-white p-4">
     <div className="flex flex-wrap items-center justify-between gap-3"><div><div className="font-semibold">{row.person?.full_name||(fr?"Visiteur":"Visitor")} · {row.visit.department}</div><div className="mt-1 text-sm text-slate-600">{row.action?.action_text||(fr?"Aucune prochaine action planifiée":"No next action scheduled")}</div></div>
@@ -288,7 +298,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
     {row.slaDeadline&&<div className="mt-2 text-xs text-slate-500">{fr?"Limite":"Deadline"}: {row.slaDeadline.toLocaleString(fr?"fr-FR":"en-US",{timeZone:"America/Chicago"})}</div>}
    </article>)}</div>
   </section>}
-  {managerEscalations.length>0&&<section data-canton-view="dashboard commercial" className="rounded-2xl border-2 border-rose-400 bg-rose-50 p-5">
+  {managerEscalations.length>0&&<section data-canton-view="commercial" className="rounded-2xl border-2 border-rose-400 bg-rose-50 p-5">
    <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-wider text-rose-800">{fr?"Escalade manager":"Manager escalation"}</p><h2 className="mt-1 text-xl font-bold text-rose-950">{fr?"SLA commerciaux dépassés":"Commercial SLAs breached"}</h2><p className="mt-1 text-sm text-rose-900">{fr?"Ces dossiers ont dépassé leur délai de suivi et nécessitent une intervention managériale.":"These records exceeded their follow-up SLA and require managerial intervention."}</p></div><span className="rounded-full bg-white px-3 py-1 text-sm font-bold text-rose-900">{managerEscalations.length}</span></div>
    <div className="mt-4 space-y-3">{managerEscalations.map(row=><article key={row.visit.id} className="rounded-xl border border-rose-200 bg-white p-4">
     <div className="flex flex-wrap items-center justify-between gap-3"><div><div className="font-semibold">{row.person?.full_name||(fr?"Visiteur":"Visitor")} · {row.visit.department} · {row.visit.commercial_interest?.toUpperCase()}</div><div className="mt-1 text-sm text-slate-600">{fr?"Responsable":"Owner"}: {row.ownerId?(profileMap.get(row.ownerId)?.full_name||profileMap.get(row.ownerId)?.email||row.visit.host_name||"—"):(row.visit.host_name||"—")}</div></div><span className="rounded bg-rose-100 px-3 py-1 text-xs font-bold text-rose-900">{fr?"Escaladé":"Escalated"}</span></div>
@@ -303,7 +313,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
     </form>}
    </article>)}</div>
   </section>}
-  {myOpenRecoveries.length>0&&<section data-canton-view="dashboard commercial" className="rounded-2xl border-2 border-sky-300 bg-sky-50 p-5">
+  {myOpenRecoveries.length>0&&<section data-canton-view="commercial" className="rounded-2xl border-2 border-sky-300 bg-sky-50 p-5">
    <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-wider text-sky-800">{fr?"Plan de rattrapage SLA":"SLA recovery plan"}</p><h2 className="mt-1 text-xl font-bold text-sky-950">{fr?"Actions correctives qui vous sont attribuées":"Recovery actions assigned to you"}</h2></div><span className="rounded-full bg-white px-3 py-1 text-sm font-bold text-sky-900">{myOpenRecoveries.length}</span></div>
    <div className="mt-4 space-y-3">{myOpenRecoveries.map(rec=>{const visit=(visits||[]).find(v=>v.id===rec.appointment_id);return <article key={rec.id} className="rounded-xl border border-sky-200 bg-white p-4">
     <div className="font-semibold">{map.get(visit?.visitor_id||"")?.full_name||(fr?"Visiteur":"Visitor")} · {visit?.department}</div>
