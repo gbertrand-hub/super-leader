@@ -154,8 +154,10 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
    .eq("organization_id",membership.organization_id)
    .order("created_at",{ascending:false}).limit(100)
   :{data:[]};
- const invitationPending=(invitationQueue||[]).filter(x=>x.status==="pending").length;
- const invitationDue=(invitationQueue||[]).filter(x=>x.status==="pending"&&Date.parse(x.due_at)<=Date.now()).length;
+ const visitById=new Map((visits||[]).map(v=>[v.id,v]));
+ const visibleInvitationQueue=(invitationQueue||[]).filter(x=>visitById.has(x.appointment_id));
+ const invitationPending=visibleInvitationQueue.filter(x=>x.status==="pending").length;
+ const invitationDue=visibleInvitationQueue.filter(x=>x.status==="pending"&&Date.parse(x.due_at)<=Date.now()).length;
  const completedCount=(visits||[]).filter(v=>v.status==="completed").length;
  const feedbackResponseRate=completedCount?Math.round(100*(feedback||[]).length/completedCount)+"%":"—";
  const pendingFeedback=(feedback||[]).filter(x=>x.rating<=2||x.contact_requested).length;
@@ -499,19 +501,19 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
    <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-5">
     <div className="rounded-lg bg-white p-3"><div className="text-xs text-slate-600">{fr?"En attente":"Pending"}</div><div className="text-xl font-bold">{invitationPending}</div></div>
     <div className="rounded-lg bg-white p-3"><div className="text-xs text-slate-600">{fr?"À traiter":"Due"}</div><div className="text-xl font-bold">{invitationDue}</div></div>
-    <div className="rounded-lg bg-white p-3"><div className="text-xs text-slate-600">{fr?"Annulées":"Cancelled"}</div><div className="text-xl font-bold">{(invitationQueue||[]).filter(x=>x.status==="cancelled").length}</div></div>
-    <div className="rounded-lg bg-white p-3"><div className="text-xs text-slate-600">{fr?"Simulées (aucun envoi)":"Simulated (not sent)"}</div><div className="text-xl font-bold">{(invitationQueue||[]).filter(x=>x.status==="simulated").length}</div></div>
+    <div className="rounded-lg bg-white p-3"><div className="text-xs text-slate-600">{fr?"Annulées":"Cancelled"}</div><div className="text-xl font-bold">{visibleInvitationQueue.filter(x=>x.status==="cancelled").length}</div></div>
+    <div className="rounded-lg bg-white p-3"><div className="text-xs text-slate-600">{fr?"Simulées (aucun envoi)":"Simulated (not sent)"}</div><div className="text-xl font-bold">{visibleInvitationQueue.filter(x=>x.status==="simulated").length}</div></div>
    </div>
-   {(invitationQueue||[]).length>0&&<div className="mt-4 space-y-2">{(invitationQueue||[]).slice(0,10).map(x=><div key={x.id} className="rounded-lg border bg-white p-3 text-sm">
-    <span className="font-semibold">{x.channel==="email"?"Email":"WhatsApp"}</span> · {fr?({pending:"En attente",cancelled:"Annulée",simulated:"Simulée — aucun envoi",sending:"Envoi en cours",sent:"Accepté par le fournisseur",failed:"Échec — vérification nécessaire"} as Record<string,string>)[x.status]||x.status:x.status} · {new Date(x.due_at).toLocaleString("en-US",{timeZone:"America/Chicago"})} Canton
-    <span className="ml-2 text-slate-500">({map.get((visits||[]).find(v=>v.id===x.appointment_id)?.visitor_id||"")?.full_name||"Visite"})</span>
+   {visibleInvitationQueue.length>0&&<div className="mt-4 space-y-2">{visibleInvitationQueue.slice(0,10).map(x=>{const visit=visitById.get(x.appointment_id);const visitSite=visit?.site_id?siteById.get(visit.site_id):null;const timeZone=visitSite?.timezone||"America/Chicago";const siteLabel=visitSite?.city||visitSite?.name||(fr?"Site":"Site");return <div key={x.id} className="rounded-lg border bg-white p-3 text-sm">
+    <span className="font-semibold">{x.channel==="email"?"Email":"WhatsApp"}</span> · {fr?({pending:"En attente",cancelled:"Annulée",simulated:"Simulée — aucun envoi",sending:"Envoi en cours",sent:"Accepté par le fournisseur",failed:"Échec — vérification nécessaire"} as Record<string,string>)[x.status]||x.status:x.status} · {new Date(x.due_at).toLocaleString(fr?"fr-FR":"en-US",{timeZone})} {siteLabel}
+    <span className="ml-2 text-slate-500">({map.get(visit?.visitor_id||"")?.full_name||(fr?"Visite":"Visit")})</span>
     {isSenior&&x.channel==="email"&&x.status==="pending"&&Date.parse(x.due_at)<=Date.now()&&<form action={sendCantonQaEmailTest} className="mt-2"><input type="hidden" name="id" value={x.appointment_id}/><button className="rounded border border-indigo-700 px-3 py-2 text-xs text-indigo-800">{fr?"Tester un email QA (destinataire autorisé)":"Test QA email (allowlisted recipient)"}</button></form>}
     {x.status==="sent"&&<span className="mt-1 block text-xs text-emerald-800">{fr?"Resend a accepté la demande d’envoi. Cela ne garantit pas la livraison en boîte de réception.":"Resend accepted the send request; this does not guarantee inbox delivery."}</span>}
     {x.status==="sending"&&<span className="mt-1 block text-xs text-amber-900">{fr?"État à examiner avant tout nouvel essai.":"Needs review before any retry."}</span>}
     {x.provider_error_code&&<span className="mt-1 block text-xs text-rose-800">{fr?"Erreur fournisseur":"Provider error"}: {x.provider_error_code}</span>}
 
-   </div>)}</div>}
-   {!invitationQueue?.length&&<p className="mt-4 text-sm text-slate-700">{fr?"Aucune invitation programmée.":"No invitations scheduled."}</p>}
+   </div>})}</div>}
+   {!visibleInvitationQueue.length&&<p className="mt-4 text-sm text-slate-700">{fr?"Aucune invitation programmée pour ce site.":"No invitations scheduled for this site."}</p>}
   </section>}
 
   <details className="rounded-xl border bg-white">
