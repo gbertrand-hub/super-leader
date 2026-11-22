@@ -21,7 +21,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
  const qrImage=(url:string)=>"https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=10&data="+encodeURIComponent(url);
  const supabase=await createClient();
  const {data:{user}}=await supabase.auth.getUser();
- if(!user) redirect("/login?next=/canton");
+ if(!user) redirect("/login?next=/dashboard/canton-visitors");
  const db=createAdminClient();
  const {data:membership}=await db.from("organization_members").select("organization_id,role")
  .eq("user_id",user.id).eq("is_active",true).limit(1).maybeSingle();
@@ -65,6 +65,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
  const selectedSiteHostIds=new Set((siteStaff||[]).filter(x=>x.site_id===effectiveSiteId&&x.is_active).map(x=>x.user_id));
  const siteHostMembers=(hostMembers||[]).filter(m=>selectedSiteHostIds.has(m.user_id));
  const activeSite=effectiveSiteId?siteById.get(effectiveSiteId)||hqSite:null;
+ const activeTimeZone=activeSite?.timezone||hqSite?.timezone||"America/Chicago";
 
  const adminSitesToRender=selectedSiteId==="all"
   ? (visitorSites||[])
@@ -168,7 +169,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
 
  const ratingAverage=(feedback||[]).length
   ? ((feedback||[]).reduce((total,f)=>total+f.rating,0)/(feedback||[]).length).toFixed(1):"—";
- const cantonDay=(stamp:string)=>{const parts=new Intl.DateTimeFormat("en-US",{timeZone:"America/Chicago",year:"numeric",month:"2-digit",day:"2-digit"}).formatToParts(new Date(stamp));const val=(type:string)=>parts.find(p=>p.type===type)?.value||"";return val("year")+"-"+val("month")+"-"+val("day");};
+ const cantonDay=(stamp:string)=>{const parts=new Intl.DateTimeFormat("en-US",{timeZone:activeTimeZone,year:"numeric",month:"2-digit",day:"2-digit"}).formatToParts(new Date(stamp));const val=(type:string)=>parts.find(p=>p.type===type)?.value||"";return val("year")+"-"+val("month")+"-"+val("day");};
  const today=cantonDay(new Date().toISOString());
  const openNextActions=visibleNextActions.filter(x=>x.status==="open");
  const nextActionsToday=openNextActions.filter(x=>x.due_date===today);
@@ -276,7 +277,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
   {unreadArrivalAlerts.length>0&&<section data-canton-view="dashboard reception" className="rounded-2xl border-2 border-emerald-300 bg-emerald-50 p-5">
    <div className="flex flex-wrap items-center justify-between gap-2"><div><p className="text-xs font-bold uppercase tracking-wider text-emerald-800">{fr?"Notification d’arrivée":"Arrival notification"}</p><h2 className="mt-1 text-xl font-bold text-emerald-950">{fr?"Votre visiteur est arrivé":"Your visitor has arrived"}</h2></div><span className="rounded-full bg-white px-3 py-1 text-sm font-bold text-emerald-900">{unreadArrivalAlerts.length}</span></div>
    <div className="mt-4 space-y-3">{unreadArrivalAlerts.map(alert=><article key={alert.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-white p-4">
-    <div><div className="font-semibold">{alert.visitor_name}</div><div className="text-sm text-slate-600">{alert.department} · {fr?"arrivé à":"arrived at"} {new Date(alert.created_at).toLocaleTimeString(fr?"fr-FR":"en-US",{timeZone:"America/Chicago",hour:"2-digit",minute:"2-digit"})}</div></div>
+    <div><div className="font-semibold">{alert.visitor_name}</div><div className="text-sm text-slate-600">{alert.department} · {fr?"arrivé à":"arrived at"} {new Date(alert.created_at).toLocaleTimeString(fr?"fr-FR":"en-US",{timeZone:activeTimeZone,hour:"2-digit",minute:"2-digit"})}</div></div>
     <form action={markCantonArrivalAlertRead}><input type="hidden" name="id" value={alert.id}/><button className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white">{fr?"J’ai vu":"Acknowledge"}</button></form>
    </article>)}</div>
   </section>}
@@ -295,7 +296,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
    <div className="mt-4 space-y-3">{mySlaAlerts.map(row=><article key={row.visit.id} className="rounded-xl border border-amber-200 bg-white p-4">
     <div className="flex flex-wrap items-center justify-between gap-3"><div><div className="font-semibold">{row.person?.full_name||(fr?"Visiteur":"Visitor")} · {row.visit.department}</div><div className="mt-1 text-sm text-slate-600">{row.action?.action_text||(fr?"Aucune prochaine action planifiée":"No next action scheduled")}</div></div>
     <span className={"rounded px-3 py-1 text-xs font-bold "+(row.slaLate?"bg-rose-100 text-rose-900":row.slaPlannedTooLate?"bg-orange-100 text-orange-900":"bg-amber-100 text-amber-900")}>{row.slaLate?(fr?"SLA dépassé":"SLA breached"):row.slaPlannedTooLate?(fr?"Action trop tardive":"Action too late"):(fr?"SLA approche":"SLA approaching")}</span></div>
-    {row.slaDeadline&&<div className="mt-2 text-xs text-slate-500">{fr?"Limite":"Deadline"}: {row.slaDeadline.toLocaleString(fr?"fr-FR":"en-US",{timeZone:"America/Chicago"})}</div>}
+    {row.slaDeadline&&<div className="mt-2 text-xs text-slate-500">{fr?"Limite":"Deadline"}: {row.slaDeadline.toLocaleString(fr?"fr-FR":"en-US",{timeZone:activeTimeZone})}</div>}
    </article>)}</div>
   </section>}
   {managerEscalations.length>0&&<section data-canton-view="commercial" className="rounded-2xl border-2 border-rose-400 bg-rose-50 p-5">
@@ -303,7 +304,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
    <div className="mt-4 space-y-3">{managerEscalations.map(row=><article key={row.visit.id} className="rounded-xl border border-rose-200 bg-white p-4">
     <div className="flex flex-wrap items-center justify-between gap-3"><div><div className="font-semibold">{row.person?.full_name||(fr?"Visiteur":"Visitor")} · {row.visit.department} · {row.visit.commercial_interest?.toUpperCase()}</div><div className="mt-1 text-sm text-slate-600">{fr?"Responsable":"Owner"}: {row.ownerId?(profileMap.get(row.ownerId)?.full_name||profileMap.get(row.ownerId)?.email||row.visit.host_name||"—"):(row.visit.host_name||"—")}</div></div><span className="rounded bg-rose-100 px-3 py-1 text-xs font-bold text-rose-900">{fr?"Escaladé":"Escalated"}</span></div>
     <div className="mt-2 text-sm">{row.action?.action_text||(fr?"Aucune prochaine action":"No next action")}</div>
-    {row.slaDeadline&&<div className="mt-1 text-xs text-slate-500">{fr?"SLA dépassé depuis":"SLA breached since"} {row.slaDeadline.toLocaleString(fr?"fr-FR":"en-US",{timeZone:"America/Chicago"})}</div>}
+    {row.slaDeadline&&<div className="mt-1 text-xs text-slate-500">{fr?"SLA dépassé depuis":"SLA breached since"} {row.slaDeadline.toLocaleString(fr?"fr-FR":"en-US",{timeZone:activeTimeZone})}</div>}
     {openRecoveryByVisit.has(row.visit.id)?<div className="mt-3 rounded-lg bg-sky-50 p-3 text-sm text-sky-900"><strong>{fr?"Plan de rattrapage actif":"Active recovery plan"}:</strong> {openRecoveryByVisit.get(row.visit.id)?.action_text} · {fr?"échéance":"due"} {openRecoveryByVisit.get(row.visit.id)?.due_date}</div>:<form action={createCantonSlaRecovery} className="mt-3 grid gap-2 rounded-lg border border-rose-200 bg-rose-50 p-3 md:grid-cols-3">
      <input type="hidden" name="appointmentId" value={row.visit.id}/>
      <label className="text-sm">{fr?"Responsable du rattrapage *":"Recovery owner *"}<select name="assignedTo" required className={input} defaultValue={row.ownerId||""}><option value="">{fr?"Choisir":"Select"}</option>{(members||[]).map(m=><option value={m.user_id} key={m.user_id}>{profileMap.get(m.user_id)?.full_name||profileMap.get(m.user_id)?.email||m.user_id}</option>)}</select></label>
@@ -327,20 +328,20 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
   <section data-canton-view="appointments" className="rounded-2xl border-2 border-cyan-300 bg-cyan-50 p-5">
    <div className="flex flex-wrap items-start justify-between gap-3">
     <div>
-     <p className="text-xs font-bold uppercase tracking-wider text-cyan-800">CRM → Canton</p>
-     <h2 className="mt-1 text-xl font-bold text-cyan-950">{fr?"Envoyer un prospect CRM à Canton":"Refer a CRM prospect to Canton"}</h2>
-     <p className="mt-1 max-w-3xl text-sm text-cyan-900">{fr?"Utilisez la fiche CRM existante. Super Leader rattache la visite à ce prospect au lieu de recréer un contact.":"Use the existing CRM record. Super Leader links the Canton visit to that prospect instead of creating a duplicate contact."}</p>
+     <p className="text-xs font-bold uppercase tracking-wider text-cyan-800">CRM → {activeSite?.city||activeSite?.name||(fr?"Site":"Site")}</p>
+     <h2 className="mt-1 text-xl font-bold text-cyan-950">{fr?"Envoyer un prospect CRM vers le site actif":"Refer a CRM prospect to the active site"}</h2>
+     <p className="mt-1 max-w-3xl text-sm text-cyan-900">{fr?"Utilisez la fiche CRM existante. Super Leader rattache la visite au site actif et à ce prospect au lieu de recréer un contact.":"Use the existing CRM record. Super Leader links the visit to the active site and existing prospect instead of creating a duplicate contact."}</p>
     </div>
     <span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-cyan-900">{fr?"Source : équipe commerciale":"Source: sales team"}</span>
    </div>
    <form action={createCantonCrmReferral} className="mt-4 grid gap-3 rounded-xl border border-cyan-200 bg-white p-4 lg:grid-cols-2 xl:grid-cols-3">
     <input type="hidden" name="siteId" value={effectiveSiteId}/><label className="text-sm font-semibold text-slate-700">{fr?"Prospect CRM *":"CRM prospect *"}<CantonCrmProspectPicker locale={fr?"fr":"en"}/></label>
     <label className="text-sm font-semibold text-slate-700">{fr?"Visite / département *":"Visit / department *"}<select name="department" required defaultValue="DIG" className={input}><option value="DIG">DIG · {fr?"Visite terrain / immobilier":"Land / real-estate visit"}</option><option value="TCF">TCF · {fr?"Visite ferme":"Farm visit"}</option><option value="OTHER">{fr?"Autre visite commerciale":"Other commercial visit"}</option></select></label>
-    <label className="text-sm font-semibold text-slate-700">{fr?"Date et heure Canton *":"Canton date & time *"}<input type="datetime-local" name="scheduled" required className={input}/></label>
+    <label className="text-sm font-semibold text-slate-700">{fr?"Date et heure locale du site *":"Site local date & time *"}<input type="datetime-local" name="scheduled" required className={input}/></label>
     <label className="text-sm font-semibold text-slate-700">{fr?"Personne à rencontrer":"Host to meet"}<select name="hostUserId" defaultValue="" className={input}><option value="">{fr?"À attribuer":"Unassigned"}</option>{siteHostMembers.map(m=><option key={m.user_id} value={m.user_id}>{profileMap.get(m.user_id)?.full_name||profileMap.get(m.user_id)?.email||m.user_id}</option>)}</select><span className="mt-1 block text-xs font-normal text-slate-500">{fr?"Uniquement les membres affectés au site actif.":"Only staff assigned to the active site."}</span></label>
     <label className="text-sm font-semibold text-slate-700">{fr?"Objectif de la visite":"Visit purpose"}<select name="purpose" defaultValue="commercial_visit" className={input}><option value="commercial_visit">{fr?"Voir avant de s’engager":"See before committing"}</option><option value="land_visit">{fr?"Visite terrain":"Land visit"}</option><option value="farm_visit">{fr?"Visite ferme":"Farm visit"}</option><option value="meet_team">{fr?"Rencontrer l’équipe":"Meet the team"}</option><option value="decision_meeting">{fr?"Réunion de décision":"Decision meeting"}</option></select></label>
-    <label className="text-sm font-semibold text-slate-700 lg:col-span-2 xl:col-span-3">{fr?"Notes du commercial pour Canton":"Sales notes for Canton"}<textarea name="notes" maxLength={1000} className={input+" min-h-24"} placeholder={fr?"Ex. Prospect intéressé par Garden City, veut voir avant de signer. Questions sur financement et accès au terrain.":"E.g. Prospect interested in Garden City, wants to visit before signing. Questions about financing and land access."}/></label>
-    <button className="rounded-lg bg-cyan-900 px-5 py-3 font-bold text-white lg:col-span-2 xl:col-span-3">{fr?"Planifier la visite depuis le CRM":"Schedule Canton visit from CRM"}</button>
+    <label className="text-sm font-semibold text-slate-700 lg:col-span-2 xl:col-span-3">{fr?"Notes du commercial pour le site":"Sales notes for the site"}<textarea name="notes" maxLength={1000} className={input+" min-h-24"} placeholder={fr?"Ex. Prospect intéressé par Garden City, veut voir avant de signer. Questions sur financement et accès au terrain.":"E.g. Prospect interested in Garden City, wants to visit before signing. Questions about financing and land access."}/></label>
+    <button className="rounded-lg bg-cyan-900 px-5 py-3 font-bold text-white lg:col-span-2 xl:col-span-3">{fr?"Planifier la visite depuis le CRM":"Schedule visit from CRM"}</button>
    </form>
    {!(crmProspects||[]).length&&<p className="mt-3 rounded-lg bg-white p-3 text-sm text-slate-600">{fr?"Aucun prospect CRM disponible dans cette base de test.":"No CRM prospects are available in this test database."}</p>}
   </section>
@@ -402,10 +403,10 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
         {person?.phone&&<p className="mt-1 text-xs text-slate-500">{person.phone}</p>}
        </div>
        <div className="text-sm">
-        <div><span className="text-slate-500">{fr?"Heure":"Time"}:</span> <strong>{v.scheduled_local?.slice(11,16)||(v.check_in_at?new Date(v.check_in_at).toLocaleTimeString(fr?"fr-FR":"en-US",{timeZone:"America/Chicago",hour:"2-digit",minute:"2-digit"}):fr?"Non programmée":"Unscheduled")}</strong></div>
+        <div><span className="text-slate-500">{fr?"Heure":"Time"}:</span> <strong>{v.scheduled_local?.slice(11,16)||(v.check_in_at?new Date(v.check_in_at).toLocaleTimeString(fr?"fr-FR":"en-US",{timeZone:activeTimeZone,hour:"2-digit",minute:"2-digit"}):fr?"Non programmée":"Unscheduled")}</strong></div>
         <div className="mt-1"><span className="text-slate-500">{fr?"Responsable":"Host"}:</span> {v.host_name||"—"}</div>
         {v.status==="arrived"&&v.check_in_at&&(()=>{const wait=Math.max(0,Math.floor((Date.now()-Date.parse(v.check_in_at))/60000));return <div className={"mt-2 inline-flex rounded-full px-2 py-1 text-xs font-semibold "+(wait>=20?"bg-rose-100 text-rose-900":wait>=10?"bg-amber-100 text-amber-900":"bg-emerald-100 text-emerald-900")}>{fr?"Attente":"Waiting"}: {wait} min</div>;})()}
-        {v.status==="in_progress"&&v.visit_started_at&&<div className="mt-2 inline-flex rounded-full bg-blue-100 px-2 py-1 text-xs font-semibold text-blue-900">{fr?"Prise en charge":"Started"}: {new Date(v.visit_started_at).toLocaleTimeString(fr?"fr-FR":"en-US",{timeZone:"America/Chicago",hour:"2-digit",minute:"2-digit"})}</div>}
+        {v.status==="in_progress"&&v.visit_started_at&&<div className="mt-2 inline-flex rounded-full bg-blue-100 px-2 py-1 text-xs font-semibold text-blue-900">{fr?"Prise en charge":"Started"}: {new Date(v.visit_started_at).toLocaleTimeString(fr?"fr-FR":"en-US",{timeZone:activeTimeZone,hour:"2-digit",minute:"2-digit"})}</div>}
        </div>
        <div className="flex flex-wrap gap-2 md:justify-end">
         {["announced","scheduled"].includes(v.status)&&<form action={updateCantonVisit}><input type="hidden" name="returnTo" value={currentReturnPath}/><input type="hidden" name="id" value={v.id}/><button name="action" value="checkin" className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white">{fr?"✓ Enregistrer l’arrivée":"✓ Check in"}</button></form>}
@@ -425,7 +426,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
       const person=map.get(v.visitor_id);
       return <div key={v.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-white p-3 text-sm">
        <div><strong>{person?.full_name||(fr?"Visiteur":"Visitor")}</strong><div className="text-xs text-slate-500">{siteById.get(v.site_id||"")?.name||"Canton"} · {v.department} · {v.purpose}</div></div>
-       <div className="text-xs text-slate-600">{v.check_out_at?new Date(v.check_out_at).toLocaleTimeString(fr?"fr-FR":"en-US",{timeZone:"America/Chicago",hour:"2-digit",minute:"2-digit"}):""}</div>
+       <div className="text-xs text-slate-600">{v.check_out_at?new Date(v.check_out_at).toLocaleTimeString(fr?"fr-FR":"en-US",{timeZone:activeTimeZone,hour:"2-digit",minute:"2-digit"}):""}</div>
        <span className="rounded-lg bg-slate-200 px-3 py-2 text-xs font-medium text-slate-700">{fr?"Visite clôturée":"Visit closed"}</span>
       </div>;
      })}
@@ -691,7 +692,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
       <button className="rounded-lg bg-indigo-700 px-3 py-2 text-sm font-semibold text-white">{fr?"Planifier":"Schedule"}</button>
     </form>}
 
-    <p className="mt-1 text-xs text-slate-500">{v.follow_up_completed_at?new Date(v.follow_up_completed_at).toLocaleString(fr?"fr-FR":"en-US",{timeZone:"America/Chicago"}):""}</p>
+    <p className="mt-1 text-xs text-slate-500">{v.follow_up_completed_at?new Date(v.follow_up_completed_at).toLocaleString(fr?"fr-FR":"en-US",{timeZone:activeTimeZone}):""}</p>
    </div>)}{!(visits||[]).some(v=>v.follow_up_status==="completed"&&v.follow_up_outcome)&&<p className="text-sm text-slate-500">{fr?"Aucun résultat enregistré pour le moment.":"No completed outcomes recorded yet."}</p>}</div>
   </section>
 
@@ -736,7 +737,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
        <td className="p-3">{row.ownerId?(profileMap.get(row.ownerId)?.full_name||profileMap.get(row.ownerId)?.email||v.host_name||"—"):(v.host_name||"—")}</td>
        <td className="p-3">{row.action?.action_text||<strong className="text-rose-800">{fr?"Aucune prochaine action":"No next action"}</strong>}</td>
        <td className="p-3">{row.action?.due_date||"—"}</td>
-       <td className="p-3">{row.slaHours?<div className="space-y-1"><div className="text-xs font-semibold">{row.slaHours===24?"24 h":row.slaHours===72?"3 jours":"7 jours"}</div><div className="text-[11px] text-slate-500">{fr?"Limite":"Deadline"}: {row.slaDeadline?.toLocaleString(fr?"fr-FR":"en-US",{timeZone:"America/Chicago",month:"short",day:"2-digit",hour:"2-digit",minute:"2-digit"})}</div></div>:"—"}</td>
+       <td className="p-3">{row.slaHours?<div className="space-y-1"><div className="text-xs font-semibold">{row.slaHours===24?"24 h":row.slaHours===72?"3 jours":"7 jours"}</div><div className="text-[11px] text-slate-500">{fr?"Limite":"Deadline"}: {row.slaDeadline?.toLocaleString(fr?"fr-FR":"en-US",{timeZone:activeTimeZone,month:"short",day:"2-digit",hour:"2-digit",minute:"2-digit"})}</div></div>:"—"}</td>
        <td className="p-3">{row.slaLate?<span className="rounded bg-rose-100 px-2 py-1 text-xs font-bold text-rose-900">{fr?"SLA dépassé":"SLA breached"}</span>:row.slaPlannedTooLate?<span className="rounded bg-orange-100 px-2 py-1 text-xs font-bold text-orange-900">{fr?"Action trop tardive":"Action too late"}</span>:row.overdue?<span className="rounded bg-rose-100 px-2 py-1 text-xs font-bold text-rose-900">{fr?"En retard":"Overdue"}</span>:row.dueToday?<span className="rounded bg-amber-100 px-2 py-1 text-xs font-bold text-amber-900">{fr?"Aujourd’hui":"Today"}</span>:row.missingAction?<span className="rounded bg-rose-100 px-2 py-1 text-xs font-bold text-rose-900">{fr?"À attribuer":"Needs action"}</span>:<span className="rounded bg-emerald-100 px-2 py-1 text-xs font-bold text-emerald-900">{fr?"Dans le SLA":"Within SLA"}</span>}</td>
       </tr>;
      })}</tbody>
@@ -829,7 +830,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
     <td className="p-2"><div className="flex flex-wrap gap-2">
      {["announced","scheduled"].includes(v.status)&&(isSenior||isManager||isReception||v.announced_by===user.id)&&<form action={updateCantonVisit}><input type="hidden" name="returnTo" value={currentReturnPath}/><input type="hidden" name="id" value={v.id}/><button name="action" value="checkin" className="cursor-pointer rounded-lg border border-green-300 bg-green-100 px-3 py-2 font-semibold text-green-900 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">{fr?"Enregistrer l’arrivée":"Check in"}</button></form>}
      {["arrived","in_progress"].includes(v.status)&&(isSenior||isManager||isReception||v.announced_by===user.id)&&<form action={updateCantonVisit}><input type="hidden" name="returnTo" value={currentReturnPath}/><input type="hidden" name="id" value={v.id}/><button name="action" value="checkout" className="cursor-pointer rounded-lg border border-blue-300 bg-blue-100 px-3 py-2 font-semibold text-blue-900 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">{fr?"Enregistrer le départ":"Check out"}</button></form>}
-     {["announced","scheduled","no_show"].includes(v.status)&&(isSenior||membership.role==="manager"||v.announced_by===user.id)&&<form action={updateCantonVisit} className="flex gap-1"><input type="hidden" name="returnTo" value={currentReturnPath}/><input type="hidden" name="id" value={v.id}/><input name="scheduled" type="datetime-local" aria-label={fr?"Nouvelle date du rendez-vous à Canton":"New Canton appointment time"} className="max-w-40 rounded border p-1 text-xs" required/><button name="action" value="reschedule" className="cursor-pointer rounded-lg border border-indigo-300 bg-indigo-100 px-3 py-2 font-semibold text-indigo-900 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">{fr?"Reprogrammer":"Reschedule"}</button></form>}
+     {["announced","scheduled","no_show"].includes(v.status)&&(isSenior||membership.role==="manager"||v.announced_by===user.id)&&<form action={updateCantonVisit} className="flex gap-1"><input type="hidden" name="returnTo" value={currentReturnPath}/><input type="hidden" name="id" value={v.id}/><input name="scheduled" type="datetime-local" aria-label={fr?"Nouvelle date et heure locale du rendez-vous":"New local appointment date and time"} className="max-w-40 rounded border p-1 text-xs" required/><button name="action" value="reschedule" className="cursor-pointer rounded-lg border border-indigo-300 bg-indigo-100 px-3 py-2 font-semibold text-indigo-900 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">{fr?"Reprogrammer":"Reschedule"}</button></form>}
      {v.status==="scheduled"&&(isSenior||membership.role==="manager"||v.announced_by===user.id)&&<form action={updateCantonVisit}><input type="hidden" name="returnTo" value={currentReturnPath}/><input type="hidden" name="id" value={v.id}/><button name="action" value="no_show" className="cursor-pointer rounded-lg border border-slate-300 bg-slate-100 px-3 py-2 font-semibold text-slate-800 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">{fr?"Absent":"No show"}</button></form>}
      {v.status==="completed"&&v.follow_up_required===null&&(isSenior||membership.role==="manager"||v.announced_by===user.id)&&<form action={updateCantonVisit} className="flex gap-1"><input type="hidden" name="returnTo" value={currentReturnPath}/><input type="hidden" name="id" value={v.id}/><input type="hidden" name="action" value="followup"/><button name="required" value="yes" className="cursor-pointer rounded-lg border border-amber-300 bg-amber-100 px-3 py-2 font-semibold text-amber-900 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">{fr?"Suivi nécessaire":"Follow up"}</button><button name="required" value="no" className="cursor-pointer rounded-lg border border-slate-300 bg-slate-100 px-3 py-2 font-semibold text-slate-800 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">{fr?"Aucun suivi":"No follow up"}</button></form>}
     </div></td>
