@@ -1,12 +1,12 @@
 "use client";
 
 import {useMemo,useState} from "react";
-import {bulkManageVisitorSiteStaff,assignVisitorTeamToSite,manageVisitorSiteStaff} from "@/app/actions/canton-visitors";
+import {bulkManageVisitorSiteStaff,assignVisitorTeamToSite,createVisitorSiteTeam,manageVisitorSiteStaff} from "@/app/actions/canton-visitors";
 
 type Member={userId:string;name:string;email?:string|null;city?:string|null;country?:string|null;orgRole:string;accessRole?:string|null};
 type Team={id:string;name:string;department?:string|null;userIds:string[]};
 
-export function CantonSiteStaffManager({siteId,returnTo,members,teams,locale}:{siteId:string;returnTo:string;members:Member[];teams:Team[];locale:"fr"|"en"}){
+export function CantonSiteStaffManager({siteId,siteName,returnTo,members,teams,locale}:{siteId:string;siteName:string;returnTo:string;members:Member[];teams:Team[];locale:"fr"|"en"}){
  const fr=locale==="fr";
  const [search,setSearch]=useState("");
  const [orgRole,setOrgRole]=useState("all");
@@ -89,6 +89,18 @@ export function CantonSiteStaffManager({siteId,returnTo,members,teams,locale}:{s
      <button name="operation" value="revoke" disabled={!selected.size} className="ml-2 rounded-lg bg-rose-100 px-3 py-2 text-xs font-semibold text-rose-900 disabled:opacity-40">{fr?"Retirer en masse":"Bulk remove"}</button>
     </form>
    </div>
+  </div>
+
+  <div className="rounded-xl border border-indigo-200 bg-indigo-50 p-3">
+   <div className="text-sm font-semibold text-indigo-950">{fr?"Créer l’équipe de ce site":"Create this site's team"}</div>
+   <p className="mt-1 text-xs text-indigo-800">{fr?"Créez l’équipe ici si elle n’existe pas encore. Elle sera ensuite disponible immédiatement dans la liste des équipes à affecter.":"Create the team here if it does not exist yet. It will then be immediately available in the team assignment list."}</p>
+   <form action={createVisitorSiteTeam} className="mt-3 flex flex-wrap gap-2">
+    <input type="hidden" name="returnTo" value={returnTo}/><input type="hidden" name="siteId" value={siteId}/>
+    <input name="name" required minLength={2} maxLength={120} defaultValue={siteName+" Team"} className="min-w-56 flex-1 rounded-lg border bg-white px-3 py-2 text-sm"/>
+    <input name="department" maxLength={120} placeholder={fr?"Département (ex. Kinshasa Operations)":"Department (e.g. Kinshasa Operations)"} className="min-w-56 flex-1 rounded-lg border bg-white px-3 py-2 text-sm"/>
+    <button className="rounded-lg bg-indigo-700 px-4 py-2 text-sm font-semibold text-white">{fr?"Créer l’équipe":"Create team"}</button>
+   </form>
+   <div className="mt-2 text-xs text-indigo-800">{fr?"Ensuite, utilisez « Ajouter depuis un autre site » pour affecter les employés au site comme Host, Réception ou Manager.":"Then use “Add from another site” to assign employees to this site as Host, Reception or Manager."}</div>
   </div>
 
   <div className="rounded-xl border bg-amber-50 p-3">
