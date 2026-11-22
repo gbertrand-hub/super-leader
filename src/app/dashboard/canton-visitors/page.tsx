@@ -434,6 +434,27 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
    </details>}
   </section>}
   {isSenior&&<section data-canton-view="admin" className="space-y-5">
+   <section className="rounded-2xl border-2 border-amber-200 bg-amber-50 p-5">
+    <div className="flex flex-wrap items-start justify-between gap-3">
+     <div>
+      <p className="text-xs font-bold uppercase tracking-wider text-amber-800">{fr?"Outils administrateur":"Administrator tools"}</p>
+      <h2 className="mt-1 text-xl font-bold text-amber-950">{fr?"Simulateur des invitations email":"Email invitation simulator"}</h2>
+      <p className="mt-1 text-sm text-amber-900">{fr?"Outil QA sécurisé pour vérifier les invitations du site actif sans envoyer de message externe.":"Secure QA tool for checking invitations for the active site without sending any external message."}</p>
+     </div>
+     <span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-amber-900">QA</span>
+    </div>
+    <div className="mt-4 rounded-xl border border-amber-200 bg-white p-4">
+     {selectedSiteId!=="all"?<form action={simulateCantonFeedbackInvitations} className="flex flex-wrap items-center gap-2">
+      <input type="hidden" name="siteId" value={selectedSiteId}/>
+      <input type="hidden" name="returnTo" value={currentReturnPath}/>
+      <input type="hidden" name="limit" value="20"/>
+      <button className="rounded-lg bg-indigo-700 px-4 py-2 text-sm font-semibold text-white">{fr?"Simuler les invitations de ce site":"Simulate this site's invitations"}</button>
+      <span className="text-xs text-slate-700">{fr?"Simulation limitée au site actif : aucun message n’est envoyé.":"Simulation is limited to the active site: no messages are sent."}</span>
+     </form>:<p className="text-sm font-medium text-amber-800">{fr?"Sélectionnez un site précis en haut de la page avant de lancer une simulation.":"Select one site at the top of the page before running a simulation."}</p>}
+     <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">{fr?"Les envois QA réels restent limités au destinataire explicitement autorisé. WhatsApp reste désactivé tant que sa configuration n’est pas validée.":"Real QA sends remain limited to the explicitly allowlisted recipient. WhatsApp stays disabled until its configuration is approved."}</p>
+    </div>
+   </section>
+
    <section className="rounded-2xl border-2 border-indigo-200 bg-indigo-50 p-5">
     <div className="flex flex-wrap items-start justify-between gap-3">
      <div><p className="text-xs font-bold uppercase tracking-wider text-indigo-700">{fr?"Configuration réseau":"Network configuration"}</p><h2 className="mt-1 text-xl font-bold text-indigo-950">{fr?"Bureaux & centres d’activité":"Offices & activity centers"}</h2><p className="mt-1 text-sm text-indigo-900">{fr?"Ajoutez les futurs bureaux, définissez leur fuseau horaire, leur adresse et leur équipe locale. Canton reste le HQ tant qu’un administrateur ne désigne pas explicitement un autre site.":"Add future offices, configure timezone, address and local team. Canton remains HQ until an administrator explicitly assigns another site."}</p></div>
@@ -517,13 +538,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
   {(isSenior||isManager)&&activeView==="feedback"&&<section className="rounded-xl border border-indigo-200 bg-indigo-50 p-5">
    <h2 className="text-lg font-semibold">{fr?"Invitations de satisfaction":"Feedback invitation queue"}</h2>
    <p className="mt-2 text-sm text-slate-700">{fr?"Une invitation email est programmée 15 minutes après le départ uniquement avec l’accord du visiteur. Un avis reçu annule automatiquement l’invitation en attente.":"An email invitation is queued 15 minutes after checkout only with explicit consent. A submitted review automatically cancels the pending invitation."}</p>
-   {isSenior&&<details className="mt-3 rounded-lg border border-slate-200 bg-white">
-    <summary className="cursor-pointer px-3 py-2 text-sm font-semibold text-slate-700">{fr?"Outils de test administrateur":"Administrator test tools"}</summary>
-    <div className="border-t p-3">
-     {selectedSiteId!=="all"?<form action={simulateCantonFeedbackInvitations} className="flex flex-wrap items-center gap-2"><input type="hidden" name="siteId" value={selectedSiteId}/><input type="hidden" name="returnTo" value={currentReturnPath}/><input type="hidden" name="limit" value="20"/><button className="rounded-lg bg-indigo-700 px-4 py-2 text-sm font-semibold text-white">{fr?"Simuler les invitations de ce site":"Simulate this site's invitations"}</button><span className="text-xs text-slate-700">{fr?"Simulation limitée au site actif : aucun message n’est envoyé.":"Simulation is limited to the active site: no messages are sent."}</span></form>:<p className="text-xs font-medium text-amber-800">{fr?"Sélectionnez un site précis avant de lancer une simulation.":"Select one site before running a simulation."}</p>}
-     <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">{fr?"Les envois QA restent limités au destinataire explicitement autorisé. WhatsApp est désactivé tant que sa configuration n’est pas validée.":"QA sends remain limited to the explicitly allowlisted recipient. WhatsApp stays disabled until its configuration is approved."}</p>
-    </div>
-   </details>}
+
    <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-5">
     <div className="rounded-lg bg-white p-3"><div className="text-xs text-slate-600">{fr?"En attente":"Pending"}</div><div className="text-xl font-bold">{invitationPending}</div></div>
     <div className="rounded-lg bg-white p-3"><div className="text-xs text-slate-600">{fr?"À traiter":"Due"}</div><div className="text-xl font-bold">{invitationDue}</div></div>
