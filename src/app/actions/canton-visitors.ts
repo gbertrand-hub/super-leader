@@ -13,7 +13,7 @@ const route = "/canton";
 const seniorRoles = new Set(["owner","admin"]);
 const field=(f:FormData,k:string,n=180)=>String(f.get(k)??"").trim().slice(0,n);
 const fail=(message:string):never=>redirect(route+"?error="+encodeURIComponent(message));
-const safeCantonReturn=(value:string)=>/^\/canton(?:\/(?:reception|appointments|commercial|feedback|admin))?(?:\?[^\r\n]*)?$/.test(value)&&!value.startsWith("//")?value:route;
+const safeCantonReturn=(value:string)=>/^(?:\/canton(?:\/(?:reception|appointments|commercial|feedback|admin))?|\/dashboard\/canton-visitors)(?:\?[^\r\n]*)?$/.test(value)&&!value.startsWith("//")?value:route;
 const withMessage=(path:string,key:"success"|"error",message:string)=>path+(path.includes("?")?"&":"?")+key+"="+encodeURIComponent(message);
 async function context(){
  const supabase=await createClient();
