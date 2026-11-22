@@ -8,6 +8,8 @@ import {createAdminClient} from "@/lib/supabase/admin";
 import {syncCantonFeedbackToCrm} from "@/lib/canton/feedback-crm-sync";
 import {createClient} from "@/lib/supabase/server";
 const dash="/canton";
+const safeReturn=(v:string)=>/^(?:\/dashboard\/canton-visitors|\/canton(?:\/(?:reception|appointments|commercial|feedback|admin))?)(?:\?[^\r\n]*)?$/.test(v)&&!v.startsWith("//")?v:"/dashboard/canton-visitors";
+const withMessage=(path:string,key:"success"|"error",message:string)=>path+(path.includes("?")?"&":"?")+key+"="+encodeURIComponent(message);
 const value=(f:FormData,key:string,max=200)=>String(f.get(key)??"").trim().slice(0,max);
 const uuid=(v:string)=>/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
 const fail=(msg:string):never=>redirect(dash+"?error="+encodeURIComponent(msg));
@@ -25,6 +27,7 @@ export async function createCantonQrSite(f:FormData){
  assertCantonLive();
  const {db,user,org,role}=await staff();
  if(!["owner","admin"].includes(role))fail("Only administrators can create public QR sites");
+ const returnTo=safeReturn(value(f,"returnTo",500));
  const label=value(f,"label",120);
  const streetAddress=value(f,"streetAddress",300).replace(/\s+/g," ").trim();
  const visitorSiteId=value(f,"visitorSiteId",40);
@@ -36,20 +39,21 @@ export async function createCantonQrSite(f:FormData){
   organization_id:org,label,street_address:streetAddress||null,visitor_site_id:visitorSiteId,created_by:user.id
  });
  if(error)fail("Could not create site");
- revalidatePath(dash);redirect(dash+"?success=QR%20site%20created");
+ revalidatePath("/dashboard/canton-visitors");revalidatePath(dash);redirect(withMessage(returnTo,"success","QR site created"));
 }
 export async function updateCantonQrSiteAddress(f:FormData){
  assertCantonLive();
  const {db,org,role}=await staff();
  if(!["owner","admin"].includes(role))fail("Only administrators can edit office location");
+ const returnTo=safeReturn(value(f,"returnTo",500));
  const site=value(f,"site",40);
  const streetAddress=value(f,"streetAddress",300).trim();
  if(!uuid(site)||streetAddress.length<8)fail("A valid office street address is required");
  const {data,error}=await db.from("canton_qr_sites")
  .update({street_address:streetAddress}).eq("id",site).eq("organization_id",org).select("id");
  if(error||!data?.length)fail("Office location could not be saved");
- revalidatePath(dash);
- redirect(dash+"?success="+encodeURIComponent("Office location saved"));
+ revalidatePath("/dashboard/canton-visitors");revalidatePath(dash);
+ redirect(withMessage(returnTo,"success","Office location saved"));
 }
 export async function submitCantonQrIntake(f:FormData){
  assertCantonLive();
