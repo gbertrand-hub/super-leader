@@ -156,6 +156,7 @@ export async function createCantonCrmReferral(f:FormData){
 
 export async function createCantonAppointment(f:FormData){
  assertCantonLive();
+ const returnTo=safeCantonReturn(field(f,"returnTo",500));
  const ctx=await context();
  const {db,user,org,role}=ctx;
  const name=field(f,"name"), rawPhone=field(f,"phone",35);
@@ -272,8 +273,8 @@ export async function createCantonAppointment(f:FormData){
   host_name:hostName,host_user_id:resolvedHostUserId,notes:field(f,"notes",1000)||null,announced_by:user.id
  });
  if(error) fail(error.code==="23505"?"Duplicate appointment detected":"Unable to schedule visit");
- revalidatePath(route);
- redirect(route+"?success="+encodeURIComponent("Visit registered"));
+ revalidatePath(route);revalidatePath("/dashboard/canton-visitors");
+ redirect(withMessage(returnTo,"success","Visit registered"));
 }
 export async function updateCantonVisit(f:FormData){
  assertCantonLive();
@@ -798,7 +799,7 @@ export async function createCantonSlaRecovery(f:FormData){
  const assignedTo=field(f,"assignedTo",40);
  const actionText=field(f,"actionText",800);
  const dueDate=field(f,"dueDate",10);
- if(!/^[0-9a-f-]{36}$/i.test(appointmentId)||!/^[0-9a-f-]{36}$/i.test(assignedTo)||actionText.length<5||!/^d{4}-d{2}-d{2}$/.test(dueDate))
+ if(!/^[0-9a-f-]{36}$/i.test(appointmentId)||!/^[0-9a-f-]{36}$/i.test(assignedTo)||actionText.length<5||!/^\d{4}-\d{2}-\d{2}$/.test(dueDate))
   fail("Valid recovery action, owner and due date required");
  const {data:member}=await db.from("organization_members").select("user_id")
   .eq("organization_id",org).eq("user_id",assignedTo).eq("is_active",true).maybeSingle();
