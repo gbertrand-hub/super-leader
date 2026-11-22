@@ -404,7 +404,7 @@ export async function updateVisitorSite(f:FormData){
   const {error}=await db.from("visitor_sites").update({is_active:!currentSite.is_active,updated_at:new Date().toISOString()}).eq("id",id).eq("organization_id",org);
   if(error) fail("Could not update visitor site status");
  }else if(operation==="make_hq"){
-  if(currentSite.is_hq) redirect("/canton/admin?success="+encodeURIComponent("This site is already HQ"));
+  if(currentSite.is_hq) redirect("/canton/admin?site="+encodeURIComponent(id)+"&success="+encodeURIComponent("This site is already HQ"));
   const {error:clearError}=await db.from("visitor_sites").update({is_hq:false,updated_at:new Date().toISOString()}).eq("organization_id",org).eq("is_hq",true);
   if(clearError) fail("Could not change HQ");
   const {error}=await db.from("visitor_sites").update({is_hq:true,is_active:true,updated_at:new Date().toISOString()}).eq("id",id).eq("organization_id",org);
@@ -412,7 +412,7 @@ export async function updateVisitorSite(f:FormData){
  }else fail("Invalid site operation");
  revalidatePath("/canton/admin");
  revalidatePath("/canton");
- redirect("/canton/admin?success="+encodeURIComponent("Visitor site updated"));
+ redirect("/canton/admin?site="+encodeURIComponent(id)+"&success="+encodeURIComponent("Visitor site updated"));
 }
 
 export async function manageVisitorSiteStaff(f:FormData){
@@ -433,7 +433,7 @@ export async function manageVisitorSiteStaff(f:FormData){
   if(error) fail("Could not remove site staff");
  }else fail("Invalid operation");
  revalidatePath("/canton/admin");
- redirect("/canton/admin?success="+encodeURIComponent("Site staff updated"));
+ redirect("/canton/admin?site="+encodeURIComponent(siteId)+"&success="+encodeURIComponent("Site staff updated"));
 }
 
 
