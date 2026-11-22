@@ -874,15 +874,21 @@ export async function completeCantonSlaRecovery(f:FormData){
 /** QA ONLY: simulate due invitations; never call email or WhatsApp providers. */
 export async function simulateCantonFeedbackInvitations(f:FormData){
  assertCantonLive();
- const {db,org,role}=await context();
+ const ctx=await context();
+ const {db,org,role}=ctx;
  if(!["owner","admin","manager"].includes(role))fail("Manager permission required");
+ const siteId=field(f,"siteId",40);
+ if(!/^[0-9a-f-]{36}$/i.test(siteId))fail("Select one visitor site before running the simulation");
+ await requireVisitorSiteAccess(ctx,siteId);
+ const {data:site}=await db.from("visitor_sites").select("id").eq("id",siteId).eq("organization_id",org).eq("is_active",true).maybeSingle();
+ if(!site)fail("Visitor site not found or inactive");
  const limit=Math.max(1,Math.min(20,Number(field(f,"limit",3))||20));
- const {data,error}=await db.rpc("canton_simulate_feedback_invitations",{p_organization_id:org,p_limit:limit});
+ const {data,error}=await db.rpc("canton_simulate_feedback_invitations",{p_organization_id:org,p_site_id:siteId,p_limit:limit});
  if(error)fail("Invitation simulation could not run");
  const item=Array.isArray(data)?data[0]:null;
  if(!item)fail("No simulation result");
  revalidatePath(route);
- redirect(route+"?success="+encodeURIComponent("Simulation only — "+item.simulated+" prepared; "+item.cancelled+" cancelled; 0 external messages sent"));
+ redirect(route+"?success="+encodeURIComponent("Site-scoped simulation only — "+item.simulated+" prepared; "+item.cancelled+" cancelled; 0 external messages sent"));
 }
 
 /** Admin-only manual QA email dispatch. Real sending remains disabled unless explicit
