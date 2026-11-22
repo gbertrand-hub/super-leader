@@ -6,7 +6,7 @@ import {bulkManageVisitorSiteStaff,assignVisitorTeamToSite,manageVisitorSiteStaf
 type Member={userId:string;name:string;email?:string|null;city?:string|null;country?:string|null;orgRole:string;accessRole?:string|null};
 type Team={id:string;name:string;department?:string|null;userIds:string[]};
 
-export function CantonSiteStaffManager({siteId,members,teams,locale}:{siteId:string;members:Member[];teams:Team[];locale:"fr"|"en"}){
+export function CantonSiteStaffManager({siteId,returnTo,members,teams,locale}:{siteId:string;returnTo:string;members:Member[];teams:Team[];locale:"fr"|"en"}){
  const fr=locale==="fr";
  const [search,setSearch]=useState("");
  const [orgRole,setOrgRole]=useState("all");
@@ -83,7 +83,7 @@ export function CantonSiteStaffManager({siteId,members,teams,locale}:{siteId:str
     <span className="text-sm font-semibold">{selected.size} {fr?"sélectionné(s)":"selected"}</span>
     <select value={bulkRole} onChange={e=>setBulkRole(e.target.value)} className="rounded-lg border bg-white px-3 py-2 text-sm"><option value="reception">{fr?"Réception":"Reception"}</option><option value="host">Host</option><option value="manager">Manager</option></select>
     <form action={bulkManageVisitorSiteStaff}>
-     <input type="hidden" name="siteId" value={siteId}/><input type="hidden" name="accessRole" value={bulkRole}/>
+     <input type="hidden" name="returnTo" value={returnTo}/><input type="hidden" name="siteId" value={siteId}/><input type="hidden" name="accessRole" value={bulkRole}/>
      {[...selected].map(id=><input key={id} type="hidden" name="userIds" value={id}/>)}
      <button name="operation" value="grant" disabled={!selected.size} className="rounded-lg bg-indigo-700 px-3 py-2 text-xs font-semibold text-white disabled:opacity-40">{fr?"Attribuer en masse":"Bulk assign"}</button>
      <button name="operation" value="revoke" disabled={!selected.size} className="ml-2 rounded-lg bg-rose-100 px-3 py-2 text-xs font-semibold text-rose-900 disabled:opacity-40">{fr?"Retirer en masse":"Bulk remove"}</button>
@@ -94,7 +94,7 @@ export function CantonSiteStaffManager({siteId,members,teams,locale}:{siteId:str
   <div className="rounded-xl border bg-amber-50 p-3">
    <div className="mb-2 text-sm font-semibold text-amber-950">{fr?"Affecter une équipe existante":"Assign an existing team"}</div>
    <form action={assignVisitorTeamToSite} className="flex flex-wrap gap-2">
-    <input type="hidden" name="siteId" value={siteId}/>
+    <input type="hidden" name="returnTo" value={returnTo}/><input type="hidden" name="siteId" value={siteId}/>
     <select name="teamId" value={teamId} onChange={e=>changeTeam(e.target.value)} className="min-w-56 rounded-lg border bg-white px-3 py-2 text-sm" required>
      <option value="">{fr?"Choisir une équipe…":"Choose a team…"}</option>
      {teams.map(t=><option key={t.id} value={t.id}>{t.name}{t.department?" · "+t.department:""} {"("+t.userIds.length+")"}</option>)}
@@ -123,7 +123,7 @@ export function CantonSiteStaffManager({siteId,members,teams,locale}:{siteId:str
      <option value="reception">{fr?"Réception":"Reception"}</option><option value="host">Host</option><option value="manager">Manager</option>
     </select>
     <form action={bulkManageVisitorSiteStaff}>
-     <input type="hidden" name="siteId" value={siteId}/>
+     <input type="hidden" name="returnTo" value={returnTo}/><input type="hidden" name="siteId" value={siteId}/>
      <input type="hidden" name="accessRole" value={teamMemberRole}/>
      {[...teamSelected].map(id=><input key={id} type="hidden" name="userIds" value={id}/>)}
      <button name="operation" value="grant" disabled={!teamSelected.size} className="rounded-lg bg-emerald-700 px-4 py-2 text-xs font-semibold text-white disabled:opacity-40">{fr?"Appliquer le rôle":"Apply role"}</button>
@@ -146,7 +146,7 @@ export function CantonSiteStaffManager({siteId,members,teams,locale}:{siteId:str
     <div><div className="font-medium">{m.name}</div><div className="text-xs text-slate-500">{m.email||""}{m.email?" · ":""}{m.orgRole}</div></div>
     <div>{m.accessRole?<span className="rounded bg-emerald-100 px-2 py-1 text-xs font-semibold text-emerald-900">{m.accessRole}</span>:<span className="text-xs text-slate-400">{fr?"Aucun accès local":"No local access"}</span>}</div>
     <form action={manageVisitorSiteStaff} className="flex flex-wrap justify-end gap-2">
-     <input type="hidden" name="siteId" value={siteId}/><input type="hidden" name="userId" value={m.userId}/>
+     <input type="hidden" name="returnTo" value={returnTo}/><input type="hidden" name="siteId" value={siteId}/><input type="hidden" name="userId" value={m.userId}/>
      <select name="accessRole" defaultValue={m.accessRole||"host"} className="rounded border border-slate-300 bg-white px-2 py-2 text-xs"><option value="reception">{fr?"Réception":"Reception"}</option><option value="host">Host</option><option value="manager">Manager</option></select>
      <button name="operation" value="grant" className="rounded bg-indigo-700 px-3 py-2 text-xs font-semibold text-white">{m.accessRole?(fr?"Modifier":"Update"):(fr?"Attribuer":"Assign")}</button>
      {m.accessRole&&<button name="operation" value="revoke" className="rounded bg-rose-100 px-3 py-2 text-xs font-semibold text-rose-900">{fr?"Retirer":"Remove"}</button>}
