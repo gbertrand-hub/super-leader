@@ -50,6 +50,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
    ? (allVisitorSites||[]).filter(s=>myAssignedSiteIds.has(s.id))
    : (allVisitorSites||[]).filter(s=>s.is_hq && (isReception||isManager));
  const siteById=new Map((visitorSites||[]).map(s=>[s.id,s]));
+ const allSiteById=new Map((allVisitorSites||[]).map(s=>[s.id,s]));
  const hqSite=(allVisitorSites||[]).find(s=>s.is_hq)||null;
  const selectedSiteId=site==="all"&&isSenior?"all":siteById.has(site)?site:(isSenior?"all":visitorSites?.[0]?.id||hqSite?.id||"all");
  const memberIds=[...new Set([...(members||[]).map(m=>m.user_id),...(hostMembers||[]).map(m=>m.user_id)])];
@@ -110,6 +111,13 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
   {id:"commercial" as CantonView,fr:"Suivi commercial",en:"Commercial follow-up",show:true},
   {id:"admin" as CantonView,fr:"Administration",en:"Administration",show:isSenior}
  ].filter(x=>x.show);
+ const {data:myReferredVisits}=await db.from("canton_appointments")
+  .select("id,visitor_id,site_id,department,purpose,status,scheduled_local,host_name,host_user_id,check_in_at,visit_started_at,check_out_at,follow_up_status,visit_outcome,crm_referred_by,created_at")
+  .eq("organization_id",membership.organization_id)
+  .eq("crm_referred_by",user.id)
+  .order("created_at",{ascending:false})
+  .limit(100);
+
  let visitQuery=db.from("canton_appointments")
   .select("id,visitor_id,site_id,department,purpose,status,scheduled_local,host_name,host_user_id,check_in_at,visit_started_at,check_out_at,feedback_token,feedback_code,follow_up_required,follow_up_owner_id,follow_up_status,follow_up_due_date,follow_up_note,follow_up_outcome,follow_up_result_note,follow_up_completed_at,commercial_interest,commercial_qualified_at,commercial_qualified_by,visit_outcome,debrief_note,debriefed_by,debriefed_at,visit_origin,crm_referred_by,created_at,announced_by")
   .eq("organization_id",membership.organization_id);
@@ -122,7 +130,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
  const {data:visits,error:queryError}=await visitQuery.order("created_at",{ascending:false}).limit(150);
  const {data:sites}=(isSenior||isManager||isReception)?await db.from("canton_qr_sites").select("id,label,enabled,street_address,visitor_site_id").eq("organization_id",membership.organization_id).order("created_at",{ascending:false}):{data:[]};
  const {data:requests}=isSenior||isManager||isReception?await db.from("canton_intake_requests").select("id,full_name,department,purpose,email,phone,created_at").eq("organization_id",membership.organization_id).eq("status","pending").order("created_at",{ascending:true}).limit(100):{data:[]};
- const visitorIds=[...new Set((visits||[]).map(v=>v.visitor_id))];
+ const visitorIds=[...new Set([...(visits||[]).map(v=>v.visitor_id),...(myReferredVisits||[]).map(v=>v.visitor_id)])];
  const {data:people}=visitorIds.length?await db.from("canton_visitors").select("id,full_name,phone,email").eq("organization_id",membership.organization_id).in("id",visitorIds):{data:[]};
  const map=new Map((people||[]).map(p=>[p.id,p]));
  const visitIds=(visits||[]).map(v=>v.id);
@@ -328,22 +336,29 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
   <section data-canton-view="appointments" className="rounded-2xl border-2 border-cyan-300 bg-cyan-50 p-5">
    <div className="flex flex-wrap items-start justify-between gap-3">
     <div>
-     <p className="text-xs font-bold uppercase tracking-wider text-cyan-800">CRM → {activeSite?.city||activeSite?.name||(fr?"Site":"Site")}</p>
-     <h2 className="mt-1 text-xl font-bold text-cyan-950">{fr?"Envoyer un prospect CRM vers le site actif":"Refer a CRM prospect to the active site"}</h2>
-     <p className="mt-1 max-w-3xl text-sm text-cyan-900">{fr?"Utilisez la fiche CRM existante. Super Leader rattache la visite au site actif et à ce prospect au lieu de recréer un contact.":"Use the existing CRM record. Super Leader links the visit to the active site and existing prospect instead of creating a duplicate contact."}</p>
+     <p className="text-xs font-bold uppercase tracking-wider text-cyan-800">{fr?"Référence inter-sites":"Cross-site referral"}</p>
+     <h2 className="mt-1 text-xl font-bold text-cyan-950">{fr?"Référer une visite vers un autre bureau":"Refer a visit to another office"}</h2>
+     <p className="mt-1 max-w-3xl text-sm text-cyan-900">{fr?"Le commercial choisit le bureau de destination. L’équipe locale de ce bureau attribue ensuite le responsable et prend en charge la visite. Référer une visite ne donne aucun droit opérationnel sur le site destinataire.":"Sales chooses the destination office. That office's local team then assigns the host and manages the visit. Referring a visit does not grant operational access to the destination site."}</p>
     </div>
     <span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-cyan-900">{fr?"Source : équipe commerciale":"Source: sales team"}</span>
    </div>
    <form action={createCantonCrmReferral} className="mt-4 grid gap-3 rounded-xl border border-cyan-200 bg-white p-4 lg:grid-cols-2 xl:grid-cols-3">
-    <input type="hidden" name="siteId" value={effectiveSiteId}/><label className="text-sm font-semibold text-slate-700">{fr?"Prospect CRM *":"CRM prospect *"}<CantonCrmProspectPicker locale={fr?"fr":"en"}/></label>
+    <input type="hidden" name="returnTo" value={currentReturnPath}/>
+    <label className="text-sm font-semibold text-slate-700">{fr?"Prospect CRM *":"CRM prospect *"}<CantonCrmProspectPicker locale={fr?"fr":"en"}/></label>
+    <label className="text-sm font-semibold text-slate-700">{fr?"Site de destination *":"Destination site *"}<select name="siteId" required defaultValue="" className={input}><option value="" disabled>{fr?"Choisir Canton, Kinshasa, etc.":"Choose Canton, Kinshasa, etc."}</option>{(allVisitorSites||[]).map(s=><option key={s.id} value={s.id}>{s.name}{s.city?" · "+s.city:""} · {s.timezone}</option>)}</select><span className="mt-1 block text-xs font-normal text-slate-500">{fr?"Ce choix n’accorde aucun accès au site destinataire.":"This does not grant access to the destination site."}</span></label>
     <label className="text-sm font-semibold text-slate-700">{fr?"Visite / département *":"Visit / department *"}<select name="department" required defaultValue="DIG" className={input}><option value="DIG">DIG · {fr?"Visite terrain / immobilier":"Land / real-estate visit"}</option><option value="TCF">TCF · {fr?"Visite ferme":"Farm visit"}</option><option value="OTHER">{fr?"Autre visite commerciale":"Other commercial visit"}</option></select></label>
-    <label className="text-sm font-semibold text-slate-700">{fr?"Date et heure locale du site *":"Site local date & time *"}<input type="datetime-local" name="scheduled" required className={input}/></label>
-    <label className="text-sm font-semibold text-slate-700">{fr?"Personne à rencontrer":"Host to meet"}<select name="hostUserId" defaultValue="" className={input}><option value="">{fr?"À attribuer":"Unassigned"}</option>{siteHostMembers.map(m=><option key={m.user_id} value={m.user_id}>{profileMap.get(m.user_id)?.full_name||profileMap.get(m.user_id)?.email||m.user_id}</option>)}</select><span className="mt-1 block text-xs font-normal text-slate-500">{fr?"Uniquement les membres affectés au site actif.":"Only staff assigned to the active site."}</span></label>
+    <label className="text-sm font-semibold text-slate-700">{fr?"Date et heure locale du site destinataire *":"Destination site's local date & time *"}<input type="datetime-local" name="scheduled" required className={input}/><span className="mt-1 block text-xs font-normal text-slate-500">{fr?"Utilisez l’heure locale affichée dans le site choisi.":"Use the local timezone shown for the selected site."}</span></label>
     <label className="text-sm font-semibold text-slate-700">{fr?"Objectif de la visite":"Visit purpose"}<select name="purpose" defaultValue="commercial_visit" className={input}><option value="commercial_visit">{fr?"Voir avant de s’engager":"See before committing"}</option><option value="land_visit">{fr?"Visite terrain":"Land visit"}</option><option value="farm_visit">{fr?"Visite ferme":"Farm visit"}</option><option value="meet_team">{fr?"Rencontrer l’équipe":"Meet the team"}</option><option value="decision_meeting">{fr?"Réunion de décision":"Decision meeting"}</option></select></label>
-    <label className="text-sm font-semibold text-slate-700 lg:col-span-2 xl:col-span-3">{fr?"Notes du commercial pour le site":"Sales notes for the site"}<textarea name="notes" maxLength={1000} className={input+" min-h-24"} placeholder={fr?"Ex. Prospect intéressé par Garden City, veut voir avant de signer. Questions sur financement et accès au terrain.":"E.g. Prospect interested in Garden City, wants to visit before signing. Questions about financing and land access."}/></label>
-    <button className="rounded-lg bg-cyan-900 px-5 py-3 font-bold text-white lg:col-span-2 xl:col-span-3">{fr?"Planifier la visite depuis le CRM":"Schedule visit from CRM"}</button>
+    <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900"><strong>{fr?"Responsable local":"Local host"}:</strong> {fr?"à attribuer par l’équipe du site destinataire.":"assigned by the destination site's team."}</div>
+    <label className="text-sm font-semibold text-slate-700 lg:col-span-2 xl:col-span-3">{fr?"Notes pour l’équipe locale":"Notes for the local team"}<textarea name="notes" maxLength={1000} className={input+" min-h-24"} placeholder={fr?"Ex. Prospect intéressé par Garden City, souhaite visiter avant de signer. Questions sur financement et accès au terrain.":"E.g. Prospect interested in Garden City, wants to visit before signing. Questions about financing and land access."}/></label>
+    <button className="rounded-lg bg-cyan-900 px-5 py-3 font-bold text-white lg:col-span-2 xl:col-span-3">{fr?"Référer la visite":"Refer visit"}</button>
    </form>
    {!(crmProspects||[]).length&&<p className="mt-3 rounded-lg bg-white p-3 text-sm text-slate-600">{fr?"Aucun prospect CRM disponible dans cette base de test.":"No CRM prospects are available in this test database."}</p>}
+
+   <div className="mt-5 rounded-xl border border-cyan-200 bg-white p-4">
+    <div className="flex flex-wrap items-center justify-between gap-2"><div><h3 className="font-bold text-slate-900">{fr?"Mes visites référées":"My referred visits"}</h3><p className="text-xs text-slate-500">{fr?"Vous suivez ici uniquement les visites que vous avez référées, même lorsqu’elles sont gérées par un autre bureau.":"Track only the visits you referred here, even when another office manages them."}</p></div><span className="rounded-full bg-cyan-50 px-3 py-1 text-xs font-bold text-cyan-900">{(myReferredVisits||[]).length}</span></div>
+    {(myReferredVisits||[]).length?<div className="mt-3 overflow-x-auto"><table className="w-full min-w-[760px] text-left text-sm"><thead><tr className="border-b text-xs uppercase text-slate-500"><th className="p-2">{fr?"Prospect":"Prospect"}</th><th className="p-2">{fr?"Destination":"Destination"}</th><th className="p-2">{fr?"Date locale":"Local date"}</th><th className="p-2">{fr?"Statut":"Status"}</th><th className="p-2">{fr?"Responsable local":"Local host"}</th><th className="p-2">{fr?"Résultat":"Outcome"}</th></tr></thead><tbody>{(myReferredVisits||[]).map(v=>{const destination=allSiteById.get(v.site_id||"");const person=map.get(v.visitor_id);return <tr key={v.id} className="border-b last:border-0"><td className="p-2 font-semibold">{person?.full_name||(fr?"Prospect CRM":"CRM prospect")}</td><td className="p-2">{destination?.name||"—"}{destination?.city?" · "+destination.city:""}</td><td className="p-2">{v.scheduled_local?.slice(0,16).replace("T"," ")||"—"}</td><td className="p-2"><span className="rounded bg-slate-100 px-2 py-1 text-xs font-semibold">{fr?({scheduled:"Planifiée",announced:"Annoncée",arrived:"Arrivé",in_progress:"En visite",completed:"Terminée",no_show:"Absent",cancelled:"Annulée"} as Record<string,string>)[v.status]||v.status:v.status}</span></td><td className="p-2">{v.host_name||(fr?"À attribuer":"Unassigned")}</td><td className="p-2">{v.visit_outcome||v.follow_up_status||"—"}</td></tr>})}</tbody></table></div>:<p className="mt-3 text-sm text-slate-500">{fr?"Aucune visite référée pour le moment.":"No referred visits yet."}</p>}
+   </div>
   </section>
 
   <div data-canton-view="dashboard" className="space-y-3">
