@@ -92,14 +92,14 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
  const requestedView=allowedViews.includes(view as CantonView)?view as CantonView:"dashboard";
  const activeView:CantonView=requestedView==="admin"&&!isSenior?"dashboard":requestedView==="feedback"&&!(isSenior||isManager)?"dashboard":requestedView==="reception"&&!(isSenior||isManager||isReception)?"dashboard":requestedView;
  const routeByView:Record<CantonView,string>={
-  dashboard:"/canton",
-  reception:"/canton/reception",
-  appointments:"/canton/appointments",
-  commercial:"/canton/commercial",
-  feedback:"/canton/feedback",
-  admin:"/canton/admin"
+  dashboard:"/dashboard/canton-visitors",
+  reception:"/dashboard/canton-visitors?view=reception",
+  appointments:"/dashboard/canton-visitors?view=appointments",
+  commercial:"/dashboard/canton-visitors?view=commercial",
+  feedback:"/dashboard/canton-visitors?view=feedback",
+  admin:"/dashboard/canton-visitors?view=admin"
  };
- const currentReturnPath=routeByView[activeView]+(selectedSiteId!=="all"?`?site=${encodeURIComponent(selectedSiteId)}`:"");
+ const currentReturnPath="/dashboard/canton-visitors?view="+encodeURIComponent(activeView)+(selectedSiteId!=="all"?"&site="+encodeURIComponent(selectedSiteId):"");
  const navItems=[
   {id:"dashboard" as CantonView,fr:"Tableau de bord",en:"Dashboard",show:true},
   {id:"reception" as CantonView,fr:"Réception",en:"Reception",show:isSenior||isManager||isReception},
@@ -249,19 +249,19 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
    main[data-active-view="feedback"] [data-canton-view]:not([data-canton-view~="feedback"]),
    main[data-active-view="admin"] [data-canton-view]:not([data-canton-view~="admin"]) { display:none !important; }
   `}</style>
-  <div className="flex justify-end"><CantonLanguageSwitch locale={locale} returnPath={routeByView[activeView]}/></div>
+  <div className="flex justify-end"><CantonLanguageSwitch locale={locale} returnPath={currentReturnPath}/></div>
   <nav aria-label={fr?"Navigation Canton":"Canton navigation"} className="sticky top-0 z-20 -mx-2 overflow-x-auto rounded-2xl border bg-white/95 p-2 shadow-sm backdrop-blur">
    <div className="flex min-w-max gap-2">
-    {navItems.map(item=><Link key={item.id} href={routeByView[item.id]+"?site="+encodeURIComponent(selectedSiteId)} className={"rounded-xl px-4 py-2 text-sm font-semibold transition "+(activeView===item.id?"bg-slate-900 text-white":"bg-slate-50 text-slate-700 hover:bg-slate-100")}>{fr?item.fr:item.en}</Link>)}
+    {navItems.map(item=><Link key={item.id} href={"/dashboard/canton-visitors?view="+encodeURIComponent(item.id)+"&site="+encodeURIComponent(selectedSiteId)} className={"rounded-xl px-4 py-2 text-sm font-semibold transition "+(activeView===item.id?"bg-slate-900 text-white":"bg-slate-50 text-slate-700 hover:bg-slate-100")}>{fr?item.fr:item.en}</Link>)}
    </div>
   </nav>
-  <div className="flex flex-wrap items-center justify-between gap-3"><div><h1 className="text-2xl font-bold">{fr?"Gestion des Visiteurs & Rendez-vous":"Visitor & Appointment Management"}</h1><p className="text-sm text-slate-500">{fr?"Réseau multi-sites · Canton HQ comme point focal":"Multi-site network · Canton HQ as focal point"}</p></div><span className="text-sm text-slate-500">{fr?"TEST · données fictives":"QA · fictitious data"}</span></div>
+  <div className="flex flex-wrap items-center justify-between gap-3"><div><h1 className="text-2xl font-bold">{fr?"Gestion des Visiteurs & Rendez-vous":"Visitor & Appointment Management"}</h1><p className="text-sm text-slate-500">{fr?"Réseau multi-sites · Canton HQ comme point focal":"Multi-site network · Canton HQ as focal point"}</p></div><span className="text-sm text-slate-500">{fr?"Visiteurs & Rendez-vous":"Visitors & Appointments"}</span></div>
   <section className="rounded-2xl border bg-white p-4">
    <div className="flex flex-wrap items-center gap-3">
     <div className="text-sm font-semibold text-slate-700">{fr?"Site actif":"Active site"}</div>
     <div className="flex flex-wrap gap-2">
-     {isSenior&&<Link href={routeByView[activeView]+"?site=all"} className={"rounded-full px-3 py-2 text-sm font-semibold "+(selectedSiteId==="all"?"bg-slate-900 text-white":"bg-slate-100 text-slate-700")}>{fr?"Tous les sites":"All sites"}</Link>}
-     {(visitorSites||[]).map(s=><Link key={s.id} href={routeByView[activeView]+"?site="+s.id} className={"rounded-full px-3 py-2 text-sm font-semibold "+(selectedSiteId===s.id?"bg-indigo-700 text-white":"bg-slate-100 text-slate-700")}>{s.name}{s.is_hq?" · HQ":""}</Link>)}
+     {isSenior&&<Link href={"/dashboard/canton-visitors?view="+encodeURIComponent(activeView)+"&site=all"} className={"rounded-full px-3 py-2 text-sm font-semibold "+(selectedSiteId==="all"?"bg-slate-900 text-white":"bg-slate-100 text-slate-700")}>{fr?"Tous les sites":"All sites"}</Link>}
+     {(visitorSites||[]).map(s=><Link key={s.id} href={"/dashboard/canton-visitors?view="+encodeURIComponent(activeView)+"&site="+s.id} className={"rounded-full px-3 py-2 text-sm font-semibold "+(selectedSiteId===s.id?"bg-indigo-700 text-white":"bg-slate-100 text-slate-700")}>{s.name}{s.is_hq?" · HQ":""}</Link>)}
     </div>
    </div>
    {selectedSiteId!=="all"&&siteById.get(selectedSiteId)&&<p className="mt-2 text-xs text-slate-500">{siteById.get(selectedSiteId)?.city} · {siteById.get(selectedSiteId)?.timezone}{siteById.get(selectedSiteId)?.street_address?" · "+siteById.get(selectedSiteId)?.street_address:""}</p>}
