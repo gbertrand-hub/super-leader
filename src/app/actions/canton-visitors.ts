@@ -718,6 +718,40 @@ export async function createCantonNextAction(f:FormData){
  if(error)fail("Could not save next action");
  revalidatePath(route);redirect(withMessage(returnTo,"success","Next commercial action scheduled"));
 }
+export async function reassignCantonNextAction(f:FormData){
+ assertCantonLive();
+ const returnTo=safeCantonReturn(field(f,"returnTo",500));
+ const reassignFail=(message:string):never=>redirect(withMessage(returnTo,"error",message));
+ const {db,org,user,role}=await context();
+ if(!["owner","admin","manager"].includes(role)) reassignFail("Manager permission required to reassign an action");
+ const actionId=field(f,"actionId",40);
+ const assignedTo=field(f,"assignedTo",40);
+ const reason=field(f,"reason",500);
+ if(!/^[0-9a-f-]{36}$/i.test(actionId)||!/^[0-9a-f-]{36}$/i.test(assignedTo)) reassignFail("Invalid action or assignee");
+ if(reason.length<5) reassignFail("Please add a reassignment reason of at least 5 characters");
+ const {data:action}=await db.from("canton_next_actions")
+  .select("id,assigned_to,appointment_id,status").eq("id",actionId)
+  .eq("organization_id",org).maybeSingle();
+ if(!action||action.status!=="open") return reassignFail("This next action is no longer open");
+ const openAction=action;
+ if(openAction.assigned_to===assignedTo) reassignFail("Select a different team member");
+ const {data:member}=await db.from("organization_members").select("user_id")
+  .eq("organization_id",org).eq("user_id",assignedTo).eq("is_active",true).maybeSingle();
+ if(!member) reassignFail("The new assignee must be an active organization member");
+ const {data:visit}=await db.from("canton_appointments").select("department")
+  .eq("organization_id",org).eq("id",openAction.appointment_id).maybeSingle();
+ if(!visit||!["DIG","TCF"].includes(visit.department)) reassignFail("Only DIG / TCF commercial actions can be reassigned here");
+ const {error}=await db.rpc("canton_reassign_next_action",{
+  p_organization_id:org,
+  p_action_id:actionId,
+  p_new_assigned_to:assignedTo,
+  p_reassigned_by:user.id,
+  p_reason:reason
+ });
+ if(error) reassignFail("Could not reassign next action");
+ revalidatePath(route);
+ redirect(withMessage(returnTo,"success","Next commercial action reassigned"));
+}
 export async function completeCantonNextAction(f:FormData){
  assertCantonLive();
  const returnTo=safeCantonReturn(field(f,"returnTo",500));
