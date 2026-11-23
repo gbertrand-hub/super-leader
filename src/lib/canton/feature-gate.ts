@@ -40,8 +40,13 @@ export function cantonLiveEnabled(): boolean {
  * operational write actions. Server actions continue to use assertCantonLive().
  */
 export function cantonUiPreviewEnabled(): boolean {
+  const adminAccessPreview =
+    process.env.VERCEL_ENV === "preview"
+    && process.env.VERCEL_GIT_COMMIT_REF === "test/v4-10-139-admin-access-preview";
+
   return cantonLiveEnabled()
-    || process.env.CANTON_LOCAL_UI_PREVIEW === "true";
+    || process.env.CANTON_LOCAL_UI_PREVIEW === "true"
+    || adminAccessPreview;
 }
 export function assertCantonLive(): void {
   if (!cantonLiveEnabled()) {
