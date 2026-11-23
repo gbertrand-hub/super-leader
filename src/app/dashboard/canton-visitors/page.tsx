@@ -9,7 +9,7 @@ import {createCantonQrSite,reviewCantonQrIntake,updateCantonQrSiteAddress} from 
 import {redirect} from "next/navigation";
 import {createClient} from "@/lib/supabase/server";
 import {createAdminClient} from "@/lib/supabase/admin";
-import {createCantonAppointment,createCantonCrmReferral,updateCantonVisit,manageCantonReceptionStaff,assignCantonFollowUp,completeCantonFollowUp,createCantonNextAction,completeCantonNextAction,simulateCantonFeedbackInvitations,sendCantonQaEmailTest,markCantonArrivalAlertRead,saveCantonVisitDebrief,qualifyCantonLegacyProspect,createCantonSlaRecovery,completeCantonSlaRecovery,createVisitorSite,updateVisitorSite} from "@/app/actions/canton-visitors";
+import {createCantonAppointment,createCantonCrmReferral,updateCantonVisit,manageCantonReceptionStaff,assignCantonFollowUp,completeCantonFollowUp,createCantonNextAction,completeCantonNextAction,simulateCantonFeedbackInvitations,sendCantonQaEmailTest,markCantonArrivalAlertRead,saveCantonVisitDebrief,qualifyCantonLegacyProspect,createCantonSlaRecovery,completeCantonSlaRecovery,createVisitorSite,updateVisitorSite,manageVisitorGlobalAccess} from "@/app/actions/canton-visitors";
 export const dynamic="force-dynamic";
 export default async function CantonVisitorPage({searchParams}:{searchParams:Promise<{error?:string;success?:string;q?:string;view?:string;site?:string;filter?:string}>}){
  const {error,success,q="",view="",site="",filter=""}=await searchParams;
@@ -39,18 +39,24 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
   .eq("is_active",true)
   .order("is_hq",{ascending:false}).order("name",{ascending:true});
  const isManager=membership.role==="manager" || membership.role==="hr";
+ const {data:myAccessProfile}=!isSenior?await db.from("visitor_access_profiles")
+  .select("site_scope,can_refer_cross_site,can_manage_site_access")
+  .eq("organization_id",membership.organization_id).eq("user_id",user.id).maybeSingle():{data:null};
+ const canViewAllSites=isSenior||myAccessProfile?.site_scope==="all_sites";
+ const canReferCrossSite=isSenior||!!myAccessProfile?.can_refer_cross_site;
  const {data:mySiteAssignments}=!isSenior?await db.from("visitor_site_staff")
   .select("site_id,access_role")
   .eq("user_id",user.id).eq("is_active",true):{data:[]};
  const myAssignedSiteIds=new Set((mySiteAssignments||[]).map(x=>x.site_id));
- const visitorSites=isSenior
+ const visitorSites=canViewAllSites
   ? (allVisitorSites||[])
   : myAssignedSiteIds.size>0
    ? (allVisitorSites||[]).filter(s=>myAssignedSiteIds.has(s.id))
    : (allVisitorSites||[]).filter(s=>s.is_hq && (isReception||isManager));
+ const referralSites=canReferCrossSite?(allVisitorSites||[]):(visitorSites||[]);
  const siteById=new Map((visitorSites||[]).map(s=>[s.id,s]));
  const hqSite=(allVisitorSites||[]).find(s=>s.is_hq)||null;
- const selectedSiteId=site==="all"&&isSenior?"all":siteById.has(site)?site:(isSenior?"all":visitorSites?.[0]?.id||hqSite?.id||"all");
+ const selectedSiteId=site==="all"&&canViewAllSites?"all":siteById.has(site)?site:(canViewAllSites?"all":visitorSites?.[0]?.id||hqSite?.id||"all");
  const memberIds=[...new Set([...(members||[]).map(m=>m.user_id),...(hostMembers||[]).map(m=>m.user_id)])];
  const {data:memberProfiles}=memberIds.length?await db.from("profiles").select("id,full_name,email,city,country").in("id",memberIds):{data:[]};
  const profileMap=new Map((memberProfiles||[]).map(p=>[p.id,p]));
@@ -60,6 +66,10 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
   .in("site_id",(visitorSites||[]).map(s=>s.id))
   .eq("is_active",true):{data:[]};
  const siteStaffMap=new Map((siteStaff||[]).map(x=>[x.site_id+":"+x.user_id,x]));
+ const {data:globalAccessProfiles}=isSenior?await db.from("visitor_access_profiles")
+  .select("user_id,site_scope,can_refer_cross_site,can_manage_site_access,updated_at")
+  .eq("organization_id",membership.organization_id):{data:[]};
+ const globalAccessMap=new Map((globalAccessProfiles||[]).map(x=>[x.user_id,x]));
  const effectiveSiteId=selectedSiteId==="all"?(hqSite?.id||""):selectedSiteId;
  const selectedSiteHostIds=new Set((siteStaff||[]).filter(x=>x.site_id===effectiveSiteId&&x.is_active).map(x=>x.user_id));
  const siteHostMembers=(hostMembers||[]).filter(m=>selectedSiteHostIds.has(m.user_id));
@@ -326,7 +336,8 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
     <span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-cyan-900">{fr?"Source : équipe commerciale":"Source: sales team"}</span>
    </div>
    <form action={createCantonCrmReferral} className="mt-4 grid gap-3 rounded-xl border border-cyan-200 bg-white p-4 lg:grid-cols-2 xl:grid-cols-3">
-    <input type="hidden" name="siteId" value={effectiveSiteId}/><label className="text-sm font-semibold text-slate-700">{fr?"Prospect CRM *":"CRM prospect *"}<CantonCrmProspectPicker locale={fr?"fr":"en"}/></label>
+    <label className="text-sm font-semibold text-slate-700">{fr?"Bureau de destination *":"Destination office *"}<select name="siteId" required defaultValue={effectiveSiteId} className={input}>{referralSites.map(s=><option key={s.id} value={s.id}>{s.name}{s.is_hq?" · HQ":""}</option>)}</select><span className="mt-1 block text-xs font-normal text-slate-500">{canReferCrossSite?(fr?"Vous êtes autorisé à référer vers d’autres sites.":"You are allowed to refer visitors to other sites."):(fr?"Seuls vos sites autorisés sont disponibles.":"Only your authorized sites are available.")}</span></label>
+    <label className="text-sm font-semibold text-slate-700">{fr?"Prospect CRM *":"CRM prospect *"}<CantonCrmProspectPicker locale={fr?"fr":"en"}/></label>
     <label className="text-sm font-semibold text-slate-700">{fr?"Visite / département *":"Visit / department *"}<select name="department" required defaultValue="DIG" className={input}><option value="DIG">DIG · {fr?"Visite terrain / immobilier":"Land / real-estate visit"}</option><option value="TCF">TCF · {fr?"Visite ferme":"Farm visit"}</option><option value="OTHER">{fr?"Autre visite commerciale":"Other commercial visit"}</option></select></label>
     <label className="text-sm font-semibold text-slate-700">{fr?"Date et heure Canton *":"Canton date & time *"}<input type="datetime-local" name="scheduled" required className={input}/></label>
     <label className="text-sm font-semibold text-slate-700">{fr?"Personne à rencontrer":"Host to meet"}<select name="hostUserId" defaultValue="" className={input}><option value="">{fr?"À attribuer":"Unassigned"}</option>{siteHostMembers.map(m=><option key={m.user_id} value={m.user_id}>{profileMap.get(m.user_id)?.full_name||profileMap.get(m.user_id)?.email||m.user_id}</option>)}</select><span className="mt-1 block text-xs font-normal text-slate-500">{fr?"Uniquement les membres affectés au site actif.":"Only staff assigned to the active site."}</span></label>
@@ -425,6 +436,28 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
    </details>}
   </section>}
   {isSenior&&<section data-canton-view="admin" className="space-y-5">
+   <section className="rounded-2xl border-2 border-violet-300 bg-violet-50 p-5">
+    <div className="flex flex-wrap items-start justify-between gap-3">
+     <div>
+      <p className="text-xs font-bold uppercase tracking-wider text-violet-700">{fr?"Contrôle des accès multi-sites":"Multi-site access control"}</p>
+      <h2 className="mt-1 text-xl font-bold text-violet-950">{fr?"Utilisateurs & accès aux sites":"Users & Site Access"}</h2>
+      <p className="mt-1 max-w-4xl text-sm text-violet-900">{fr?"Définissez qui reste limité aux sites affectés, qui peut voir tout le réseau et qui peut référer un visiteur vers un autre bureau. Les rôles locaux restent gérés site par site ci-dessous.":"Choose who stays limited to assigned sites, who can see the whole network, and who may refer a visitor to another office. Local roles remain managed site by site below."}</p>
+     </div>
+     <span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-violet-900">{(members||[]).length} {fr?"utilisateur(s)":"user(s)"}</span>
+    </div>
+    <div className="mt-4 space-y-2">
+     {(members||[]).map(m=>{const p=profileMap.get(m.user_id);const access=globalAccessMap.get(m.user_id);const protectedRole=["owner","admin"].includes(m.role);return <form action={manageVisitorGlobalAccess} key={m.user_id} className="grid gap-3 rounded-xl border border-violet-200 bg-white p-4 lg:grid-cols-[1.5fr_1fr_1fr_1fr_auto] lg:items-center">
+      <input type="hidden" name="userId" value={m.user_id}/>
+      <div><div className="font-semibold text-slate-900">{p?.full_name||p?.email||m.user_id}</div><div className="text-xs text-slate-500">{p?.email||""}{p?.email?" · ":""}{m.role}</div></div>
+      <label className="text-xs font-semibold text-slate-700">{fr?"Portée des sites":"Site scope"}<select name="siteScope" defaultValue={protectedRole?"all_sites":access?.site_scope||"assigned"} disabled={protectedRole} className={input}><option value="assigned">{fr?"Sites affectés":"Assigned sites"}</option><option value="all_sites">{fr?"Tous les sites":"All sites"}</option></select>{protectedRole&&<input type="hidden" name="siteScope" value="all_sites"/>}</label>
+      <label className="flex items-center gap-2 text-sm"><input type="checkbox" name="canReferCrossSite" value="yes" defaultChecked={protectedRole||!!access?.can_refer_cross_site} disabled={protectedRole}/><span>{fr?"Référence inter-site":"Cross-site referral"}</span>{protectedRole&&<input type="hidden" name="canReferCrossSite" value="yes"/>}</label>
+      <label className="flex items-center gap-2 text-sm"><input type="checkbox" name="canManageSiteAccess" value="yes" defaultChecked={protectedRole||!!access?.can_manage_site_access} disabled={protectedRole}/><span>{fr?"Gérer les accès":"Manage access"}</span>{protectedRole&&<input type="hidden" name="canManageSiteAccess" value="yes"/>}</label>
+      <button className="rounded-lg bg-violet-800 px-4 py-2 text-sm font-semibold text-white">{fr?"Enregistrer":"Save"}</button>
+     </form>})}
+    </div>
+    <p className="mt-3 text-xs text-violet-800">{fr?"Owner et Admin conservent automatiquement l’accès réseau complet. Chaque modification effectuée ici est journalisée.":"Owner and Admin automatically keep full network access. Every change made here is audited."}</p>
+   </section>
+
    <section className="rounded-2xl border-2 border-indigo-200 bg-indigo-50 p-5">
     <div className="flex flex-wrap items-start justify-between gap-3">
      <div><p className="text-xs font-bold uppercase tracking-wider text-indigo-700">{fr?"Configuration réseau":"Network configuration"}</p><h2 className="mt-1 text-xl font-bold text-indigo-950">{fr?"Bureaux & centres d’activité":"Offices & activity centers"}</h2><p className="mt-1 text-sm text-indigo-900">{fr?"Ajoutez les futurs bureaux, définissez leur fuseau horaire, leur adresse et leur équipe locale. Canton reste le HQ tant qu’un administrateur ne désigne pas explicitement un autre site.":"Add future offices, configure timezone, address and local team. Canton remains HQ until an administrator explicitly assigns another site."}</p></div>
