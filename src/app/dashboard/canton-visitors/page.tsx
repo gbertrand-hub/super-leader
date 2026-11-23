@@ -9,7 +9,7 @@ import {createCantonQrSite,reviewCantonQrIntake,updateCantonQrSiteAddress} from 
 import {redirect} from "next/navigation";
 import {createClient} from "@/lib/supabase/server";
 import {createAdminClient} from "@/lib/supabase/admin";
-import {createCantonAppointment,createCantonCrmReferral,updateCantonVisit,manageCantonReceptionStaff,assignCantonFollowUp,completeCantonFollowUp,createCantonNextAction,completeCantonNextAction,simulateCantonFeedbackInvitations,sendCantonQaEmailTest,markCantonArrivalAlertRead,saveCantonVisitDebrief,qualifyCantonLegacyProspect,createCantonSlaRecovery,completeCantonSlaRecovery,createVisitorSite,updateVisitorSite} from "@/app/actions/canton-visitors";
+import {createCantonAppointment,createCantonCrmReferral,updateCantonVisit,manageCantonReceptionStaff,assignCantonFollowUp,completeCantonFollowUp,createCantonNextAction,completeCantonNextAction,simulateCantonFeedbackInvitations,sendCantonQaEmailTest,markCantonArrivalAlertRead,saveCantonVisitDebrief,qualifyCantonLegacyProspect,createCantonSlaRecovery,completeCantonSlaRecovery,createVisitorSite,updateVisitorSite,manageVisitorSiteStaff} from "@/app/actions/canton-visitors";
 export const dynamic="force-dynamic";
 export default async function CantonVisitorPage({searchParams}:{searchParams:Promise<{error?:string;success?:string;q?:string;view?:string;site?:string;filter?:string}>}){
  const {error,success,q="",view="",site="",filter=""}=await searchParams;
@@ -425,6 +425,50 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
    </details>}
   </section>}
   {isSenior&&<section data-canton-view="admin" className="space-y-5">
+   <section className="rounded-2xl border-2 border-violet-200 bg-violet-50 p-5">
+    <div className="flex flex-wrap items-start justify-between gap-3">
+     <div>
+      <p className="text-xs font-bold uppercase tracking-wider text-violet-700">{fr?"Administration des accès":"Access administration"}</p>
+      <h2 className="mt-1 text-xl font-bold text-violet-950">{fr?"Utilisateurs & accès multi-sites":"Users & multi-site access"}</h2>
+      <p className="mt-1 max-w-4xl text-sm text-violet-900">{fr?"Attribuez à chaque utilisateur un ou plusieurs sites. Owner et Admin voient automatiquement tout le réseau. Pour les autres rôles, seuls les sites attribués apparaissent dans le sélecteur du Visitor Center.":"Assign one or more sites to each user. Owner and Admin automatically see the whole network. For other roles, only assigned sites appear in the Visitor Center selector."}</p>
+     </div>
+     <span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-violet-900">{(members||[]).length} {fr?"utilisateur(s) actif(s)":"active user(s)"}</span>
+    </div>
+    <div className="mt-4 space-y-3">
+     {(members||[]).map(m=>{const p=profileMap.get(m.user_id);const globalRole=["owner","admin"].includes(m.role);const assignedSites=(visitorSites||[]).filter(site=>siteStaffMap.has(site.id+":"+m.user_id));return <details key={m.user_id} className="rounded-xl border border-violet-200 bg-white">
+      <summary className="cursor-pointer list-none p-4">
+       <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+         <div className="font-semibold text-slate-900">{p?.full_name||p?.email||m.user_id}</div>
+         <div className="mt-1 text-xs text-slate-500">{p?.email||""}{p?.email?" · ":""}{m.role}</div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+         {globalRole?<span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-900">{fr?"Tous les sites · accès global":"All sites · global access"}</span>:<span className="rounded-full bg-violet-100 px-3 py-1 text-xs font-bold text-violet-900">{assignedSites.length} {fr?"site(s) attribué(s)":"assigned site(s)"}</span>}
+         <span className="rounded-lg border bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-600">{fr?"Configurer":"Configure"} ↓</span>
+        </div>
+       </div>
+      </summary>
+      <div className="border-t p-4">
+       {globalRole?<p className="rounded-lg bg-emerald-50 p-3 text-sm text-emerald-900">{fr?"Ce rôle dispose déjà d’un accès réseau complet. Aucune affectation locale supplémentaire n’est requise.":"This role already has full network access. No additional local assignment is required."}</p>:<div className="grid gap-3 lg:grid-cols-2">
+        {(visitorSites||[]).map(site=>{const current=siteStaffMap.get(site.id+":"+m.user_id);return <div key={site.id} className="rounded-xl border bg-slate-50 p-3">
+         <div className="flex flex-wrap items-start justify-between gap-2">
+          <div><div className="font-semibold text-slate-900">{site.name}{site.is_hq?" · HQ":""}</div><div className="text-xs text-slate-500">{site.city||"—"} · {site.country_code||"—"}</div></div>
+          {current?<span className="rounded-full bg-emerald-100 px-2 py-1 text-[10px] font-bold uppercase text-emerald-900">{current.access_role}</span>:<span className="rounded-full bg-slate-200 px-2 py-1 text-[10px] font-bold uppercase text-slate-600">{fr?"Sans accès":"No access"}</span>}
+         </div>
+         <form action={manageVisitorSiteStaff} className="mt-3 flex flex-wrap items-end gap-2">
+          <input type="hidden" name="siteId" value={site.id}/>
+          <input type="hidden" name="userId" value={m.user_id}/>
+          <label className="min-w-40 flex-1 text-xs font-semibold text-slate-700">{fr?"Rôle sur ce site":"Role on this site"}<select name="accessRole" defaultValue={current?.access_role||"host"} className={input}><option value="host">Host</option><option value="reception">{fr?"Réception":"Reception"}</option><option value="manager">Manager</option></select></label>
+          <button name="operation" value="grant" className="rounded-lg bg-violet-800 px-3 py-2 text-xs font-semibold text-white">{current?(fr?"Modifier":"Update"):(fr?"Autoriser":"Grant")}</button>
+          {current&&<button name="operation" value="revoke" className="rounded-lg bg-rose-100 px-3 py-2 text-xs font-semibold text-rose-900">{fr?"Retirer":"Remove"}</button>}
+         </form>
+        </div>})}
+       </div>}
+      </div>
+     </details>})}
+    </div>
+   </section>
+
    <section className="rounded-2xl border-2 border-indigo-200 bg-indigo-50 p-5">
     <div className="flex flex-wrap items-start justify-between gap-3">
      <div><p className="text-xs font-bold uppercase tracking-wider text-indigo-700">{fr?"Configuration réseau":"Network configuration"}</p><h2 className="mt-1 text-xl font-bold text-indigo-950">{fr?"Bureaux & centres d’activité":"Offices & activity centers"}</h2><p className="mt-1 text-sm text-indigo-900">{fr?"Ajoutez les futurs bureaux, définissez leur fuseau horaire, leur adresse et leur équipe locale. Canton reste le HQ tant qu’un administrateur ne désigne pas explicitement un autre site.":"Add future offices, configure timezone, address and local team. Canton remains HQ until an administrator explicitly assigns another site."}</p></div>
