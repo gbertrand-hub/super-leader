@@ -30,9 +30,17 @@ async function context(){
  const {data:reception}=await db.from("canton_reception_staff").select("user_id").eq("organization_id",m.organization_id).eq("user_id",user.id).maybeSingle();
  return {db,user,org:m.organization_id as string,role:m.role as string,isReception:!!reception};
 }
+async function visitorAccessProfile(ctx:Awaited<ReturnType<typeof context>>){
+ const {data}=await ctx.db.from("visitor_access_profiles")
+  .select("site_scope,can_refer_cross_site,can_manage_site_access")
+  .eq("organization_id",ctx.org).eq("user_id",ctx.user.id).maybeSingle();
+ return data;
+}
 async function canAccessVisitorSite(ctx:Awaited<ReturnType<typeof context>>,siteId:string|null){
  if(!siteId) return seniorRoles.has(ctx.role);
  if(seniorRoles.has(ctx.role)) return true;
+ const profile=await visitorAccessProfile(ctx);
+ if(profile?.site_scope==="all_sites") return true;
  const {data:assignment}=await ctx.db.from("visitor_site_staff").select("access_role")
   .eq("site_id",siteId).eq("user_id",ctx.user.id).eq("is_active",true).maybeSingle();
  if(assignment) return true;
@@ -44,6 +52,18 @@ async function canAccessVisitorSite(ctx:Awaited<ReturnType<typeof context>>,site
 }
 async function requireVisitorSiteAccess(ctx:Awaited<ReturnType<typeof context>>,siteId:string|null){
  if(!(await canAccessVisitorSite(ctx,siteId))) fail("You do not have access to this visitor site");
+}
+async function requireVisitorReferralAccess(ctx:Awaited<ReturnType<typeof context>>,siteId:string|null){
+ if(await canAccessVisitorSite(ctx,siteId)) return;
+ const profile=await visitorAccessProfile(ctx);
+ if(profile?.can_refer_cross_site) return;
+ fail("You do not have permission to refer visitors to another site");
+}
+async function auditVisitorAccess(ctx:Awaited<ReturnType<typeof context>>,targetUserId:string,siteId:string|null,action:string,beforeState:unknown,afterState:unknown){
+ await ctx.db.from("visitor_access_audit").insert({
+  organization_id:ctx.org,actor_user_id:ctx.user.id,target_user_id:targetUserId,site_id:siteId,
+  action,before_state:beforeState??null,after_state:afterState??null
+ });
 }
 
 export async function searchCantonCrmProspects(query:string){
@@ -85,7 +105,7 @@ export async function createCantonCrmReferral(f:FormData){
   const {data:hq}=await db.from("visitor_sites").select("id").eq("organization_id",org).eq("is_hq",true).eq("is_active",true).limit(1).maybeSingle();
   resolvedSiteId=hq?.id||null;
  }
- await requireVisitorSiteAccess(ctx,resolvedSiteId);
+ await requireVisitorReferralAccess(ctx,resolvedSiteId);
  const purpose=field(f,"purpose",100)||"commercial_visit";
  const scheduled=field(f,"scheduled");
  const hostUserId=field(f,"hostUserId",40);
@@ -419,9 +439,37 @@ export async function updateVisitorSite(f:FormData){
  redirect("/dashboard/canton-visitors?view=admin&success="+encodeURIComponent("Visitor site updated"));
 }
 
+export async function manageVisitorGlobalAccess(f:FormData){
+ assertCantonLive();
+ const ctx=await context();
+ const {db,org,role,user}=ctx;
+ if(!seniorRoles.has(role)) fail("Only administrators can manage global visitor access");
+ const userId=field(f,"userId",40);
+ const siteScope=field(f,"siteScope",20);
+ const canReferCrossSite=field(f,"canReferCrossSite",8)==="yes";
+ const canManageSiteAccess=field(f,"canManageSiteAccess",8)==="yes";
+ if(!/^[0-9a-f-]{36}$/i.test(userId)) fail("Invalid staff member");
+ if(!["assigned","all_sites"].includes(siteScope)) fail("Invalid site scope");
+ const {data:member}=await db.from("organization_members").select("user_id,role")
+  .eq("organization_id",org).eq("user_id",userId).eq("is_active",true).maybeSingle();
+ if(!member) fail("Staff member is not active in this organization");
+ const {data:before}=await db.from("visitor_access_profiles")
+  .select("site_scope,can_refer_cross_site,can_manage_site_access")
+  .eq("organization_id",org).eq("user_id",userId).maybeSingle();
+ const next={site_scope:siteScope,can_refer_cross_site:canReferCrossSite,can_manage_site_access:canManageSiteAccess};
+ const {error}=await db.from("visitor_access_profiles").upsert({
+  organization_id:org,user_id:userId,...next,updated_by:user.id,updated_at:new Date().toISOString()
+ },{onConflict:"organization_id,user_id"});
+ if(error) fail("Could not update global visitor access");
+ await auditVisitorAccess(ctx,userId,null,"global_access_updated",before,next);
+ revalidatePath(route);
+ redirect("/dashboard/canton-visitors?view=admin&success="+encodeURIComponent("Global visitor access updated"));
+}
+
 export async function manageVisitorSiteStaff(f:FormData){
  assertCantonLive();
- const {db,org,role}=await context();
+ const ctx=await context();
+ const {db,org,role}=ctx;
  if(!seniorRoles.has(role)) fail("Only administrators can manage site staff");
  const siteId=field(f,"siteId",40), userId=field(f,"userId",40), accessRole=field(f,"accessRole",20), operation=field(f,"operation",20);
  if(!/^[0-9a-f-]{36}$/i.test(siteId)||!/^[0-9a-f-]{36}$/i.test(userId)) fail("Invalid site or staff member");
@@ -429,12 +477,16 @@ export async function manageVisitorSiteStaff(f:FormData){
  const {data:site}=await db.from("visitor_sites").select("id").eq("id",siteId).eq("organization_id",org).eq("is_active",true).maybeSingle();
  const {data:member}=await db.from("organization_members").select("user_id").eq("organization_id",org).eq("user_id",userId).eq("is_active",true).maybeSingle();
  if(!site||!member) fail("Site or staff member is not active");
+ const {data:before}=await db.from("visitor_site_staff").select("access_role,is_active").eq("site_id",siteId).eq("user_id",userId).maybeSingle();
  if(operation==="grant"){
-  const {error}=await db.from("visitor_site_staff").upsert({site_id:siteId,user_id:userId,access_role:accessRole,is_active:true},{onConflict:"site_id,user_id"});
+  const next={access_role:accessRole,is_active:true};
+  const {error}=await db.from("visitor_site_staff").upsert({site_id:siteId,user_id:userId,...next},{onConflict:"site_id,user_id"});
   if(error) fail("Could not assign site staff");
+  await auditVisitorAccess(ctx,userId,siteId,"site_access_granted",before,next);
  }else if(operation==="revoke"){
   const {error}=await db.from("visitor_site_staff").delete().eq("site_id",siteId).eq("user_id",userId);
   if(error) fail("Could not remove site staff");
+  await auditVisitorAccess(ctx,userId,siteId,"site_access_revoked",before,null);
  }else fail("Invalid operation");
  revalidatePath(route);
  redirect("/dashboard/canton-visitors?view=admin&success="+encodeURIComponent("Site staff updated"));
