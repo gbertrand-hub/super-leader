@@ -27,8 +27,15 @@ foreach ($key in @("CANTON_LOCAL_QA_WRITE_ENABLED","CANTON_VISITOR_ENABLE_LIVE",
 }
 
 if ($env:VERCEL_ENV) { throw "BLOCKED: VERCEL_ENV is set. Local QA testing requires it to be unset." }
+$port = 3211
+$expectedSiteUrl = "http://localhost:$port"
+if ([string]$values["NEXT_PUBLIC_SITE_URL"] -ne $expectedSiteUrl) {
+    throw "NEXT_PUBLIC_SITE_URL must be $expectedSiteUrl in this QA .env.local."
+}
+$nextCmd = Join-Path $root "node_modules\.bin\next.cmd"
+if (!(Test-Path $nextCmd)) { throw "Next.js is not installed. Run npm ci from this QA worktree first." }
 $env:NODE_ENV = "development"
 Write-Host "QA target verified: $ref" -ForegroundColor Green
-Write-Host "Starting local server on http://localhost:3002 (QA only)" -ForegroundColor Green
+Write-Host "Starting local server on $expectedSiteUrl (QA only)" -ForegroundColor Green
 Set-Location $root
-npm run dev
+& $nextCmd dev -p $port
