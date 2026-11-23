@@ -27,12 +27,25 @@ export function cantonProductionEnabled(): boolean {
     && process.env.CANTON_PRODUCTION_RELEASE_APPROVED === "true";
 }
 
+/** Local QA write test: fail closed on every production or hosted environment.
+ * Intentionally only exists on test/v4-10-139-local-qa-write.
+ * Never enable local writes while pointing at the production project.
+ */
+export function cantonLocalQaWriteEnabled(): boolean {
+  return process.env.NODE_ENV === "development"
+    && !process.env.VERCEL_ENV
+    && projectRef() === QA_PROJECT_REF
+    && process.env.CANTON_LOCAL_QA_WRITE_ENABLED === "true"
+    && process.env.CANTON_VISITOR_ENABLE_LIVE === "true"
+    && process.env.CANTON_TEST_DATABASE_READY === "true";
+}
+
 export function cantonLiveEnabled(): boolean {
   const qaLive = cantonAuthTestEnabled()
     && process.env.CANTON_VISITOR_ENABLE_LIVE === "true"
     && process.env.CANTON_TEST_DATABASE_READY === "true";
 
-  return qaLive || cantonProductionEnabled();
+  return cantonLocalQaWriteEnabled() || qaLive || cantonProductionEnabled();
 }
 
 
