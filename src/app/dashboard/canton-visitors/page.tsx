@@ -11,8 +11,8 @@ import {createClient} from "@/lib/supabase/server";
 import {createAdminClient} from "@/lib/supabase/admin";
 import {createCantonAppointment,createCantonCrmReferral,updateCantonVisit,manageCantonReceptionStaff,assignCantonFollowUp,completeCantonFollowUp,createCantonNextAction,completeCantonNextAction,simulateCantonFeedbackInvitations,sendCantonQaEmailTest,markCantonArrivalAlertRead,saveCantonVisitDebrief,qualifyCantonLegacyProspect,createCantonSlaRecovery,completeCantonSlaRecovery,createVisitorSite,updateVisitorSite,manageVisitorSiteStaff} from "@/app/actions/canton-visitors";
 export const dynamic="force-dynamic";
-export default async function CantonVisitorPage({searchParams}:{searchParams:Promise<{error?:string;success?:string;q?:string;view?:string;site?:string;filter?:string}>}){
- const {error,success,q="",view="",site="",filter=""}=await searchParams;
+export default async function CantonVisitorPage({searchParams}:{searchParams:Promise<{error?:string;success?:string;q?:string;view?:string;site?:string;filter?:string;accessQ?:string;accessPage?:string}>}){
+ const {error,success,q="",view="",site="",filter="",accessQ="",accessPage="1"}=await searchParams;
  const {locale}=await getI18n();const fr=locale==="fr";
  if (!cantonUiPreviewEnabled()) return <main className="mx-auto max-w-2xl p-8"><h1 className="text-2xl font-bold">Canton Visitor Center</h1><p className="mt-3 rounded-lg bg-amber-50 p-4 text-amber-900">Real operations are disabled in this preview until the separate QA database, authentication, and access controls pass end-to-end testing.</p><a href="/canton-demo" className="mt-4 inline-block underline">Open the simulation</a></main>;
  const host=(await headers()).get("host")||"";
@@ -51,7 +51,28 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
  const siteById=new Map((visitorSites||[]).map(s=>[s.id,s]));
  const hqSite=(allVisitorSites||[]).find(s=>s.is_hq)||null;
  const selectedSiteId=site==="all"&&isSenior?"all":siteById.has(site)?site:(isSenior?"all":visitorSites?.[0]?.id||hqSite?.id||"all");
- const memberIds=[...new Set([...(members||[]).map(m=>m.user_id),...(hostMembers||[]).map(m=>m.user_id)])];
+ const normalizedAccessQ=accessQ.trim().slice(0,120);
+ const accessPageSize=25;
+ const requestedAccessPage=Math.max(1,Number.parseInt(accessPage,10)||1);
+ let accessProfileIds:string[]|null=null;
+ if(isSenior&&normalizedAccessQ){
+  const safeSearch=normalizedAccessQ.replace(/[%_,()]/g," ").trim();
+  if(safeSearch){
+   const {data:profileHits}=await db.from("profiles").select("id")
+    .or(`full_name.ilike.%${safeSearch}%,email.ilike.%${safeSearch}%`).limit(500);
+   accessProfileIds=(profileHits||[]).map(p=>p.id);
+  }else accessProfileIds=[];
+ }
+ let accessMembersQuery=db.from("organization_members").select("user_id,role",{count:"exact"})
+  .eq("organization_id",membership.organization_id).eq("is_active",true);
+ if(accessProfileIds!==null) accessMembersQuery=accessProfileIds.length?accessMembersQuery.in("user_id",accessProfileIds):accessMembersQuery.in("user_id",["00000000-0000-0000-0000-000000000000"]);
+ const accessStart=(requestedAccessPage-1)*accessPageSize;
+ const {data:accessMembers,count:accessMemberCount}=isSenior
+  ?await accessMembersQuery.order("user_id",{ascending:true}).range(accessStart,accessStart+accessPageSize-1)
+  :{data:[],count:0};
+ const accessTotalPages=Math.max(1,Math.ceil((accessMemberCount||0)/accessPageSize));
+ const effectiveAccessPage=Math.min(requestedAccessPage,accessTotalPages);
+ const memberIds=[...new Set([...(members||[]).map(m=>m.user_id),...(hostMembers||[]).map(m=>m.user_id),...(accessMembers||[]).map(m=>m.user_id)])];
  const {data:memberProfiles}=memberIds.length?await db.from("profiles").select("id,full_name,email,city,country").in("id",memberIds):{data:[]};
  const profileMap=new Map((memberProfiles||[]).map(p=>[p.id,p]));
  const assignedIds=new Set((staffAssignments||[]).map(p=>p.user_id));
@@ -60,6 +81,11 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
   .in("site_id",(visitorSites||[]).map(s=>s.id))
   .eq("is_active",true):{data:[]};
  const siteStaffMap=new Map((siteStaff||[]).map(x=>[x.site_id+":"+x.user_id,x]));
+ const accessUserIds=(accessMembers||[]).map(m=>m.user_id);
+ const {data:adminAccessAssignments}=isSenior&&accessUserIds.length
+  ?await db.from("visitor_site_staff").select("site_id,user_id,access_role,is_active").in("user_id",accessUserIds).eq("is_active",true)
+  :{data:[]};
+ const adminAccessMap=new Map((adminAccessAssignments||[]).map(x=>[x.site_id+":"+x.user_id,x]));
  const effectiveSiteId=selectedSiteId==="all"?(hqSite?.id||""):selectedSiteId;
  const selectedSiteHostIds=new Set((siteStaff||[]).filter(x=>x.site_id===effectiveSiteId&&x.is_active).map(x=>x.user_id));
  const siteHostMembers=(hostMembers||[]).filter(m=>selectedSiteHostIds.has(m.user_id));
@@ -432,10 +458,25 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
       <h2 className="mt-1 text-xl font-bold text-violet-950">{fr?"Utilisateurs & accès multi-sites":"Users & multi-site access"}</h2>
       <p className="mt-1 max-w-4xl text-sm text-violet-900">{fr?"Attribuez à chaque utilisateur un ou plusieurs sites. Owner et Admin voient automatiquement tout le réseau. Pour les autres rôles, seuls les sites attribués apparaissent dans le sélecteur du Visitor Center.":"Assign one or more sites to each user. Owner and Admin automatically see the whole network. For other roles, only assigned sites appear in the Visitor Center selector."}</p>
      </div>
-     <span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-violet-900">{(members||[]).length} {fr?"utilisateur(s) actif(s)":"active user(s)"}</span>
+     <span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-violet-900">{accessMemberCount||0} {fr?"utilisateur(s) actif(s)":"active user(s)"}</span>
+    </div>
+    <form method="get" className="mt-4 flex flex-wrap items-end gap-2 rounded-xl border border-violet-200 bg-white p-3">
+     <input type="hidden" name="view" value="admin"/>
+     <input type="hidden" name="site" value={selectedSiteId}/>
+     <label className="min-w-[260px] flex-1 text-sm font-semibold text-slate-700">{fr?"Rechercher un utilisateur":"Search users"}<input name="accessQ" defaultValue={normalizedAccessQ} className={input} placeholder={fr?"Nom ou email":"Name or email"}/></label>
+     <button className="rounded-lg bg-violet-800 px-4 py-2 text-sm font-semibold text-white">{fr?"Rechercher":"Search"}</button>
+     {normalizedAccessQ&&<Link href={`/dashboard/canton-visitors?view=admin&site=${encodeURIComponent(selectedSiteId)}`} className="rounded-lg border px-4 py-2 text-sm font-semibold">{fr?"Effacer":"Clear"}</Link>}
+    </form>
+    <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-xs text-violet-900">
+     <span>{fr?"Affichage":"Showing"} {accessMemberCount?Math.min(accessStart+1,accessMemberCount):0}-{Math.min(accessStart+accessPageSize,accessMemberCount||0)} {fr?"sur":"of"} {accessMemberCount||0}</span>
+     <div className="flex gap-2">
+      {effectiveAccessPage>1&&<Link className="rounded border bg-white px-3 py-2 font-semibold" href={`/dashboard/canton-visitors?view=admin&site=${encodeURIComponent(selectedSiteId)}&accessQ=${encodeURIComponent(normalizedAccessQ)}&accessPage=${effectiveAccessPage-1}`}>← {fr?"Précédent":"Previous"}</Link>}
+      <span className="rounded bg-violet-100 px-3 py-2 font-semibold">{fr?"Page":"Page"} {effectiveAccessPage}/{accessTotalPages}</span>
+      {effectiveAccessPage<accessTotalPages&&<Link className="rounded border bg-white px-3 py-2 font-semibold" href={`/dashboard/canton-visitors?view=admin&site=${encodeURIComponent(selectedSiteId)}&accessQ=${encodeURIComponent(normalizedAccessQ)}&accessPage=${effectiveAccessPage+1}`}>{fr?"Suivant":"Next"} →</Link>}
+     </div>
     </div>
     <div className="mt-4 space-y-3">
-     {(members||[]).map(m=>{const p=profileMap.get(m.user_id);const globalRole=["owner","admin"].includes(m.role);const assignedSites=(visitorSites||[]).filter(site=>siteStaffMap.has(site.id+":"+m.user_id));return <details key={m.user_id} className="rounded-xl border border-violet-200 bg-white">
+     {(accessMembers||[]).map(m=>{const p=profileMap.get(m.user_id);const globalRole=["owner","admin"].includes(m.role);const assignedSites=(visitorSites||[]).filter(site=>adminAccessMap.has(site.id+":"+m.user_id));return <details key={m.user_id} className="rounded-xl border border-violet-200 bg-white">
       <summary className="cursor-pointer list-none p-4">
        <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
@@ -450,7 +491,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
       </summary>
       <div className="border-t p-4">
        {globalRole?<p className="rounded-lg bg-emerald-50 p-3 text-sm text-emerald-900">{fr?"Ce rôle dispose déjà d’un accès réseau complet. Aucune affectation locale supplémentaire n’est requise.":"This role already has full network access. No additional local assignment is required."}</p>:<div className="grid gap-3 lg:grid-cols-2">
-        {(visitorSites||[]).map(site=>{const current=siteStaffMap.get(site.id+":"+m.user_id);return <div key={site.id} className="rounded-xl border bg-slate-50 p-3">
+        {(visitorSites||[]).map(site=>{const current=adminAccessMap.get(site.id+":"+m.user_id);return <div key={site.id} className="rounded-xl border bg-slate-50 p-3">
          <div className="flex flex-wrap items-start justify-between gap-2">
           <div><div className="font-semibold text-slate-900">{site.name}{site.is_hq?" · HQ":""}</div><div className="text-xs text-slate-500">{site.city||"—"} · {site.country_code||"—"}</div></div>
           {current?<span className="rounded-full bg-emerald-100 px-2 py-1 text-[10px] font-bold uppercase text-emerald-900">{current.access_role}</span>:<span className="rounded-full bg-slate-200 px-2 py-1 text-[10px] font-bold uppercase text-slate-600">{fr?"Sans accès":"No access"}</span>}
