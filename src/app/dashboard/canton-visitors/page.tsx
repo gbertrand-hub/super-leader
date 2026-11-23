@@ -3,6 +3,7 @@ import {getI18n} from "@/i18n/server";
 import {CantonLanguageSwitch} from "@/components/canton/canton-language-switch";
 import {CantonSiteStaffManager} from "@/components/canton/canton-site-staff-manager";
 import {CantonCrmProspectPicker} from "@/components/canton/canton-crm-prospect-picker";
+import {CantonAccessSearch} from "@/components/canton/canton-access-search";
 import Link from "next/link";
 import {headers} from "next/headers";
 import {createCantonQrSite,reviewCantonQrIntake,updateCantonQrSiteAddress} from "@/app/actions/canton-qr";
@@ -451,22 +452,25 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
    </details>}
   </section>}
   {isSenior&&<section data-canton-view="admin" className="space-y-5">
-   <section className="rounded-2xl border-2 border-violet-200 bg-violet-50 p-5">
-    <div className="flex flex-wrap items-start justify-between gap-3">
-     <div>
-      <p className="text-xs font-bold uppercase tracking-wider text-violet-700">{fr?"Administration des accès":"Access administration"}</p>
-      <h2 className="mt-1 text-xl font-bold text-violet-950">{fr?"Utilisateurs & accès multi-sites":"Users & multi-site access"}</h2>
-      <p className="mt-1 max-w-4xl text-sm text-violet-900">{fr?"Attribuez à chaque utilisateur un ou plusieurs sites. Owner et Admin voient automatiquement tout le réseau. Pour les autres rôles, seuls les sites attribués apparaissent dans le sélecteur du Visitor Center.":"Assign one or more sites to each user. Owner and Admin automatically see the whole network. For other roles, only assigned sites appear in the Visitor Center selector."}</p>
+   <details className="rounded-2xl border-2 border-violet-200 bg-violet-50" open={!!normalizedAccessQ}>
+    <summary className="cursor-pointer list-none p-4">
+     <div className="flex flex-wrap items-center justify-between gap-3">
+      <div>
+       <p className="text-xs font-bold uppercase tracking-wider text-violet-700">{fr?"Administration des accès":"Access administration"}</p>
+       <h2 className="mt-1 text-lg font-bold text-violet-950">{fr?"Utilisateurs & accès multi-sites":"Users & multi-site access"}</h2>
+       <p className="mt-1 text-xs text-violet-800">{fr?"Ouvrez uniquement pour attribuer ou modifier les accès par site.":"Open only when you need to assign or change site access."}</p>
+      </div>
+      <div className="flex items-center gap-2">
+       <span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-violet-900">{accessMemberCount||0} {fr?"utilisateur(s)":"user(s)"}</span>
+       <span className="rounded-lg border bg-white px-3 py-2 text-xs font-semibold text-violet-900">{fr?"Gérer les accès":"Manage access"} ↓</span>
+      </div>
      </div>
-     <span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-violet-900">{accessMemberCount||0} {fr?"utilisateur(s) actif(s)":"active user(s)"}</span>
-    </div>
-    <form method="get" className="mt-4 flex flex-wrap items-end gap-2 rounded-xl border border-violet-200 bg-white p-3">
-     <input type="hidden" name="view" value="admin"/>
-     <input type="hidden" name="site" value={selectedSiteId}/>
-     <label className="min-w-[260px] flex-1 text-sm font-semibold text-slate-700">{fr?"Rechercher un utilisateur":"Search users"}<input name="accessQ" defaultValue={normalizedAccessQ} className={input} placeholder={fr?"Nom ou email":"Name or email"}/></label>
-     <button className="rounded-lg bg-violet-800 px-4 py-2 text-sm font-semibold text-white">{fr?"Rechercher":"Search"}</button>
-     {normalizedAccessQ&&<Link href={`/dashboard/canton-visitors?view=admin&site=${encodeURIComponent(selectedSiteId)}`} className="rounded-lg border px-4 py-2 text-sm font-semibold">{fr?"Effacer":"Clear"}</Link>}
-    </form>
+    </summary>
+    <div className="border-t border-violet-200 p-4">
+     <div className="rounded-xl border border-violet-200 bg-white p-3">
+      <div className="mb-2 text-xs font-semibold text-slate-600">{fr?"Rechercher par nom ou email":"Search by name or email"}</div>
+      <CantonAccessSearch initialValue={normalizedAccessQ} placeholder={fr?"Commencez à saisir...":"Start typing..."} clearLabel={fr?"Effacer":"Clear"}/>
+     </div>
     <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-xs text-violet-900">
      <span>{fr?"Affichage":"Showing"} {accessMemberCount?Math.min(accessStart+1,accessMemberCount):0}-{Math.min(accessStart+accessPageSize,accessMemberCount||0)} {fr?"sur":"of"} {accessMemberCount||0}</span>
      <div className="flex gap-2">
@@ -508,7 +512,8 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
       </div>
      </details>})}
     </div>
-   </section>
+    </div>
+   </details>
 
    <section className="rounded-2xl border-2 border-indigo-200 bg-indigo-50 p-5">
     <div className="flex flex-wrap items-start justify-between gap-3">
