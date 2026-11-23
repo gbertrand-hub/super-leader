@@ -532,12 +532,6 @@ export const DASHBOARD_NAVIGATION_SECTIONS: DashboardNavigationSection[] = [
         featureKey: "academy",
       },
       {
-        labelKey: "navigation.academyOverview",
-        href: "/dashboard/academy",
-        icon: "academy",
-        featureKey: "academy",
-      },
-      {
         labelKey: "navigation.academyStudents",
         label: {fr: "Centre financier étudiants", en: "Student finance center"},
         href: "/dashboard/academy/students/finance-control",
