@@ -1,3 +1,4 @@
+import {cantonLocalQaWriteEnabled} from "@/lib/canton/feature-gate";
 import Link from "next/link";
 import {redirect} from "next/navigation";
 import {signOutAction} from "@/app/actions/auth";
@@ -21,6 +22,8 @@ import {createAdminClient} from "@/lib/supabase/admin";
 import {createClient} from "@/lib/supabase/server";
 
 export default async function DashboardPage() {
+  // Local Canton QA uses a minimal schema and should open the targeted module.
+  if (cantonLocalQaWriteEnabled()) redirect("/dashboard/canton-visitors");
   const supabase = await createClient();
   const {data, error} = await supabase.auth.getUser();
   if (error || !data.user) redirect("/login");
