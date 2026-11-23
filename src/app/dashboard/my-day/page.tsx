@@ -1,3 +1,4 @@
+import {cantonLocalQaWriteEnabled} from "@/lib/canton/feature-gate";
 import type {ReactNode} from "react";
 import Link from "next/link";
 import {redirect} from "next/navigation";
@@ -293,6 +294,9 @@ function workdaysInYear(start: string, end: string, year: number) {
 }
 
 export default async function MyDayPage({searchParams}: PageProps) {
+  // The local Canton QA database is intentionally a minimal fixture, not the full app.
+  // Keep general My Day queries off that database while QA operators test Canton.
+  if (cantonLocalQaWriteEnabled()) redirect("/dashboard/canton-visitors");
   const params = (await searchParams) ?? {};
   const firstParam = (value: string | string[] | undefined) => Array.isArray(value) ? value[0] ?? "" : value ?? "";
   const contactUserId = firstParam(params.contact);
