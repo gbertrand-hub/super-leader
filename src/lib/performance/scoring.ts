@@ -1,0 +1,399 @@
+export type PerformanceSettings = {
+  timezone: string;
+  default_start_time: string;
+  default_end_time: string;
+  grace_minutes: number;
+  report_deadline_time: string;
+  report_lock_enabled?: boolean;
+  maximum_reopen_hours?: number;
+  maximum_reopenings_per_day?: number;
+  reopened_report_score_percent?: number | string;
+  supervisor_report_score_percent?: number | string;
+  minimum_work_days: number;
+  minimum_report_rate: number | string;
+  minimum_score: number | string;
+  maximum_unexcused_absences: number;
+  attendance_weight: number | string;
+  punctuality_weight: number | string;
+  meetings_weight: number | string;
+  reports_weight: number | string;
+  collaboration_weight: number | string;
+  training_weight: number | string;
+  role_kpi_weight: number | string;
+};
+
+export type MemberSchedule = {
+  user_id: string;
+  timezone: string;
+  work_days: number[];
+  start_time: string;
+  end_time: string;
+  grace_minutes: number;
+  report_deadline_time: string;
+  supervisor_id?: string | null;
+  work_policy?: "fixed" | "flexible" | "autonomous";
+  start_window_from?: string;
+  start_window_until?: string;
+  daily_target_minutes?: number;
+  weekly_target_minutes?: number;
+  core_hours_start?: string | null;
+  core_hours_end?: string | null;
+  latest_end_time?: string | null;
+  allow_overnight?: boolean;
+  pause_tracking_enabled?: boolean;
+  short_day_justification_required?: boolean;
+  report_required_before_clock_out?: boolean;
+  attendance_tracking_required?: boolean;
+  employee_alert_delay_minutes?: number;
+  supervisor_alert_delay_minutes?: number;
+  effective_from: string;
+  effective_to: string | null;
+  is_active: boolean;
+};
+
+export type WorkScheduleEntry = {
+  user_id: string;
+  work_date: string;
+  status: string;
+  work_mode: string;
+  report_required: boolean;
+};
+
+export type AttendanceRecord = {
+  user_id: string;
+  work_date: string;
+  status: string;
+  late_minutes: number;
+};
+
+export type LeaveRequest = {
+  user_id: string;
+  start_date: string;
+  end_date: string;
+  status: string;
+};
+
+export type DailyReportRecord = {
+  user_id: string;
+  report_date: string;
+  status: string;
+  submission_mode?: "employee" | "reopened_employee" | "supervisor" | string;
+  submission_score_factor?: number | string | null;
+};
+
+export type MeetingRecord = {
+  id: string;
+  mandatory: boolean;
+  starts_at: string;
+};
+
+export type MeetingAttendanceRecord = {
+  meeting_id: string;
+  user_id: string;
+  status: string;
+};
+
+export type FeedbackRecord = {
+  recipient_id: string;
+  score: number;
+  created_at: string;
+};
+
+export type RecognitionRecord = {
+  recipient_id: string;
+  created_at: string;
+};
+
+export type TrainingRecord = {
+  user_id: string;
+  course_id: string;
+  status: string;
+  training_month: string;
+  is_required: boolean;
+};
+
+export type KpiScoreRecord = {
+  user_id: string;
+  score: number | string;
+};
+
+export type GrowthScoreInput = {
+  approvedCredits: number;
+  targetCredits: number;
+  bonusWeight: number;
+  maxMonthlyCredits: number;
+};
+
+export type ScoreInput = {
+  userId: string;
+  month: string;
+  today: string;
+  settings: PerformanceSettings;
+  schedule?: MemberSchedule | null;
+  scheduleEntries?: WorkScheduleEntry[];
+  attendance: AttendanceRecord[];
+  leaves: LeaveRequest[];
+  reports: DailyReportRecord[];
+  meetings: MeetingRecord[];
+  meetingAttendance: MeetingAttendanceRecord[];
+  feedback: FeedbackRecord[];
+  recognitions: RecognitionRecord[];
+  trainings?: TrainingRecord[];
+  kpi?: KpiScoreRecord | null;
+  growth?: GrowthScoreInput | null;
+};
+
+export type CalculatedPerformanceScore = {
+  attendanceScore: number;
+  punctualityScore: number;
+  meetingsScore: number;
+  reportsScore: number;
+  collaborationScore: number;
+  trainingScore: number;
+  roleKpiScore: number;
+  growthScore: number;
+  growthCredits: number;
+  totalScore: number;
+  scheduledDays: number;
+  attendedDays: number;
+  lateDays: number;
+  unexcusedAbsences: number;
+  reportsExpected: number;
+  reportsSubmitted: number;
+  mandatoryMeetings: number;
+  meetingsAttended: number;
+  trainingsRequired: number;
+  trainingsCompleted: number;
+  reportRate: number;
+  eligible: boolean;
+  eligibilityNote: string;
+};
+
+function round(value: number, precision = 2) {
+  const factor = 10 ** precision;
+  return Math.round((value + Number.EPSILON) * factor) / factor;
+}
+
+function toNumber(value: number | string | null | undefined, fallback = 0) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
+}
+
+function dateRange(start: string, end: string) {
+  const dates: string[] = [];
+  const cursor = new Date(`${start}T00:00:00Z`);
+  const last = new Date(`${end}T00:00:00Z`);
+  while (cursor <= last) {
+    dates.push(cursor.toISOString().slice(0, 10));
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  return dates;
+}
+
+function isoWeekday(date: string) {
+  const day = new Date(`${date}T00:00:00Z`).getUTCDay();
+  return day === 0 ? 7 : day;
+}
+
+function monthBounds(month: string, today: string) {
+  const start = `${month}-01`;
+  const [year, monthNumber] = month.split("-").map(Number);
+  const monthEnd = new Date(Date.UTC(year, monthNumber, 0)).toISOString().slice(0, 10);
+  if (today < start) return {start, end: ""};
+  if (today <= monthEnd) {
+    const previousDay = new Date(`${today}T00:00:00Z`);
+    previousDay.setUTCDate(previousDay.getUTCDate() - 1);
+    const end = previousDay.toISOString().slice(0, 10);
+    return {start, end: end < start ? "" : end};
+  }
+  return {start, end: monthEnd};
+}
+
+function overlapsDate(date: string, leave: LeaveRequest) {
+  return leave.status === "approved" && date >= leave.start_date && date <= leave.end_date;
+}
+
+function reportValue(report: DailyReportRecord | undefined) {
+  if (!report) return 0;
+  const explicitFactor = Number(report.submission_score_factor);
+  let value = Number.isFinite(explicitFactor)
+    ? Math.min(1, Math.max(0, explicitFactor))
+    : ["on_time", "validated", "submitted", "supervisor_completed"].includes(report.status)
+      ? 1
+      : report.status === "late"
+        ? 0.75
+        : ["incomplete", "needs_revision"].includes(report.status)
+          ? 0.5
+          : 0;
+
+  if (["incomplete", "needs_revision"].includes(report.status)) value = Math.min(value, 0.5);
+  return value;
+}
+
+function meetingValue(status: string) {
+  if (status === "present") return 1;
+  if (status === "late") return 0.75;
+  return 0;
+}
+
+export function calculatePerformanceScore(input: ScoreInput): CalculatedPerformanceScore {
+  const {start, end} = monthBounds(input.month, input.today);
+  const settings = input.settings;
+  const schedule = input.schedule;
+  const workDays = schedule?.work_days?.length ? schedule.work_days : [1, 2, 3, 4, 5];
+  const effectiveFrom = schedule?.effective_from ?? start;
+  const effectiveTo = schedule?.effective_to ?? end;
+
+  const candidateDates = end ? dateRange(start, end) : [];
+  const detailedByDate = new Map(
+    (input.scheduleEntries ?? [])
+      .filter((entry) => entry.user_id === input.userId)
+      .map((entry) => [entry.work_date, entry]),
+  );
+  const scheduledDates = candidateDates.filter((date) => {
+    const detailed = detailedByDate.get(date);
+    const planned = detailed
+      ? detailed.status === "published" && detailed.work_mode !== "off"
+      : workDays.includes(isoWeekday(date)) && date >= effectiveFrom && (!effectiveTo || date <= effectiveTo);
+    if (!planned) return false;
+    return !input.leaves.some((leave) => leave.user_id === input.userId && overlapsDate(date, leave));
+  });
+  const reportDates = scheduledDates.filter((date) => {
+    const detailed = detailedByDate.get(date);
+    return detailed ? detailed.report_required : true;
+  });
+
+  const attendanceByDate = new Map(
+    input.attendance
+      .filter((row) => row.user_id === input.userId)
+      .map((row) => [row.work_date, row]),
+  );
+
+  const attendanceRows = scheduledDates
+    .map((date) => attendanceByDate.get(date))
+    .filter((row): row is AttendanceRecord => Boolean(row));
+  const attendedRows = attendanceRows.filter((row) => ["present", "late", "remote"].includes(row.status));
+  const lateRows = attendedRows.filter((row) => row.status === "late" || row.late_minutes > 0);
+  const scheduledDays = scheduledDates.length;
+  const attendedDays = attendedRows.length;
+  const lateDays = lateRows.length;
+  const unexcusedAbsences = Math.max(0, scheduledDays - attendedDays);
+
+  const attendanceWeight = toNumber(settings.attendance_weight, 20);
+  const punctualityWeight = toNumber(settings.punctuality_weight, 15);
+  const meetingsWeight = toNumber(settings.meetings_weight, 10);
+  const reportsWeight = toNumber(settings.reports_weight, 15);
+  const collaborationWeight = toNumber(settings.collaboration_weight, 10);
+  const trainingWeight = toNumber(settings.training_weight, 10);
+  const roleKpiWeight = toNumber(settings.role_kpi_weight, 20);
+
+  const attendanceScore = scheduledDays ? (attendedDays / scheduledDays) * attendanceWeight : 0;
+  const punctualityScore = attendedDays
+    ? ((attendedDays - lateDays) / attendedDays) * punctualityWeight
+    : 0;
+
+  const reportByDate = new Map(
+    input.reports
+      .filter((row) => row.user_id === input.userId)
+      .map((row) => [row.report_date, row]),
+  );
+  const reportValues = reportDates.map((date) => reportValue(reportByDate.get(date)));
+  const reportsExpected = reportDates.length;
+  const reportsSubmitted = reportValues.filter((value) => value > 0).length;
+  const reportRate = reportsExpected ? (reportsSubmitted / reportsExpected) * 100 : 0;
+  const reportsScore = reportsExpected
+    ? (reportValues.reduce<number>((sum, value) => sum + value, 0) / reportsExpected) * reportsWeight
+    : 0;
+
+  const meetingIds = new Set(
+    input.meetings
+      .filter((meeting) => meeting.mandatory && meeting.starts_at.slice(0, 7) === input.month)
+      .map((meeting) => meeting.id),
+  );
+  const assignedMeetingRows = input.meetingAttendance.filter(
+    (row) => row.user_id === input.userId && meetingIds.has(row.meeting_id),
+  );
+  const relevantMeetingRows = assignedMeetingRows.filter((row) => row.status !== "excused");
+  const mandatoryMeetings = relevantMeetingRows.length;
+  const meetingsAttended = relevantMeetingRows.filter((row) => ["present", "late"].includes(row.status)).length;
+  const meetingsScore = mandatoryMeetings
+    ? (relevantMeetingRows.reduce((sum, row) => sum + meetingValue(row.status), 0) / mandatoryMeetings) * meetingsWeight
+    : meetingsWeight;
+
+  const monthFeedback = input.feedback.filter(
+    (row) => row.recipient_id === input.userId && row.created_at.slice(0, 7) === input.month,
+  );
+  const feedbackAverage = monthFeedback.length
+    ? monthFeedback.reduce((sum, row) => sum + Number(row.score), 0) / monthFeedback.length
+    : 0;
+  const monthRecognitions = input.recognitions.filter(
+    (row) => row.recipient_id === input.userId && row.created_at.slice(0, 7) === input.month,
+  ).length;
+  const feedbackPart = monthFeedback.length ? (feedbackAverage / 5) * 0.7 : 0;
+  const recognitionPart = (Math.min(monthRecognitions, 5) / 5) * 0.3;
+  const collaborationScore = (feedbackPart + recognitionPart) * collaborationWeight;
+
+  const monthlyRequiredTrainings = (input.trainings ?? []).filter(
+    (row) => row.user_id === input.userId && row.is_required && row.training_month.slice(0, 7) === input.month,
+  );
+  const trainingsRequired = monthlyRequiredTrainings.length;
+  const trainingsCompleted = monthlyRequiredTrainings.filter((row) => ["completed", "exempted"].includes(row.status)).length;
+  const trainingScore = trainingsRequired
+    ? (trainingsCompleted / trainingsRequired) * trainingWeight
+    : trainingWeight;
+
+  const rawKpiScore = toNumber(input.kpi?.score, 0);
+  const roleKpiScore = (Math.min(30, Math.max(0, rawKpiScore)) / 30) * roleKpiWeight;
+
+  const growthCredits = Math.min(
+    Math.max(0, toNumber(input.growth?.approvedCredits, 0)),
+    Math.max(0, toNumber(input.growth?.maxMonthlyCredits, 20)),
+  );
+  const growthTargetCredits = Math.max(1, toNumber(input.growth?.targetCredits, 10));
+  const growthBonusWeight = Math.min(20, Math.max(0, toNumber(input.growth?.bonusWeight, 10)));
+  const growthScore = Math.min(1, growthCredits / growthTargetCredits) * growthBonusWeight;
+
+  const totalScore = round(Math.min(100,
+    attendanceScore +
+      punctualityScore +
+      meetingsScore +
+      reportsScore +
+      collaborationScore +
+      trainingScore +
+      roleKpiScore +
+      growthScore,
+  ));
+
+  const reasons: string[] = [];
+  if (scheduledDays < settings.minimum_work_days) reasons.push("minimum_work_days");
+  if (reportRate < toNumber(settings.minimum_report_rate, 90)) reasons.push("minimum_report_rate");
+  if (unexcusedAbsences > settings.maximum_unexcused_absences) reasons.push("unexcused_absences");
+  if (trainingsRequired > trainingsCompleted) reasons.push("mandatory_training_incomplete");
+  if (totalScore < toNumber(settings.minimum_score, 80)) reasons.push("minimum_score");
+
+  return {
+    attendanceScore: round(attendanceScore),
+    punctualityScore: round(punctualityScore),
+    meetingsScore: round(meetingsScore),
+    reportsScore: round(reportsScore),
+    collaborationScore: round(collaborationScore),
+    trainingScore: round(trainingScore),
+    roleKpiScore: round(roleKpiScore),
+    growthScore: round(growthScore),
+    growthCredits: round(growthCredits),
+    totalScore,
+    scheduledDays,
+    attendedDays,
+    lateDays,
+    unexcusedAbsences,
+    reportsExpected,
+    reportsSubmitted,
+    mandatoryMeetings,
+    meetingsAttended,
+    trainingsRequired,
+    trainingsCompleted,
+    reportRate: round(reportRate),
+    eligible: reasons.length === 0,
+    eligibilityNote: reasons.join(","),
+  };
+}

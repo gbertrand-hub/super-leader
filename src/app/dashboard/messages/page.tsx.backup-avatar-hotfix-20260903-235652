@@ -1,0 +1,674 @@
+import Link from "next/link";
+import {redirect} from "next/navigation";
+import {
+  openDepartmentChannelAction,
+  openTeamChannelAction,
+  startDirectConversationAction,
+  toggleInternalMessageReactionAction,
+  updateConversationPreferenceAction,
+} from "@/app/actions/internal-messaging";
+import {ConversationActivity} from "@/components/messaging/conversation-activity";
+import {MessageComposer} from "@/components/messaging/message-composer";
+import {getI18n} from "@/i18n/server";
+import {createAdminClient} from "@/lib/supabase/admin";
+import {createClient} from "@/lib/supabase/server";
+
+type SearchParams = Promise<Record<string, string | string[] | undefined>>;
+type View = "inbox" | "directory" | "channels" | "archived" | "audit";
+
+type MembershipRow = {organization_id: string; role: string};
+type ConversationMemberRow = {
+  conversation_id: string;
+  is_muted: boolean;
+  archived_at: string | null;
+  last_read_at: string | null;
+};
+type ConversationRow = {
+  id: string;
+  kind: "direct" | "team" | "department";
+  title: string | null;
+  team_id: string | null;
+  department: string | null;
+  created_by: string;
+  last_message_at: string | null;
+  created_at: string;
+};
+type MessageRow = {
+  id: string;
+  conversation_id: string;
+  sender_id: string;
+  body: string;
+  message_type: string;
+  sent_at: string;
+  deleted_at: string | null;
+};
+type ProfileRow = {id: string; full_name: string | null; email: string | null};
+type ParticipantRow = {conversation_id: string; user_id: string; left_at: string | null};
+type ReceiptRow = {conversation_id: string; message_id: string; user_id: string; read_at: string | null};
+type AttachmentRow = {
+  id: string;
+  message_id: string;
+  file_name: string;
+  mime_type: string;
+  size_bytes: number;
+  voice_duration_seconds: number | null;
+};
+type ReactionRow = {
+  id: string;
+  message_id: string;
+  user_id: string;
+  emoji: string;
+};
+type OrganizationMemberRow = {user_id: string; role: string};
+type TeamRow = {id: string; name: string; department: string | null; manager_id: string | null; is_active: boolean};
+type AuditRow = {
+  id: string;
+  conversation_id: string | null;
+  message_id: string | null;
+  actor_id: string | null;
+  action: string;
+  target_user_id: string | null;
+  details: Record<string, unknown> | null;
+  created_at: string;
+};
+
+const LEADER_ROLES = new Set(["owner", "admin", "executive", "hr"]);
+
+function first(value: string | string[] | undefined) {
+  return Array.isArray(value) ? value[0] ?? "" : value ?? "";
+}
+
+function normalizeView(value: string): View {
+  return ["directory", "channels", "archived", "audit"].includes(value) ? value as View : "inbox";
+}
+
+function initials(value: string) {
+  return value.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("") || "SL";
+}
+
+function fileSize(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 102.4) / 10} KB`;
+  return `${Math.round(bytes / 1024 / 102.4) / 10} MB`;
+}
+
+function roleLabel(role: string, fr: boolean) {
+  const labels: Record<string, [string, string]> = {
+    owner: ["Propriétaire", "Owner"],
+    admin: ["Administrateur", "Administrator"],
+    executive: ["Exécutif", "Executive"],
+    hr: ["Ressources humaines", "Human Resources"],
+    manager: ["Manager", "Manager"],
+    employee: ["Collaborateur", "Employee"],
+  };
+  return labels[role]?.[fr ? 0 : 1] ?? role;
+}
+
+function MigrationRequired({fr}: {fr: boolean}) {
+  return (
+    <main className="min-h-screen bg-slate-50 px-5 py-8 text-slate-950">
+      <div className="mx-auto max-w-4xl rounded-3xl border border-amber-200 bg-amber-50 p-8 shadow-sm">
+        <p className="text-xs font-black uppercase tracking-[0.18em] text-amber-700">Super Leader V4.8.63</p>
+        <h1 className="mt-3 text-3xl font-black">{fr ? "Migration de messagerie requise" : "Messaging migration required"}</h1>
+        <p className="mt-4 leading-7 text-amber-900">
+          {fr
+            ? "Exécute la migration Supabase 051_internal_messaging_phase1_v3_4_0.sql, puis recharge cette page."
+            : "Run Supabase migration 051_internal_messaging_phase1_v3_4_0.sql, then reload this page."}
+        </p>
+      </div>
+    </main>
+  );
+}
+
+export default async function InternalMessagingPage({searchParams}: {searchParams: SearchParams}) {
+  const {locale} = await getI18n();
+  const fr = locale === "fr";
+  const params = await searchParams;
+  const view = normalizeView(first(params.view));
+  const requestedConversationId = first(params.conversation);
+  const feature = first(params.feature);
+  const query = first(params.q).trim().toLocaleLowerCase(fr ? "fr" : "en");
+  const success = first(params.success);
+  const errorMessage = first(params.error);
+
+  const supabase = await createClient();
+  const {data: authData, error: authError} = await supabase.auth.getUser();
+  if (authError || !authData.user) redirect("/login");
+  const user = authData.user;
+
+  const admin = createAdminClient();
+  const {data: membership, error: membershipError} = await admin
+    .from("organization_members")
+    .select("organization_id,role")
+    .eq("user_id", user.id)
+    .eq("is_active", true)
+    .limit(1)
+    .maybeSingle<MembershipRow>();
+  if (membershipError || !membership) redirect("/dashboard/company");
+  const canAuditMessaging = ["owner", "admin"].includes(membership.role);
+  if (view === "audit" && !canAuditMessaging) redirect("/dashboard/messages?view=inbox");
+
+  const {data: ownConversationMemberships, error: conversationMembershipError} = await admin
+    .from("internal_conversation_members")
+    .select("conversation_id,is_muted,archived_at,last_read_at")
+    .eq("organization_id", membership.organization_id)
+    .eq("user_id", user.id)
+    .is("left_at", null)
+    .order("updated_at", {ascending: false});
+
+  if (conversationMembershipError) {
+    const code = String(conversationMembershipError.code ?? "");
+    if (["42P01", "PGRST205"].includes(code)) return <MigrationRequired fr={fr} />;
+    throw new Error(conversationMembershipError.message);
+  }
+
+  const memberRows = (ownConversationMemberships ?? []) as ConversationMemberRow[];
+  const conversationIds = memberRows.map((row) => row.conversation_id);
+  const memberByConversation = new Map(memberRows.map((row) => [row.conversation_id, row]));
+
+  let conversations: ConversationRow[] = [];
+  let summaryMessages: MessageRow[] = [];
+  let participantRows: ParticipantRow[] = [];
+  let unreadReceipts: ReceiptRow[] = [];
+  let auditRows: AuditRow[] = [];
+
+  if (conversationIds.length) {
+    const [conversationResult, messageResult, participantResult, unreadResult] = await Promise.all([
+      admin
+        .from("internal_conversations")
+        .select("id,kind,title,team_id,department,created_by,last_message_at,created_at")
+        .eq("organization_id", membership.organization_id)
+        .eq("is_active", true)
+        .in("id", conversationIds),
+      admin
+        .from("internal_messages")
+        .select("id,conversation_id,sender_id,body,message_type,sent_at,deleted_at")
+        .eq("organization_id", membership.organization_id)
+        .in("conversation_id", conversationIds)
+        .is("deleted_at", null)
+        .order("sent_at", {ascending: false})
+        .limit(600),
+      admin
+        .from("internal_conversation_members")
+        .select("conversation_id,user_id,left_at")
+        .eq("organization_id", membership.organization_id)
+        .in("conversation_id", conversationIds)
+        .is("left_at", null),
+      admin
+        .from("internal_message_receipts")
+        .select("conversation_id,message_id,user_id,read_at")
+        .eq("organization_id", membership.organization_id)
+        .eq("user_id", user.id)
+        .in("conversation_id", conversationIds)
+        .is("read_at", null),
+    ]);
+    if (conversationResult.error) throw new Error(conversationResult.error.message);
+    if (messageResult.error) throw new Error(messageResult.error.message);
+    if (participantResult.error) throw new Error(participantResult.error.message);
+    if (unreadResult.error) throw new Error(unreadResult.error.message);
+    conversations = (conversationResult.data ?? []) as ConversationRow[];
+    summaryMessages = (messageResult.data ?? []) as MessageRow[];
+    participantRows = (participantResult.data ?? []) as ParticipantRow[];
+    unreadReceipts = (unreadResult.data ?? []) as ReceiptRow[];
+  }
+
+  if (view === "audit" && canAuditMessaging) {
+    const {data: auditData, error: auditError} = await admin
+      .from("internal_messaging_audit_log")
+      .select("id,conversation_id,message_id,actor_id,action,target_user_id,details,created_at")
+      .eq("organization_id", membership.organization_id)
+      .order("created_at", {ascending: false})
+      .limit(200);
+    if (auditError) throw new Error(auditError.message);
+    auditRows = (auditData ?? []) as AuditRow[];
+  }
+
+  const profileIds = new Set<string>([user.id]);
+  for (const row of participantRows) profileIds.add(row.user_id);
+  for (const row of summaryMessages) profileIds.add(row.sender_id);
+  for (const row of auditRows) {
+    if (row.actor_id) profileIds.add(row.actor_id);
+    if (row.target_user_id) profileIds.add(row.target_user_id);
+  }
+  const {data: profileData, error: profileError} = profileIds.size
+    ? await admin.from("profiles").select("id,full_name,email").in("id", [...profileIds])
+    : {data: [], error: null};
+  if (profileError) throw new Error(profileError.message);
+  const profiles = (profileData ?? []) as ProfileRow[];
+  const profileById = new Map(profiles.map((profile) => [profile.id, profile]));
+  const displayName = (userId: string) => {
+    const profile = profileById.get(userId);
+    return profile?.full_name?.trim() || profile?.email || (fr ? "Collaborateur" : "Colleague");
+  };
+
+  const participantsByConversation = new Map<string, string[]>();
+  for (const participant of participantRows) {
+    const list = participantsByConversation.get(participant.conversation_id) ?? [];
+    list.push(participant.user_id);
+    participantsByConversation.set(participant.conversation_id, list);
+  }
+
+  const lastMessageByConversation = new Map<string, MessageRow>();
+  for (const message of summaryMessages) {
+    if (!lastMessageByConversation.has(message.conversation_id)) lastMessageByConversation.set(message.conversation_id, message);
+  }
+  const unreadByConversation = new Map<string, number>();
+  for (const receipt of unreadReceipts) unreadByConversation.set(receipt.conversation_id, (unreadByConversation.get(receipt.conversation_id) ?? 0) + 1);
+
+  function conversationTitle(conversation: ConversationRow) {
+    if (conversation.kind === "direct") {
+      const otherId = (participantsByConversation.get(conversation.id) ?? []).find((id) => id !== user.id);
+      return otherId ? displayName(otherId) : (fr ? "Conversation directe" : "Direct conversation");
+    }
+    if (conversation.kind === "team") return `# ${conversation.title || (fr ? "Équipe" : "Team")}`;
+    return `# ${conversation.title || conversation.department || (fr ? "Département" : "Department")}`;
+  }
+
+  conversations.sort((a, b) => {
+    const aDate = a.last_message_at ?? a.created_at;
+    const bDate = b.last_message_at ?? b.created_at;
+    return bDate.localeCompare(aDate);
+  });
+
+  const visibleConversations = conversations.filter((conversation) => {
+    const archived = Boolean(memberByConversation.get(conversation.id)?.archived_at);
+    return view === "archived" ? archived : !archived;
+  });
+  const selectedConversation = conversations.find((conversation) => conversation.id === requestedConversationId)
+    ?? (view === "inbox" ? visibleConversations[0] : undefined);
+  const selectedMember = selectedConversation ? memberByConversation.get(selectedConversation.id) : undefined;
+
+  let selectedMessages: MessageRow[] = [];
+  let selectedAttachments: AttachmentRow[] = [];
+  let selectedReceipts: ReceiptRow[] = [];
+  let selectedReactions: ReactionRow[] = [];
+  if (selectedConversation) {
+    const {data: messageData, error: messageError} = await admin
+      .from("internal_messages")
+      .select("id,conversation_id,sender_id,body,message_type,sent_at,deleted_at")
+      .eq("organization_id", membership.organization_id)
+      .eq("conversation_id", selectedConversation.id)
+      .is("deleted_at", null)
+      .order("sent_at", {ascending: true})
+      .limit(200);
+    if (messageError) throw new Error(messageError.message);
+    selectedMessages = (messageData ?? []) as MessageRow[];
+    const messageIds = selectedMessages.map((message) => message.id);
+    if (messageIds.length) {
+      const [attachmentResult, receiptResult, reactionResult] = await Promise.all([
+        admin
+          .from("internal_message_attachments")
+          .select("id,message_id,file_name,mime_type,size_bytes,voice_duration_seconds")
+          .eq("organization_id", membership.organization_id)
+          .in("message_id", messageIds),
+        admin
+          .from("internal_message_receipts")
+          .select("conversation_id,message_id,user_id,read_at")
+          .eq("organization_id", membership.organization_id)
+          .in("message_id", messageIds),
+        admin
+          .from("internal_message_reactions")
+          .select("id,message_id,user_id,emoji")
+          .eq("organization_id", membership.organization_id)
+          .in("message_id", messageIds),
+      ]);
+      if (attachmentResult.error) throw new Error(attachmentResult.error.message);
+      if (receiptResult.error) throw new Error(receiptResult.error.message);
+      if (reactionResult.error) throw new Error(reactionResult.error.message);
+      selectedAttachments = (attachmentResult.data ?? []) as AttachmentRow[];
+      selectedReceipts = (receiptResult.data ?? []) as ReceiptRow[];
+      selectedReactions = (reactionResult.data ?? []) as ReactionRow[];
+    }
+  }
+
+  const attachmentsByMessage = new Map<string, AttachmentRow[]>();
+  for (const attachment of selectedAttachments) {
+    const list = attachmentsByMessage.get(attachment.message_id) ?? [];
+    list.push(attachment);
+    attachmentsByMessage.set(attachment.message_id, list);
+  }
+  const receiptsByMessage = new Map<string, ReceiptRow[]>();
+  for (const receipt of selectedReceipts) {
+    const list = receiptsByMessage.get(receipt.message_id) ?? [];
+    list.push(receipt);
+    receiptsByMessage.set(receipt.message_id, list);
+  }
+  const reactionsByMessage = new Map<string, ReactionRow[]>();
+  for (const reaction of selectedReactions) {
+    const list = reactionsByMessage.get(reaction.message_id) ?? [];
+    list.push(reaction);
+    reactionsByMessage.set(reaction.message_id, list);
+  }
+
+  const [organizationMembersResult, ownTeamMembershipResult, allTeamsResult] = await Promise.all([
+    admin
+      .from("organization_members")
+      .select("user_id,role")
+      .eq("organization_id", membership.organization_id)
+      .eq("is_active", true)
+      .order("created_at", {ascending: true}),
+    admin.from("team_members").select("team_id").eq("user_id", user.id),
+    admin
+      .from("teams")
+      .select("id,name,department,manager_id,is_active")
+      .eq("organization_id", membership.organization_id)
+      .eq("is_active", true)
+      .order("name", {ascending: true}),
+  ]);
+  if (organizationMembersResult.error) throw new Error(organizationMembersResult.error.message);
+  if (ownTeamMembershipResult.error) throw new Error(ownTeamMembershipResult.error.message);
+  if (allTeamsResult.error) throw new Error(allTeamsResult.error.message);
+
+  const organizationMembers = (organizationMembersResult.data ?? []) as OrganizationMemberRow[];
+  const directoryProfileIds = organizationMembers.map((row) => row.user_id);
+  const missingProfileIds = directoryProfileIds.filter((id) => !profileById.has(id));
+  if (missingProfileIds.length) {
+    const {data: missingProfiles, error} = await admin.from("profiles").select("id,full_name,email").in("id", missingProfileIds);
+    if (error) throw new Error(error.message);
+    for (const profile of (missingProfiles ?? []) as ProfileRow[]) profileById.set(profile.id, profile);
+  }
+
+  const selectedMentionCandidates = selectedConversation
+    ? (participantsByConversation.get(selectedConversation.id) ?? [])
+      .filter((participantId) => participantId !== user.id)
+      .map((participantId) => ({id: participantId, name: displayName(participantId)}))
+      .sort((a, b) => a.name.localeCompare(b.name, fr ? "fr" : "en"))
+    : [];
+
+  const directoryMembers = organizationMembers
+    .filter((row) => row.user_id !== user.id)
+    .map((row) => ({...row, name: displayName(row.user_id), email: profileById.get(row.user_id)?.email ?? ""}))
+    .filter((row) => !query || `${row.name} ${row.email} ${row.role}`.toLocaleLowerCase(fr ? "fr" : "en").includes(query))
+    .slice(0, 100);
+
+  const ownTeamIds = new Set((ownTeamMembershipResult.data ?? []).map((row) => String(row.team_id)));
+  const allTeams = (allTeamsResult.data ?? []) as TeamRow[];
+  const accessibleTeams = allTeams.filter((team) => {
+    if (LEADER_ROLES.has(membership.role)) return true;
+    if (membership.role === "manager" && team.manager_id === user.id) return true;
+    return ownTeamIds.has(team.id);
+  });
+  const departments = [...new Set(accessibleTeams.map((team) => team.department?.trim()).filter((value): value is string => Boolean(value)))].sort((a, b) => a.localeCompare(b, fr ? "fr" : "en"));
+
+  const dateTime = (value: string) => new Intl.DateTimeFormat(fr ? "fr-FR" : "en-GB", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(value));
+  const shortTime = (value: string) => new Intl.DateTimeFormat(fr ? "fr-FR" : "en-GB", {
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value));
+  const auditActionLabel = (action: string) => {
+    const labels: Record<string, [string, string]> = {
+      direct_conversation_created: ["Conversation directe créée", "Direct conversation created"],
+      message_sent: ["Message envoyé", "Message sent"],
+      attachment_downloaded: ["Pièce jointe téléchargée", "Attachment downloaded"],
+      conversation_archived: ["Conversation archivée", "Conversation archived"],
+      conversation_unarchived: ["Conversation restaurée", "Conversation restored"],
+      conversation_muted: ["Conversation mise en sourdine", "Conversation muted"],
+      conversation_unmuted: ["Conversation réactivée", "Conversation unmuted"],
+      team_channel_created: ["Canal d’équipe créé", "Team channel created"],
+      department_channel_created: ["Canal de département créé", "Department channel created"],
+      message_reaction_added: ["Réaction ajoutée", "Reaction added"],
+      message_reaction_removed: ["Réaction retirée", "Reaction removed"],
+    };
+    return labels[action]?.[fr ? 0 : 1] ?? action.replaceAll("_", " ");
+  };
+
+  const tabs: Array<{key: View; label: string; count?: number}> = [
+    {key: "inbox", label: fr ? "Boîte de réception" : "Inbox", count: conversations.filter((row) => !memberByConversation.get(row.id)?.archived_at).length},
+    {key: "directory", label: fr ? "Annuaire" : "Directory"},
+    {key: "channels", label: fr ? "Canaux d’équipe" : "Team channels"},
+    {key: "archived", label: fr ? "Archives" : "Archived", count: conversations.filter((row) => Boolean(memberByConversation.get(row.id)?.archived_at)).length},
+    ...(canAuditMessaging ? [{key: "audit" as const, label: fr ? "Audit administratif" : "Administrative audit", count: auditRows.length}] : []),
+  ];
+
+  return (
+    <main className="min-h-screen overflow-x-hidden bg-slate-50 px-2 py-3 text-slate-950 sm:px-6 sm:py-6">
+      <div className="mx-auto min-w-0 max-w-[1500px]">
+        <header className="rounded-2xl bg-slate-950 p-4 text-white shadow-xl sm:rounded-3xl sm:p-8">
+          <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <p className="text-xs font-black uppercase tracking-[0.2em] text-indigo-300">Super Leader V4.8.63</p>
+              <h1 className="mt-2 text-3xl font-black sm:text-4xl">{fr ? "Messagerie interne" : "Internal messaging"}</h1>
+              <p className="mt-2 max-w-3xl text-slate-300">
+                {fr
+                  ? "Échange avec les collaborateurs autorisés, retrouve tes canaux d’équipe et partage des documents sans quitter Super Leader."
+                  : "Chat with authorized colleagues, access your team channels and share documents without leaving Super Leader."}
+              </p>
+            </div>
+            <div className="rounded-2xl border border-white/10 bg-white/5 px-5 py-4 text-sm">
+              <p className="font-black text-white">{unreadReceipts.length} {fr ? "message(s) non lu(s)" : "unread message(s)"}</p>
+              <p className="mt-1 text-slate-400">{fr ? "Actualisation automatique toutes les 10 secondes" : "Automatic refresh every 10 seconds"}</p>
+            </div>
+          </div>
+        </header>
+
+        {success ? <p className="mt-5 rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 font-bold text-emerald-800">{success}</p> : null}
+        {errorMessage ? <p className="mt-5 rounded-2xl border border-red-200 bg-red-50 px-5 py-4 font-bold text-red-800">{errorMessage}</p> : null}
+        {feature === "mentions" ? (
+          <section className="mt-5 rounded-2xl border border-violet-200 bg-violet-50 px-5 py-4 text-sm text-violet-950">
+            <p className="font-black">@ {fr ? "Mentions et réactions activées" : "Mentions and reactions enabled"}</p>
+            <p className="mt-1">{fr ? "Dans une conversation, tape @ puis choisis un collaborateur. Utilise le bouton + sous un message pour ajouter 👍 ❤️ 👏 ✅ ou 😂." : "In a conversation, type @ then choose a colleague. Use the + button under a message to add 👍 ❤️ 👏 ✅ or 😂."}</p>
+          </section>
+        ) : null}
+        {feature === "voice" ? (
+          <section className="mt-5 rounded-2xl border border-sky-200 bg-sky-50 px-5 py-4 text-sm text-sky-950">
+            <p className="font-black">🎙️ {fr ? "Messages vocaux activés" : "Voice messages enabled"}</p>
+            <p className="mt-1">{fr ? "Clique sur le micro dans le compositeur, autorise le navigateur, enregistre jusqu’à 5 minutes, écoute puis envoie." : "Click the microphone in the composer, allow browser access, record up to 5 minutes, preview and send."}</p>
+          </section>
+        ) : null}
+
+        <nav className="mt-4 flex max-w-full gap-2 overflow-x-auto rounded-2xl border border-slate-200 bg-white p-2 shadow-sm sm:mt-6">
+          {tabs.map((tab) => (
+            <Link
+              key={tab.key}
+              href={`/dashboard/messages?view=${tab.key}`}
+              className={`flex shrink-0 items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-black transition ${view === tab.key ? "bg-indigo-600 text-white" : "text-slate-600 hover:bg-slate-100"}`}
+            >
+              {tab.label}
+              {typeof tab.count === "number" ? <span className={`rounded-full px-2 py-0.5 text-xs ${view === tab.key ? "bg-white/20" : "bg-slate-100"}`}>{tab.count}</span> : null}
+            </Link>
+          ))}
+        </nav>
+
+        {view === "audit" ? (
+          <section className="mt-6 overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+            <div className="border-b border-slate-200 p-6">
+              <p className="text-xs font-black uppercase tracking-[0.18em] text-indigo-700">{fr ? "Administration" : "Administration"}</p>
+              <h2 className="mt-2 text-2xl font-black">{fr ? "Journal d’audit de la messagerie" : "Messaging audit log"}</h2>
+              <p className="mt-2 max-w-3xl text-slate-600">{fr ? "Consulte les actions sensibles de la messagerie. Le contenu des messages n’est pas exposé dans ce journal." : "Review sensitive messaging actions. Message content is not exposed in this log."}</p>
+            </div>
+            <div className="divide-y divide-slate-200">
+              {auditRows.map((row) => (
+                <article key={row.id} className="grid gap-3 p-5 md:grid-cols-[210px_1fr_auto] md:items-center">
+                  <div>
+                    <p className="font-black text-slate-950">{auditActionLabel(row.action)}</p>
+                    <p className="mt-1 text-xs text-slate-500">{dateTime(row.created_at)}</p>
+                  </div>
+                  <div className="min-w-0 text-sm text-slate-600">
+                    <p><span className="font-bold text-slate-800">{fr ? "Auteur" : "Actor"} :</span> {row.actor_id ? displayName(row.actor_id) : (fr ? "Système" : "System")}</p>
+                    {row.target_user_id ? <p className="mt-1"><span className="font-bold text-slate-800">{fr ? "Personne concernée" : "Target user"} :</span> {displayName(row.target_user_id)}</p> : null}
+                    {row.conversation_id ? <p className="mt-1 truncate"><span className="font-bold text-slate-800">{fr ? "Conversation" : "Conversation"} :</span> {row.conversation_id}</p> : null}
+                  </div>
+                  <details className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                    <summary className="cursor-pointer font-black text-slate-800">{fr ? "Détails" : "Details"}</summary>
+                    <pre className="mt-2 max-w-sm overflow-x-auto whitespace-pre-wrap break-words">{JSON.stringify(row.details ?? {}, null, 2)}</pre>
+                  </details>
+                </article>
+              ))}
+              {!auditRows.length ? <p className="p-8 text-center text-slate-500">{fr ? "Aucune action de messagerie n’a encore été consignée." : "No messaging action has been recorded yet."}</p> : null}
+            </div>
+          </section>
+        ) : view === "directory" ? (
+          <section className="mt-6 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+            <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+              <div><h2 className="text-2xl font-black">{fr ? "Trouver un collaborateur" : "Find a colleague"}</h2><p className="mt-2 text-slate-600">{fr ? "Démarre une conversation privée avec un membre actif de ton organisation." : "Start a private conversation with an active member of your organization."}</p></div>
+              <form className="flex w-full max-w-lg flex-col gap-2 sm:flex-row" action="/dashboard/messages">
+                <input type="hidden" name="view" value="directory" />
+                <input name="q" defaultValue={first(params.q)} placeholder={fr ? "Nom, e-mail ou rôle" : "Name, email or role"} className="min-w-0 flex-1 rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-indigo-500" />
+                <button className="rounded-xl bg-slate-950 px-5 py-3 font-black text-white">{fr ? "Rechercher" : "Search"}</button>
+              </form>
+            </div>
+            <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {directoryMembers.map((member) => (
+                <article key={member.user_id} className="flex items-center gap-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <span className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-indigo-600 font-black text-white">{initials(member.name)}</span>
+                  <div className="min-w-0 flex-1"><p className="truncate font-black">{member.name}</p><p className="truncate text-sm text-slate-500">{member.email || roleLabel(member.role, fr)}</p><p className="mt-1 text-xs font-bold uppercase tracking-wide text-indigo-700">{roleLabel(member.role, fr)}</p></div>
+                  <form action={startDirectConversationAction}><input type="hidden" name="targetUserId" value={member.user_id} /><button className="rounded-xl bg-indigo-600 px-3 py-2 text-sm font-black text-white hover:bg-indigo-700">{fr ? "Écrire" : "Message"}</button></form>
+                </article>
+              ))}
+              {!directoryMembers.length ? <p className="rounded-2xl bg-slate-50 p-5 text-slate-500">{fr ? "Aucun collaborateur trouvé." : "No colleague found."}</p> : null}
+            </div>
+          </section>
+        ) : view === "channels" ? (
+          <div className="mt-6 grid gap-6 lg:grid-cols-2">
+            <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+              <h2 className="text-2xl font-black">{fr ? "Canaux d’équipe" : "Team channels"}</h2>
+              <p className="mt-2 text-slate-600">{fr ? "Ouvre un espace partagé avec les membres actuels d’une équipe." : "Open a shared space with the current members of a team."}</p>
+              <div className="mt-6 space-y-3">
+                {accessibleTeams.map((team) => (
+                  <article key={team.id} className="flex items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                    <div><p className="font-black"># {team.name}</p><p className="mt-1 text-sm text-slate-500">{team.department || (fr ? "Département non renseigné" : "Department not set")}</p></div>
+                    <form action={openTeamChannelAction}><input type="hidden" name="teamId" value={team.id} /><button className="rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-black text-white hover:bg-emerald-700">{fr ? "Ouvrir" : "Open"}</button></form>
+                  </article>
+                ))}
+                {!accessibleTeams.length ? <p className="rounded-2xl bg-slate-50 p-5 text-slate-500">{fr ? "Aucune équipe accessible." : "No accessible team."}</p> : null}
+              </div>
+            </section>
+            <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+              <h2 className="text-2xl font-black">{fr ? "Canaux de département" : "Department channels"}</h2>
+              <p className="mt-2 text-slate-600">{fr ? "Réunit les collaborateurs des équipes rattachées au même département." : "Bring together colleagues from teams in the same department."}</p>
+              <div className="mt-6 space-y-3">
+                {departments.map((department) => (
+                  <article key={department} className="flex items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                    <div><p className="font-black"># {department}</p><p className="mt-1 text-sm text-slate-500">{fr ? "Canal transversal" : "Cross-team channel"}</p></div>
+                    <form action={openDepartmentChannelAction}><input type="hidden" name="department" value={department} /><button className="rounded-xl bg-sky-600 px-4 py-2.5 text-sm font-black text-white hover:bg-sky-700">{fr ? "Ouvrir" : "Open"}</button></form>
+                  </article>
+                ))}
+                {!departments.length ? <p className="rounded-2xl bg-slate-50 p-5 text-slate-500">{fr ? "Aucun département accessible." : "No accessible department."}</p> : null}
+              </div>
+            </section>
+          </div>
+        ) : (
+          <div className="mt-4 min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm sm:mt-6 sm:rounded-3xl lg:grid lg:h-[calc(100dvh-21rem)] lg:min-h-[440px] lg:max-h-[760px] lg:grid-cols-[360px_1fr]">
+            <aside className={`${selectedConversation ? "hidden lg:flex" : "flex"} min-h-[420px] max-h-[calc(100dvh-13rem)] flex-col border-b border-slate-200 bg-slate-50 lg:min-h-0 lg:max-h-none lg:border-b-0 lg:border-r`}>
+              <div className="border-b border-slate-200 p-4">
+                <div className="flex items-center justify-between gap-3"><h2 className="font-black">{view === "archived" ? (fr ? "Conversations archivées" : "Archived conversations") : (fr ? "Conversations" : "Conversations")}</h2><Link href="/dashboard/messages?view=directory" className="rounded-lg bg-indigo-600 px-3 py-2 text-xs font-black text-white">＋ {fr ? "Nouveau" : "New"}</Link></div>
+              </div>
+              <div className="min-h-0 flex-1 overflow-y-auto p-2">
+                {visibleConversations.map((conversation) => {
+                  const lastMessage = lastMessageByConversation.get(conversation.id);
+                  const unread = unreadByConversation.get(conversation.id) ?? 0;
+                  const title = conversationTitle(conversation);
+                  const active = selectedConversation?.id === conversation.id;
+                  return (
+                    <Link key={conversation.id} href={`/dashboard/messages?view=${view}&conversation=${conversation.id}`} className={`mb-1 flex gap-3 rounded-2xl p-3 transition ${active ? "bg-indigo-600 text-white" : "hover:bg-white"}`}>
+                      <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-full font-black ${active ? "bg-white/20" : conversation.kind === "direct" ? "bg-indigo-100 text-indigo-700" : "bg-emerald-100 text-emerald-700"}`}>{conversation.kind === "direct" ? initials(title) : "#"}</span>
+                      <div className="min-w-0 flex-1"><div className="flex items-center gap-2"><p className="truncate font-black">{title}</p>{memberByConversation.get(conversation.id)?.is_muted ? <span title={fr ? "En sourdine" : "Muted"}>🔕</span> : null}</div><p className={`mt-1 truncate text-sm ${active ? "text-indigo-100" : "text-slate-500"}`}>{lastMessage ? (lastMessage.body || (fr ? "Pièce jointe" : "Attachment")) : (fr ? "Aucun message" : "No messages")}</p></div>
+                      {unread > 0 ? <span className={`grid h-6 min-w-6 place-items-center rounded-full px-1 text-xs font-black ${active ? "bg-white text-indigo-700" : "bg-red-500 text-white"}`}>{unread > 99 ? "99+" : unread}</span> : null}
+                    </Link>
+                  );
+                })}
+                {!visibleConversations.length ? <div className="m-3 rounded-2xl border border-dashed border-slate-300 bg-white p-6 text-center text-sm text-slate-500">{view === "archived" ? (fr ? "Aucune conversation archivée." : "No archived conversation.") : (fr ? "Aucune conversation. Ouvre l’annuaire pour commencer." : "No conversation. Open the directory to begin.")}</div> : null}
+              </div>
+            </aside>
+
+            <section className={`${selectedConversation ? "flex" : "hidden lg:flex"} min-h-[calc(100dvh-10rem)] min-w-0 flex-col lg:min-h-0`}>
+              {selectedConversation ? (
+                <>
+                  <ConversationActivity conversationId={selectedConversation.id} />
+                  <header className="flex flex-col gap-3 border-b border-slate-200 px-3 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5 sm:py-4"><Link href={`/dashboard/messages?view=${view}`} className="inline-flex w-fit items-center gap-1 rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs font-black text-slate-700 lg:hidden">â† {fr ? "Conversations" : "Conversations"}</Link>
+                    <div><h2 className="text-xl font-black">{conversationTitle(selectedConversation)}</h2><p className="mt-1 text-sm text-slate-500">{selectedConversation.kind === "direct" ? (fr ? "Conversation privée" : "Private conversation") : selectedConversation.kind === "team" ? (fr ? "Canal d’équipe" : "Team channel") : (fr ? "Canal de département" : "Department channel")}</p></div>
+                    <div className="flex flex-wrap gap-2">
+                      <form action={updateConversationPreferenceAction}><input type="hidden" name="conversationId" value={selectedConversation.id} /><input type="hidden" name="preferenceAction" value={selectedMember?.is_muted ? "unmute" : "mute"} /><button className="rounded-xl border border-slate-300 px-3 py-2 text-xs font-black text-slate-700 hover:bg-slate-50">{selectedMember?.is_muted ? (fr ? "Réactiver" : "Unmute") : (fr ? "Sourdine" : "Mute")}</button></form>
+                      <form action={updateConversationPreferenceAction}><input type="hidden" name="conversationId" value={selectedConversation.id} /><input type="hidden" name="preferenceAction" value={selectedMember?.archived_at ? "unarchive" : "archive"} /><button className="rounded-xl border border-slate-300 px-3 py-2 text-xs font-black text-slate-700 hover:bg-slate-50">{selectedMember?.archived_at ? (fr ? "Restaurer" : "Restore") : (fr ? "Archiver" : "Archive")}</button></form>
+                    </div>
+                  </header>
+                  <div className="min-h-0 flex-1 space-y-3 overflow-y-auto bg-slate-50 p-2.5 sm:space-y-4 sm:p-5">
+                    {selectedMessages.map((message) => {
+                      const own = message.sender_id === user.id;
+                      const senderName = displayName(message.sender_id);
+                      const attachments = attachmentsByMessage.get(message.id) ?? [];
+                      const receipts = receiptsByMessage.get(message.id) ?? [];
+                      const allRead = receipts.length > 0 && receipts.every((receipt) => Boolean(receipt.read_at));
+                      return (
+                        <article id={`message-${message.id}`} key={message.id} className={`flex scroll-mt-24 ${own ? "justify-end" : "justify-start"}`}>
+                          <div className={`max-w-[94%] min-w-0 rounded-2xl px-3 py-2.5 shadow-sm sm:max-w-[72%] sm:px-4 sm:py-3 ${own ? "rounded-br-md bg-indigo-600 text-white" : "rounded-bl-md border border-slate-200 bg-white text-slate-950"}`}>
+                            {!own ? <p className="mb-1 text-xs font-black text-indigo-700">{senderName}</p> : null}
+                            {message.body ? <p className="whitespace-pre-wrap break-words text-sm leading-6">{message.body}</p> : null}
+                            {attachments.map((attachment) => attachment.mime_type.startsWith("audio/") ? (
+                              <div key={attachment.id} className={`mt-2 rounded-xl border px-3 py-2 ${own ? "border-white/20 bg-white/10" : "border-sky-200 bg-sky-50"}`}>
+                                <div className="mb-2 flex items-center justify-between gap-3 text-xs font-bold">
+                                  <span>🎙️ {fr ? "Message vocal" : "Voice message"}</span>
+                                  <span className="opacity-70">{attachment.voice_duration_seconds ? `${Math.floor(attachment.voice_duration_seconds / 60)}:${String(attachment.voice_duration_seconds % 60).padStart(2, "0")}` : fileSize(Number(attachment.size_bytes))}</span>
+                                </div>
+                                <audio controls preload="metadata" src={`/api/messages/attachments/${attachment.id}?inline=1`} className="h-10 w-full min-w-0 max-w-md" />
+                              </div>
+                            ) : (
+                              <a key={attachment.id} href={`/api/messages/attachments/${attachment.id}`} className={`mt-2 flex items-center gap-3 rounded-xl border px-3 py-2 text-sm font-bold ${own ? "border-white/20 bg-white/10 text-white" : "border-indigo-200 bg-indigo-50 text-indigo-900"}`}>
+                                <span className="text-lg">📎</span><span className="min-w-0 flex-1 truncate">{attachment.file_name}</span><span className="shrink-0 text-xs opacity-70">{fileSize(Number(attachment.size_bytes))}</span>
+                              </a>
+                            ))}
+                            {(() => {
+                              const reactions = reactionsByMessage.get(message.id) ?? [];
+                              const grouped = new Map<string, ReactionRow[]>();
+                              for (const reaction of reactions) {
+                                const list = grouped.get(reaction.emoji) ?? [];
+                                list.push(reaction);
+                                grouped.set(reaction.emoji, list);
+                              }
+                              return (
+                                <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                                  {[...grouped.entries()].map(([emoji, rows]) => {
+                                    const ownReaction = rows.some((row) => row.user_id === user.id);
+                                    const names = rows.map((row) => displayName(row.user_id)).join(", ");
+                                    return (
+                                      <form key={emoji} action={toggleInternalMessageReactionAction}>
+                                        <input type="hidden" name="conversationId" value={selectedConversation.id} />
+                                        <input type="hidden" name="messageId" value={message.id} />
+                                        <input type="hidden" name="emoji" value={emoji} />
+                                        <button title={names} className={`rounded-full border px-2 py-1 text-xs font-black ${ownReaction ? "border-amber-300 bg-amber-100 text-slate-900" : own ? "border-white/20 bg-white/10 text-white" : "border-slate-200 bg-slate-50 text-slate-800"}`}>{emoji} {rows.length}</button>
+                                      </form>
+                                    );
+                                  })}
+                                  <details className="relative">
+                                    <summary className={`cursor-pointer list-none rounded-full border px-2 py-1 text-xs font-black ${own ? "border-white/20 bg-white/10 text-white" : "border-slate-200 bg-slate-50 text-slate-700"}`} title={fr ? "Ajouter une réaction" : "Add a reaction"}>＋</summary>
+                                    <div className={`absolute bottom-full z-50 mb-2 flex gap-1 rounded-xl border border-slate-200 bg-white p-2 shadow-xl ${own ? "right-0" : "left-0"}`}>
+                                      {["👍", "❤️", "👏", "✅", "😂"].map((emoji) => (
+                                        <form key={emoji} action={toggleInternalMessageReactionAction}>
+                                          <input type="hidden" name="conversationId" value={selectedConversation.id} />
+                                          <input type="hidden" name="messageId" value={message.id} />
+                                          <input type="hidden" name="emoji" value={emoji} />
+                                          <button className="rounded-lg px-2 py-1.5 text-lg hover:bg-slate-100" title={fr ? "Réagir" : "React"}>{emoji}</button>
+                                        </form>
+                                      ))}
+                                    </div>
+                                  </details>
+                                </div>
+                              );
+                            })()}
+                            <div className={`mt-2 flex items-center justify-end gap-2 text-[11px] ${own ? "text-indigo-100" : "text-slate-400"}`}><span title={dateTime(message.sent_at)}>{shortTime(message.sent_at)}</span>{own ? <span>{allRead ? (fr ? "Lu" : "Read") : (fr ? "Envoyé" : "Sent")}</span> : null}</div>
+                          </div>
+                        </article>
+                      );
+                    })}
+                    {!selectedMessages.length ? <div className="grid min-h-64 place-items-center text-center text-slate-500"><div><p className="text-4xl">💬</p><p className="mt-3 font-bold">{fr ? "Commence la conversation." : "Start the conversation."}</p></div></div> : null}
+                  </div>
+                  <MessageComposer conversationId={selectedConversation.id} locale={fr ? "fr" : "en"} mentionCandidates={selectedMentionCandidates} />
+                </>
+              ) : (
+                <div className="grid min-h-[680px] place-items-center p-8 text-center"><div><p className="text-5xl">💬</p><h2 className="mt-4 text-2xl font-black">{fr ? "Sélectionne une conversation" : "Select a conversation"}</h2><p className="mt-2 text-slate-500">{fr ? "Ou ouvre l’annuaire pour écrire à un collaborateur." : "Or open the directory to message a colleague."}</p><Link href="/dashboard/messages?view=directory" className="mt-5 inline-block rounded-xl bg-indigo-600 px-5 py-3 font-black text-white">{fr ? "Ouvrir l’annuaire" : "Open directory"}</Link></div></div>
+              )}
+            </section>
+          </div>
+        )}
+
+        <section className="mt-6 rounded-3xl border border-indigo-200 bg-indigo-50 p-5 text-sm text-indigo-950">
+          <p className="font-black">{fr ? "Confidentialité et traçabilité" : "Privacy and traceability"}</p>
+          <p className="mt-2 leading-6">{fr ? "Les conversations sont limitées à ton organisation et à leurs participants. Les pièces jointes sont privées, les téléchargements sont temporaires et les actions importantes sont consignées dans le journal d’audit." : "Conversations are limited to your organization and their participants. Attachments are private, downloads are temporary and important actions are recorded in the audit log."}</p>
+        </section>
+      </div>
+    </main>
+  );
+}

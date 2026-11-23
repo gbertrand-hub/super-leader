@@ -1,0 +1,23 @@
+@import "tailwindcss";
+
+@keyframes official-announcement-scroll {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+
+.official-announcement-track {
+  animation: official-announcement-scroll 34s linear infinite;
+}
+
+:root {
+  --background: #f6f8fc;
+  --foreground: #0f1f45;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+}

@@ -1,0 +1,42 @@
+import {NextResponse} from "next/server";
+import {getI18n} from "@/i18n/server";
+import {requireAccessContext} from "@/lib/auth/access-control";
+
+const LEADERS = new Set(["owner", "admin", "executive", "hr", "manager"]);
+const CLOSED_CONTRACTS = new Set(["completed", "terminated"]);
+const CLOSED_DELIVERABLES = new Set(["accepted", "cancelled"]);
+const CLOSED_OCCURRENCES = new Set(["accepted", "waived"]);
+const CLOSED_INCIDENTS = new Set(["resolved", "closed"]);
+const CLOSED_FINANCIAL = new Set(["paid", "delivered", "cancelled", "rejected"]);
+function todayIso(){const d=new Date();return new Date(Date.UTC(d.getUTCFullYear(),d.getUTCMonth(),d.getUTCDate())).toISOString().slice(0,10);}
+function daysUntil(date:string){const d=new Date();const start=Date.UTC(d.getUTCFullYear(),d.getUTCMonth(),d.getUTCDate());return Math.ceil((new Date(`${date}T00:00:00Z`).getTime()-start)/86400000);}
+function n(value:unknown){const out=Number(value ?? 0);return Number.isFinite(out)?out:0;}
+function avg(values:number[]){return values.length?values.reduce((sum,value)=>sum+value,0)/values.length:null;}
+function csv(value:unknown){const text=String(value ?? "");return `"${text.replaceAll('"','""')}"`;}
+
+export async function GET(request: Request){
+  const [{locale},context]=await Promise.all([getI18n(),requireAccessContext()]);
+  if(!LEADERS.has(context.role)) return new NextResponse("Forbidden",{status:403});
+  const url=new URL(request.url);const scope=url.searchParams.get("scope")||"open";const riskFilter=url.searchParams.get("risk")||"all";const q=(url.searchParams.get("q")||"").trim().toLowerCase();const fr=locale==="fr";
+  const [contractsRes,providersRes,deliverablesRes,obligationsRes,kpiRes,incidentsRes,financialRes,reportsRes,renewalsRes]=await Promise.all([
+    context.admin.from("service_contracts").select("id,provider_id,contract_number,title,internal_owner_user_id,end_date,value_amount,currency,status,performance_target").eq("organization_id",context.organizationId),
+    context.admin.from("service_providers").select("id,legal_name").eq("organization_id",context.organizationId),
+    context.admin.from("service_contract_deliverables").select("contract_id,due_date,status").eq("organization_id",context.organizationId),
+    context.admin.from("service_contract_obligation_occurrences").select("contract_id,due_date,status").eq("organization_id",context.organizationId),
+    context.admin.from("service_contract_kpi_results").select("contract_id,kpi_id,period_end,score,status").eq("organization_id",context.organizationId).order("period_end",{ascending:false}),
+    context.admin.from("service_contract_incidents").select("contract_id,severity,status").eq("organization_id",context.organizationId),
+    context.admin.from("service_contract_financial_items").select("contract_id,gate_status,status").eq("organization_id",context.organizationId),
+    context.admin.from("service_contract_reports").select("contract_id,status").eq("organization_id",context.organizationId),
+    context.admin.from("service_contract_renewal_reviews").select("contract_id,is_final,decided_at").eq("organization_id",context.organizationId).order("decided_at",{ascending:false}),
+  ]);
+  const err=[contractsRes,providersRes,deliverablesRes,obligationsRes,kpiRes,incidentsRes,financialRes,reportsRes,renewalsRes].find((x)=>x.error)?.error;if(err) return new NextResponse(err.message,{status:500});
+  let contracts=(contractsRes.data??[]) as Array<any>;if(context.role==="manager") contracts=contracts.filter((row)=>row.internal_owner_user_id===context.user.id);const ids=new Set(contracts.map((row)=>row.id));const ownerIds=[...new Set(contracts.map((row)=>row.internal_owner_user_id))];
+  const profilesRes=ownerIds.length?await context.admin.from("profiles").select("id,full_name,email").in("id",ownerIds):{data:[],error:null};if(profilesRes.error)return new NextResponse(profilesRes.error.message,{status:500});
+  const providerById=new Map((providersRes.data??[]).map((row:any)=>[row.id,row.legal_name]));const ownerById=new Map((profilesRes.data??[]).map((row:any)=>[row.id,row.full_name||row.email||"—"]));
+  const deliverables=(deliverablesRes.data??[]).filter((row:any)=>ids.has(row.contract_id));const obligations=(obligationsRes.data??[]).filter((row:any)=>ids.has(row.contract_id));const kpis=(kpiRes.data??[]).filter((row:any)=>ids.has(row.contract_id)&&row.status==="accepted");const incidents=(incidentsRes.data??[]).filter((row:any)=>ids.has(row.contract_id));const financial=(financialRes.data??[]).filter((row:any)=>ids.has(row.contract_id));const reports=(reportsRes.data??[]).filter((row:any)=>ids.has(row.contract_id));const finalRenewals=new Set((renewalsRes.data??[]).filter((row:any)=>ids.has(row.contract_id)&&row.is_final).map((row:any)=>row.contract_id));const today=todayIso();
+  const latest=new Map<string,any>();for(const row of kpis){const key=`${row.contract_id}:${row.kpi_id}`;if(!latest.has(key))latest.set(key,row);}
+  const rows=contracts.map((contract:any)=>{const openInc=incidents.filter((row:any)=>row.contract_id===contract.id&&!CLOSED_INCIDENTS.has(row.status));const critical=openInc.filter((row:any)=>row.severity==="critical").length;const high=openInc.filter((row:any)=>row.severity==="high").length;const overdueD=deliverables.filter((row:any)=>row.contract_id===contract.id&&row.due_date<today&&!CLOSED_DELIVERABLES.has(row.status)).length;const overdueO=obligations.filter((row:any)=>row.contract_id===contract.id&&row.due_date<today&&!CLOSED_OCCURRENCES.has(row.status)).length;const f=financial.filter((row:any)=>row.contract_id===contract.id&&!CLOSED_FINANCIAL.has(row.status));const blocked=f.filter((row:any)=>row.gate_status==="blocked"||row.status==="held").length;const review=f.filter((row:any)=>row.gate_status==="review"&&row.status==="pending").length;const approved=f.filter((row:any)=>row.status==="approved").length;const scores=[...latest.values()].filter((row:any)=>row.contract_id===contract.id).map((row:any)=>n(row.score));const score=avg(scores);const target=n(contract.performance_target);const days=daysUntil(contract.end_date);const renewal=!CLOSED_CONTRACTS.has(contract.status)&&days<=90&&!finalRenewals.has(contract.id);const pendingReports=reports.filter((row:any)=>row.contract_id===contract.id&&row.status==="submitted").length;let points=0;if(!CLOSED_CONTRACTS.has(contract.status)&&days<0)points+=100;points+=critical*80+blocked*60+high*45+overdueD*30+overdueO*25;if(score!==null&&target>0&&score<target)points+=Math.max(20,Math.round(target-score));points+=review*12+pendingReports*8;if(renewal)points+=days<=30?25:days<=60?15:8;const risk=points>=80?"critical":points>=40?"high":points>0?"watch":"ok";return{contract,provider:providerById.get(contract.provider_id)||"—",owner:ownerById.get(contract.internal_owner_user_id)||"—",score,target,risk,points,overdueD,overdueO,incidents:openInc.length,critical,high,blocked,review,approved,days};}).filter((row:any)=>(scope==="all"||!CLOSED_CONTRACTS.has(row.contract.status))&&(riskFilter==="all"||row.risk===riskFilter)&&(!q||[row.contract.title,row.contract.contract_number,row.provider,row.owner].some((value:string)=>String(value).toLowerCase().includes(q))));
+  const headers=fr?["Contrat","Reference","Prestataire","Responsable","Statut","Valeur","Devise","KPI","Cible KPI","Risque","Points risque","Livrables en retard","Obligations en retard","Incidents ouverts","Critiques","Eleves","Paiements bloques","Paiements a revoir","Approuves a payer","Date fin","Jours avant fin"]:["Contract","Reference","Provider","Owner","Status","Value","Currency","KPI","KPI target","Risk","Risk points","Overdue deliverables","Overdue obligations","Open incidents","Critical","High","Blocked payments","Payments to review","Approved to pay","End date","Days to end"];
+  const lines=[headers.map(csv).join(","),...rows.map((row:any)=>[row.contract.title,row.contract.contract_number,row.provider,row.owner,row.contract.status,n(row.contract.value_amount),row.contract.currency,row.score===null?"":row.score.toFixed(1),row.target.toFixed(1),row.risk,row.points,row.overdueD,row.overdueO,row.incidents,row.critical,row.high,row.blocked,row.review,row.approved,row.contract.end_date,row.days].map(csv).join(","))];
+  const body="\uFEFF"+lines.join("\r\n");return new NextResponse(body,{status:200,headers:{"Content-Type":"text/csv; charset=utf-8","Content-Disposition":`attachment; filename="super-leader-contract-report-${today}.csv"`,"Cache-Control":"no-store"}});
+}

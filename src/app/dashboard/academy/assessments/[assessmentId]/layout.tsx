@@ -1,0 +1,2 @@
+import Link from "next/link";
+export default async function QuizAssessmentLayout({children,params}:{children:React.ReactNode;params:Promise<{assessmentId:string}>}){const{assessmentId}=await params;return <><div className="bg-violet-950 px-5 py-3 text-right"><Link href={`/dashboard/academy/quiz-review/${assessmentId}`} className="rounded-xl bg-white px-4 py-2 text-sm font-black text-violet-800">Corriger les réponses longues →</Link></div>{children}</>}

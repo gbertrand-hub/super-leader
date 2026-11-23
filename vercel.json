@@ -1,0 +1,20 @@
+{
+    "crons":  [
+                  {
+                      "path":  "/api/cron/finance-collections",
+                      "schedule":  "30 8 * * *"
+                  },
+                  {
+                      "path":  "/api/cron/feedback-automation",
+                      "schedule":  "0 9 * * *"
+                  },
+                  {
+                      "path":  "/api/cron/notifications",
+                      "schedule":  "15 9 * * *"
+                  },
+                  {
+                      "path":  "/api/cron/contract-digest",
+                      "schedule":  "45 8 * * 1-5"
+                  }
+              ]
+}
