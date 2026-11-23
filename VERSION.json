@@ -1,8 +1,8 @@
 {
   "application": "Super Leader",
-  "version": "4.10.138",
-  "status": "GOLDEN RECOVERY CANDIDATE",
+  "version": "4.10.139",
+  "status": "ADMIN MULTI-SITE ACCESS CANDIDATE",
   "localPort": 3210,
-  "createdAt": "2026-11-22",
-  "sourcePath": "C:\\Projects\\SUPER-LEADER\\super-leader-v4-10-138-golden-candidate"
+  "createdAt": "2026-11-23",
+  "sourcePath": "C:\\Projects\\SUPER-LEADER\\super-leader-v4-10-139-admin-access-clean"
 }
