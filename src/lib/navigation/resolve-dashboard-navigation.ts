@@ -55,7 +55,7 @@ export function getNavigationSourceSections() {
   return DASHBOARD_NAVIGATION_SECTIONS.map(section=>({
     ...section,
     items: section.id==="administration"
-      ? [adminDashboard, ...section.items]
+      ? [adminDashboard, SITEMAP_LINK, ...section.items]
       : section.items,
   }));
 }
