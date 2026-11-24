@@ -2,7 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import { type NextRequest, NextResponse } from "next/server";
 import { readTemporaryAccessState } from "@/lib/auth/temporary-access";
 import { getSupabasePublicConfig } from "@/lib/supabase/env";
-import {isSitemapLocalQaSandbox} from "@/lib/navigation/sitemap-qa-sandbox";
+import {isSitemapLocalQaRequest} from "@/lib/navigation/sitemap-qa-sandbox";
 
 type OrganizationRole = "owner" | "admin" | "hr" | "manager" | "employee";
 
@@ -72,7 +72,7 @@ export async function proxy(request: NextRequest) {
   // The local-only sitemap QA database deliberately lacks dozens of
   // operational tables. Never invoke their routes in this sandbox.
   // Restrict navigation, not authorization; production and Vercel are excluded.
-  if (isSitemapLocalQaSandbox() &&
+  if (isSitemapLocalQaRequest(request.nextUrl.hostname) &&
       pathname.startsWith("/dashboard") &&
       pathname !== "/dashboard/my-pages" &&
       data?.claims) {
