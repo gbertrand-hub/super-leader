@@ -1,4 +1,5 @@
 import {cantonUiPreviewEnabled} from "@/lib/canton/feature-gate";
+import {isSitemapLocalQaSandbox} from "@/lib/navigation/sitemap-qa-sandbox";
 import {getI18n} from "@/i18n/server";
 import {CantonLanguageSwitch} from "@/components/canton/canton-language-switch";
 import {CantonSiteStaffManager} from "@/components/canton/canton-site-staff-manager";
@@ -12,6 +13,8 @@ import {createAdminClient} from "@/lib/supabase/admin";
 import {createCantonAppointment,createCantonCrmReferral,updateCantonVisit,manageCantonReceptionStaff,assignCantonFollowUp,completeCantonFollowUp,createCantonNextAction,completeCantonNextAction,simulateCantonFeedbackInvitations,sendCantonQaEmailTest,markCantonArrivalAlertRead,saveCantonVisitDebrief,qualifyCantonLegacyProspect,createCantonSlaRecovery,completeCantonSlaRecovery,createVisitorSite,updateVisitorSite} from "@/app/actions/canton-visitors";
 export const dynamic="force-dynamic";
 export default async function CantonVisitorPage({searchParams}:{searchParams:Promise<{error?:string;success?:string;q?:string;view?:string;site?:string;filter?:string}>}){
+  // Canton behavior is tested on V4.10.139, not on this sitemap-only QA app.
+  if (isSitemapLocalQaSandbox()) redirect("/dashboard/my-pages?qaUnsupported=1");
  const {error,success,q="",view="",site="",filter=""}=await searchParams;
  const {locale}=await getI18n();const fr=locale==="fr";
  if (!cantonUiPreviewEnabled()) return <main className="mx-auto max-w-2xl p-8"><h1 className="text-2xl font-bold">Canton Visitor Center</h1><p className="mt-3 rounded-lg bg-amber-50 p-4 text-amber-900">Real operations are disabled in this preview until the separate QA database, authentication, and access controls pass end-to-end testing.</p><a href="/canton-demo" className="mt-4 inline-block underline">Open the simulation</a></main>;
