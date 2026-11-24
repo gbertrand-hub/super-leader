@@ -2,6 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import { type NextRequest, NextResponse } from "next/server";
 import { readTemporaryAccessState } from "@/lib/auth/temporary-access";
 import { getSupabasePublicConfig } from "@/lib/supabase/env";
+import {isSitemapLocalQaSandbox} from "@/lib/navigation/sitemap-qa-sandbox";
 
 type OrganizationRole = "owner" | "admin" | "hr" | "manager" | "employee";
 
@@ -68,6 +69,19 @@ export async function proxy(request: NextRequest) {
   }
 
   const pathname = request.nextUrl.pathname;
+  // The local-only sitemap QA database deliberately lacks dozens of
+  // operational tables. Never invoke their routes in this sandbox.
+  // Restrict navigation, not authorization; production and Vercel are excluded.
+  if (isSitemapLocalQaSandbox() &&
+      pathname.startsWith("/dashboard") &&
+      pathname !== "/dashboard/my-pages" &&
+      data?.claims) {
+    const url = request.nextUrl.clone();
+    url.pathname = "/dashboard/my-pages";
+    url.search = "";
+    url.searchParams.set("qaUnsupported", "1");
+    return NextResponse.redirect(url);
+  }
   const isPasswordChangePage = pathname.startsWith(
     "/change-password-required",
   );
