@@ -1,8 +1,7 @@
 {
   "application": "Super Leader",
-  "version": "4.10.138",
-  "status": "GOLDEN RECOVERY CANDIDATE",
-  "localPort": 3210,
-  "createdAt": "2026-11-22",
-  "sourcePath": "C:\\Projects\\SUPER-LEADER\\super-leader-v4-10-138-golden-candidate"
+  "version": "4.10.140",
+  "status": "FEATURE DEVELOPMENT - NOT RELEASED",
+  "localPort": 3213,
+  "createdAt": "2026-11-24"
 }
