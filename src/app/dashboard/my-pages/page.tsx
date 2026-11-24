@@ -16,7 +16,7 @@ import inventory from "@/lib/navigation/route-inventory.json";
 import {getI18n} from "@/i18n/server";
 
 export const dynamic="force-dynamic";
-type Params={user?:string|string[];q?:string|string[];memberSearch?:string|string[]};
+type Params={user?:string|string[];q?:string|string[];memberSearch?:string|string[];qaUnsupported?:string|string[]};
 type Member={user_id:string;role:string;organization_id:string;is_active:boolean};
 type Profile={id:string;full_name:string|null;email:string|null};
 type OrgRelation={name?:string|null}|{name?:string|null}[]|null;
@@ -145,6 +145,9 @@ export default async function MyPages({searchParams}:{searchParams:Promise<Param
       <p className="mt-2 text-sm text-slate-200">{fr?"Retrouvez vos pages autorisées. Les accès sont contrôlés à nouveau par chaque module.":"Find your available pages. Each module independently enforces its permissions."}</p>
       <p className="mt-2 text-xs text-amber-200">{fr?"Inventaire technique de référence : V4.10.138 Golden.":"Route inventory reference: V4.10.138 Golden."}</p>
     </div>
+    {one(params.qaUnsupported)==="1"&&<div role="status" className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm font-medium text-amber-950">
+      {fr?"Environnement QA limité : cette base de test ne contient pas les tables nécessaires pour ouvrir ce module. Le lien existe, mais son fonctionnement doit être testé sur un environnement dédié complet.":"Limited QA environment: the selected module requires database tables not present in this test project. The route exists but must be tested in a full staging environment."}
+    </div>}
     <form method="get" className="flex flex-wrap gap-2 rounded-xl border bg-white p-4">
       {isAdmin && requestedUser?<input type="hidden" name="user" value={requestedUser}/>:null}
       <input name="q" defaultValue={one(params.q)} className="min-w-[240px] flex-1 rounded-lg border p-3" placeholder={fr?"Rechercher une page ou un module...":"Search for a page or module..."}/>
