@@ -1,0 +1,28 @@
+name: Super Leader Architecture Regression
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - audit/architecture-stability-v4-10-141
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  architecture:
+    name: Structural checks and architecture regression
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Configure Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Check architecture
+        run: node scripts/audit-architecture.mjs
+      - name: Run regression tests
+        run: node --test tests/architecture-regression.test.mjs
