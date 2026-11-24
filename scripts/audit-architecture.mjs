@@ -53,14 +53,16 @@ if (!exists("src/lib/navigation/dashboard-menu.ts")) found("ERROR", "MENU_REGIST
 
 if (exists("src/lib/navigation/dashboard-menu.ts")) {
   const menu = read("src/lib/navigation/dashboard-menu.ts");
-  const hrefs = [...menu.matchAll(/\\bhref:\\s*["'](\\/dashboard[^"']+)["']/g)].map(m => m[1]);
-  const staticRoutes = [...routes].filter(r => !r.includes("["));
-  const canMatch = target => {
-    if (staticRoutes.includes(target)) return true;
-    return [...routes].some(route => route.includes("[") && new RegExp("^" +
-      route.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\$&").replace(/\\\\\\[[^/]+\\\\\\]/g, "[^/]+") + "$").test(target));
-  };
-  const absentTargets = [...new Set(hrefs.map(h => h.split("?")[0]))].filter(h => !canMatch(h));
+  const hrefs = [...menu.matchAll(/href:\s*["'](\/dashboard[^"']+)["']/g)].map(m => m[1]);
+  const isRegisteredRoute = target => [...routes].some(route => {
+    if (target === route) return true;
+    if (!route.includes("[")) return false;
+    const source = route.split("/").map(segment =>
+      /^\[[^/]+\]$/.test(segment) ? "[^/]+" : segment.replace(/[^a-zA-Z0-9_-]/g, "\\$&")
+    ).join("/");
+    return new RegExp("^" + source + "$").test(target);
+  });
+  const absentTargets = [...new Set(hrefs.map(h => h.split("?")[0]))].filter(h => !isRegisteredRoute(h));
   if (absentTargets.length) found("WARN", "MENU_LINKS_TO_REVIEW", "Liens de menu sans page directe (possibles alias)", absentTargets);
 }
 
