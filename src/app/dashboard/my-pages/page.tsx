@@ -16,7 +16,7 @@ import inventory from "@/lib/navigation/route-inventory.json";
 import {getI18n} from "@/i18n/server";
 
 export const dynamic="force-dynamic";
-type Params={user?:string|string[];q?:string|string[]};
+type Params={user?:string|string[];q?:string|string[];memberSearch?:string|string[]};
 type Member={user_id:string;role:string;organization_id:string;is_active:boolean};
 type Profile={id:string;full_name:string|null;email:string|null};
 type OrgRelation={name?:string|null}|{name?:string|null}[]|null;
@@ -28,6 +28,7 @@ export default async function MyPages({searchParams}:{searchParams:Promise<Param
   const fr=locale==="fr";
   const params=await searchParams;
   const q=one(params.q).trim().toLocaleLowerCase().slice(0,100);
+  const memberSearch=one(params.memberSearch).trim().slice(0,100);
   const supabase=await createClient();
   const {data:{user}}=await supabase.auth.getUser();
   if(!user)redirect("/login");
@@ -84,10 +85,23 @@ export default async function MyPages({searchParams}:{searchParams:Promise<Param
       return !q || (label+" "+item.href+" "+t(section.labelKey)).toLocaleLowerCase().includes(q);
     }),
   })).filter(section=>section.items.length>0);
-  const {data:members}=isAdmin?await db.from("organization_members").select("user_id,role")
-    .eq("organization_id",organizationId).eq("is_active",true).order("user_id").limit(200):{data:[]};
-  const memberIds=(members||[]).map(x=>x.user_id);
-  const {data:profiles}=isAdmin&&memberIds.length?await db.from("profiles").select("id,full_name,email").in("id",memberIds):{data:[]};
+  // Search before listing members: never preload hundreds of profiles to debug one access request.
+  const safeMemberSearch=memberSearch.replace(/[^\\p{L}\\p{N} .@-]/gu," ").trim();
+  const {data:searchProfiles}=isAdmin&&safeMemberSearch
+    ?await db.from("profiles").select("id,full_name,email")
+      .or(`full_name.ilike.%${safeMemberSearch}%,email.ilike.%${safeMemberSearch}%`).limit(40)
+    :{data:[]};
+  const searchIds=(searchProfiles||[]).map(p=>p.id);
+  const membershipQuery=db.from("organization_members").select("user_id,role")
+    .eq("organization_id",organizationId).eq("is_active",true);
+  const {data:members}=isAdmin
+    ?safeMemberSearch
+      ?searchIds.length?await membershipQuery.in("user_id",searchIds).limit(40):{data:[]}
+      :await membershipQuery.order("user_id").limit(30)
+    :{data:[]};
+  const memberIds=[...new Set([...(members||[]).map(x=>x.user_id),targetUserId])];
+  const {data:profiles}=isAdmin&&memberIds.length
+    ?await db.from("profiles").select("id,full_name,email").in("id",memberIds):{data:[]};
   const profileMap=new Map(((profiles||[]) as Profile[]).map(x=>[x.id,x]));
   const allSources=getNavigationSourceSections().flatMap(s=>s.items.map(item=>({...item,section:s.id})));
   const links=new Set(allSources.map(x=>x.href.split("?")[0]));
@@ -135,11 +149,20 @@ export default async function MyPages({searchParams}:{searchParams:Promise<Param
       <p className="mt-1 text-sm text-indigo-800">{fr?"L'inventaire ne modifie jamais les permissions. Choisir un utilisateur n'ouvre pas une session à sa place.":"This inventory never changes access rights. Selecting a user does not impersonate them."}</p>
       <form method="get" className="mt-3 flex flex-wrap gap-2">
         {q?<input type="hidden" name="q" value={q}/>:null}
+        <input name="memberSearch" defaultValue={memberSearch} placeholder={fr?"Nom ou email du collaborateur":"Staff name or email"} className="min-w-[220px] flex-1 rounded-lg border bg-white p-3"/>
+        <button className="rounded-lg border border-indigo-400 bg-white px-5 py-3 font-semibold text-indigo-900">{fr?"Trouver":"Find"}</button>
+      </form>
+      <form method="get" className="mt-2 flex flex-wrap gap-2">
+        {q?<input type="hidden" name="q" value={q}/>:null}
+        {memberSearch?<input type="hidden" name="memberSearch" value={memberSearch}/>:null}
         <select name="user" defaultValue={targetUserId} className="min-w-[260px] flex-1 rounded-lg border bg-white p-3">
+          {!memberIds.some(id=>(members||[]).some(m=>m.user_id===id)&&id===targetUserId)&&!(members||[]).some(m=>m.user_id===targetUserId)
+            ?<option value={targetUserId}>{profileMap.get(targetUserId)?.full_name||profileMap.get(targetUserId)?.email||targetUserId} · {targetRole}</option>:null}
           {(members||[]).map(m=><option key={m.user_id} value={m.user_id}>{profileMap.get(m.user_id)?.full_name||profileMap.get(m.user_id)?.email||m.user_id} · {m.role}</option>)}
         </select>
         <button className="rounded-lg bg-indigo-700 px-5 py-3 font-semibold text-white">{fr?"Diagnostiquer":"Diagnose"}</button>
       </form>
+      <p className="mt-2 text-xs text-indigo-700">{fr?"La liste initiale est limitée à 30 membres. Recherchez par nom ou email pour les grandes organisations.":"The initial list shows up to 30 members. Search by name or email in large organizations."}</p>
       <p className="mt-2 text-xs text-indigo-700">{fr?"Affichage basé sur les règles du menu. Les accès détaillés sont toujours vérifiés par le serveur.":"Based on menu rules. Actual module permissions are always enforced on the server."}</p>
     </div>:null}
     {selected?<p className="rounded-lg bg-amber-50 p-3 text-sm font-semibold text-amber-900">{fr?"Diagnostic des menus de ":"Menu diagnosis for "}{selectedLabel}. {fr?"Les liens sont inspectés, pas ouverts sous cette identité.":"Links are inspected, not opened using their identity."}</p>:null}
