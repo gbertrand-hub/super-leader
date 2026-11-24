@@ -13,10 +13,11 @@ import {
   CANTON_VISITORS_LINK, type NavigationAccess,
 } from "@/lib/navigation/resolve-dashboard-navigation";
 import inventory from "@/lib/navigation/route-inventory.json";
+import {isSitemapLocalQaSandbox} from "@/lib/navigation/sitemap-qa-sandbox";
 import {getI18n} from "@/i18n/server";
 
 export const dynamic="force-dynamic";
-type Params={user?:string|string[];q?:string|string[];memberSearch?:string|string[];qaUnsupported?:string|string[]};
+type Params={user?:string|string[];q?:string|string[];memberSearch?:string|string[];qaUnsupported?:string|string[];inspect?:string|string[]};
 type Member={user_id:string;role:string;organization_id:string;is_active:boolean};
 type Profile={id:string;full_name:string|null;email:string|null};
 type OrgRelation={name?:string|null}|{name?:string|null}[]|null;
@@ -29,6 +30,7 @@ export default async function MyPages({searchParams}:{searchParams:Promise<Param
   const params=await searchParams;
   const q=one(params.q).trim().toLocaleLowerCase().slice(0,100);
   const memberSearch=one(params.memberSearch).trim().slice(0,100);
+  const qaSitemapOnly=isSitemapLocalQaSandbox();
   const supabase=await createClient();
   const {data:{user}}=await supabase.auth.getUser();
   if(!user)redirect("/login");
@@ -79,6 +81,8 @@ export default async function MyPages({searchParams}:{searchParams:Promise<Param
     id:"canton",labelKey:"navigation.cantonVisitors",icon:"schedule" as const,accent:"sky" as const,
     items:[{...CANTON_VISITORS_LINK,resolvedHref:CANTON_VISITORS_LINK.href,lockedByPlan:false}],
   }]:allowed;
+  const inspectRequested=one(params.inspect).slice(0,400);
+  const inspectedItem=resolved.flatMap(section=>section.items).find(item=>item.href===inspectRequested||item.resolvedHref===inspectRequested);
   const visible=resolved.map(section=>({
     ...section, items:section.items.filter(item=>{
       const label=item.label?fr?item.label.fr:item.label.en:t(item.labelKey);
@@ -145,9 +149,22 @@ export default async function MyPages({searchParams}:{searchParams:Promise<Param
       <p className="mt-2 text-sm text-slate-200">{fr?"Retrouvez vos pages autorisées. Les accès sont contrôlés à nouveau par chaque module.":"Find your available pages. Each module independently enforces its permissions."}</p>
       <p className="mt-2 text-xs text-amber-200">{fr?"Inventaire technique de référence : V4.10.138 Golden.":"Route inventory reference: V4.10.138 Golden."}</p>
     </div>
+    {qaSitemapOnly&&<div role="status" className="rounded-xl border-2 border-amber-300 bg-amber-50 p-5 text-sm text-amber-950">
+      <p className="font-bold">{fr?"MODE QA LIMITÉ — INVENTAIRE, PAS TEST FONCTIONNEL":"LIMITED QA MODE — INVENTORY, NOT A FUNCTIONAL TEST"}</p>
+      <p className="mt-2">{fr?"La base QA Canton ne possède pas les tables des autres modules. Les liens ouvrent ici leur fiche de navigation, et non le module opérationnel. Les pages restent accessibles normalement sur une instance disposant du schéma complet, sous réserve des autorisations.":"The Canton QA database lacks most other modules. Links here open a route information card, not a working module. In a full-schema environment modules can be opened subject to authorization."}</p>
+    </div>}
     {one(params.qaUnsupported)==="1"&&<div role="status" className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm font-medium text-amber-950">
       {fr?"Environnement QA limité : cette base de test ne contient pas les tables nécessaires pour ouvrir ce module. Le lien existe, mais son fonctionnement doit être testé sur un environnement dédié complet.":"Limited QA environment: the selected module requires database tables not present in this test project. The route exists but must be tested in a full staging environment."}
     </div>}
+    {qaSitemapOnly&&inspectRequested&&<section id="route-inspection" className="rounded-xl border-2 border-indigo-300 bg-indigo-50 p-5">
+      <h2 className="text-xl font-bold text-indigo-950">{fr?"Fiche du lien · lecture seule":"Route details · read-only"}</h2>
+      {inspectedItem?<>
+        <p className="mt-2 font-semibold text-indigo-900">{inspectedItem.label?(fr?inspectedItem.label.fr:inspectedItem.label.en):t(inspectedItem.labelKey)}</p>
+        <p className="mt-2 break-all rounded-lg bg-white p-3 font-mono text-xs text-slate-900">{inspectedItem.resolvedHref}</p>
+        <p className="mt-2 text-sm text-amber-900">{fr?"Page répertoriée dans votre navigation, mais exécution non vérifiable sur la base QA actuelle.":"The page appears in your navigation, but its functionality cannot be verified on this QA database."}</p>
+      </>:<p className="mt-2 text-sm text-rose-900">{fr?"Ce lien n'est pas présent dans les accès affichables du compte sélectionné.":"This route is not in the selected account's visible navigation."}</p>}
+      <Link href="/dashboard/my-pages" className="mt-3 inline-flex rounded-lg border border-indigo-400 bg-white px-4 py-2 font-semibold text-indigo-900">{fr?"Revenir au plan du site":"Back to sitemap"}</Link>
+    </section>}
     <form method="get" className="flex flex-wrap gap-2 rounded-xl border bg-white p-4">
       {isAdmin && requestedUser?<input type="hidden" name="user" value={requestedUser}/>:null}
       <input name="q" defaultValue={one(params.q)} className="min-w-[240px] flex-1 rounded-lg border p-3" placeholder={fr?"Rechercher une page ou un module...":"Search for a page or module..."}/>
@@ -182,7 +199,7 @@ export default async function MyPages({searchParams}:{searchParams:Promise<Param
         <div className="mt-3 space-y-2">{section.items.map(item=>{
           const title=item.label?fr?item.label.fr:item.label.en:t(item.labelKey);
           return <div key={item.href} className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-slate-50 px-3 py-3">
-            {selected?<span className="font-semibold text-slate-800">{title}</span>:<Link href={item.resolvedHref} className="font-semibold text-indigo-800 underline decoration-indigo-300 underline-offset-4 hover:text-indigo-950">{title} ↗</Link>}
+            {selected?<span className="font-semibold text-slate-800">{title}</span>:qaSitemapOnly?<Link href={"/dashboard/my-pages?inspect="+encodeURIComponent(item.href)+"#route-inspection"} prefetch={false} className="font-semibold text-indigo-800 underline decoration-indigo-300 underline-offset-4 hover:text-indigo-950">{title} · {fr?"Voir la fiche":"View route details"} ↗</Link>:<Link href={item.resolvedHref} className="font-semibold text-indigo-800 underline decoration-indigo-300 underline-offset-4 hover:text-indigo-950">{title} ↗</Link>}
             {item.lockedByPlan?<span className="rounded-full bg-amber-100 px-2 py-1 text-xs text-amber-900">{fr?"Plan requis":"Plan required"}</span>:null}
           </div>;
         })}</div>
