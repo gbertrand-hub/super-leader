@@ -27,16 +27,23 @@ jobs:
         run: |
           $tokens = $null
           $errors = $null
-          [System.Management.Automation.Language.Parser]::ParseFile(
-            (Join-Path $PWD 'scripts/preproduction/Export-SchemaOnly.ps1'),
-            [ref]$tokens,
-            [ref]$errors
-          ) | Out-Null
-          if ($errors.Count -gt 0) {
-            $errors | ForEach-Object { Write-Error $_.Message }
-            exit 1
+          @(
+            'scripts/preproduction/Export-SchemaOnly.ps1',
+            'scripts/preproduction/Test-PrivateSchemaExport.ps1'
+          ) | ForEach-Object {
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              (Join-Path $PWD $_),
+              [ref]$tokens,
+              [ref]$errors
+            ) | Out-Null
+            if ($errors.Count -gt 0) {
+              $errors | ForEach-Object { Write-Error $_.Message }
+              exit 1
+            }
+            Write-Host ('PowerShell syntax PASS: ' + $_)
           }
-          Write-Host 'PowerShell syntax PASS'
+
       - name: Check architecture
         run: node scripts/audit-architecture.mjs
       - name: Run schema drift report (non-blocking known QA divergence)
