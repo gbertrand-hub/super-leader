@@ -31,25 +31,20 @@ if ($helpText -notmatch '--schema' -or ($helpText -notmatch '--file' -and $helpT
     throw "Supabase CLI db dump flags could not be verified. No export attempted."
 }
 
-$dumpArgs = @()
-if ($helpText -match '--remote') {
-    # CLI v3+: address the production project explicitly.
-    $dumpArgs = @('db', 'dump', "--remote=$ProductionRef", '--schema', 'public', '--file')
-    Write-Host "Remote source: explicitly pinned production project ref."
-} elseif ($helpText -match '--linked') {
-    # Older CLI: only permit the linked project if it equals production ref.
-    if (-not (Test-Path $LinkedRefFile)) {
-        throw "Linked project reference file not found. Cannot verify --linked target."
-    }
-    $linkedRef = (Get-Content -Path $LinkedRefFile -Raw).Trim()
-    if ($linkedRef -ne $ProductionRef) {
-        throw "Linked project is not the expected production project. No export attempted."
-    }
-    $dumpArgs = @('db', 'dump', '--linked', '--schema', 'public', '--file')
-    Write-Host "Remote source: linked project ref verified."
-} else {
-    throw "Unsupported CLI flags. No export attempted."
+# Official Supabase CLI db dump is linked-project based; --remote=<ref>
+# is not a supported dump flag. Require exact local linked project match.
+if ($helpText -notmatch '--linked') {
+    throw "This CLI does not advertise the supported --linked flag. No export attempted."
 }
+if (-not (Test-Path -LiteralPath $LinkedRefFile)) {
+    throw "Linked project reference file not found. Cannot verify target safely."
+}
+$linkedRef = (Get-Content -LiteralPath $LinkedRefFile -Raw).Trim()
+if ($linkedRef -ne $ProductionRef) {
+    throw "Linked project is not the expected production project. No export attempted."
+}
+$dumpArgs = @('db', 'dump', '--linked', '--schema', 'public', '--file')
+Write-Host "Remote source: linked production project ref verified."
 
 if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
     throw "Docker is not installed or not available in PATH; required by Supabase CLI dump."
@@ -82,8 +77,14 @@ $file = Join-Path $dir 'public-schema-only.sql'
 
 Write-Host "Starting schema-only read from production..." -ForegroundColor Yellow
 try {
-    & supabase @dumpArgs $file
-    if ($LASTEXITCODE -ne 0) { throw "Supabase CLI dump returned exit code $LASTEXITCODE." }
+    Push-Location $RepoRoot
+    try {
+        & supabase @dumpArgs $file
+        $dumpExitCode = $LASTEXITCODE
+    } finally {
+        Pop-Location
+    }
+    if ($dumpExitCode -ne 0) { throw "Supabase CLI dump returned exit code $LASTEXITCODE." }
     if (-not (Test-Path -LiteralPath $file)) { throw "Schema SQL file was not created." }
     $info = Get-Item -LiteralPath $file
     if ($info.Length -eq 0) { throw "Schema SQL file is empty." }
