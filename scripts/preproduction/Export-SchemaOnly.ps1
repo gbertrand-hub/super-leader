@@ -20,6 +20,25 @@ Write-Host 'SUPER LEADER B4 - PRIVATE SCHEMA-ONLY PREFLIGHT' -ForegroundColor Cy
 Write-Host ('Expected source project: ' + $ProductionRef)
 Write-Host ('Mode: ' + $Mode)
 
+# Windows PowerShell 5.1 can surface harmless native STDERR notices as
+# NativeCommandError when ErrorActionPreference is Stop. The CLI's exit code,
+# not an update notice, determines whether a command succeeded.
+function Invoke-CheckedNative {
+    param(
+        [Parameter(Mandatory = $true)][string]$Executable,
+        [string[]]$PrefixArgs = @(),
+        [string[]]$Arguments = @(),
+        [Parameter(Mandatory = $true)][string]$Description
+    )
+    $ErrorActionPreference = 'Continue'
+    $captured = (& $Executable @PrefixArgs @Arguments 2>&1 | Out-String)
+    $nativeExit = $LASTEXITCODE
+    if ($nativeExit -ne 0) {
+        throw ($Description + ' failed with exit code ' + $nativeExit + '.')
+    }
+    return $captured.Trim()
+}
+
 # Use installed Supabase CLI if present. Otherwise, invoke the CLI using npx
 # with a pinned version. This downloads only to the npm cache on first use;
 # no npm dependency or lockfile is added to the application worktree.
@@ -38,16 +57,95 @@ if ($SupabaseCli) {
     Write-Host 'Supabase CLI is not installed globally; using npx with pinned supabase@2.117.0.'
     Write-Host 'First use may download the CLI to the local npm cache.'
 }
-$CliVersionText = (& $CliCommand @CliPrefixArgs --version 2>&1 | Out-String).Trim()
-if ($LASTEXITCODE -ne 0) {
-    throw 'Supabase CLI version check failed. No changes made.'
+$VersionOutput = Invoke-CheckedNative -Executable $CliCommand -PrefixArgs $CliPrefixArgs -Arguments @('--version') -Description 'Supabase CLI version check'
+$VersionLines = @($VersionOutput -split "[\r\n]+" | Where-Object { $_ -match '^\s*v?\d+\.\d+\.\d+([-.+][A-Za-z0-9.-]+)?\s*
+if ($HelpText -notmatch '--schema' -or $HelpText -notmatch '--file') {
+    throw 'Missing expected CLI dump flags. No changes made.'
 }
+
+if (-not (Test-Path -LiteralPath $LinkedRefFile)) {
+    throw 'Linked project reference file is missing. No changes made.'
+}
+$LinkedRef = (Get-Content -LiteralPath $LinkedRefFile -Raw).Trim()
+if ($LinkedRef -ne $ProductionRef) {
+    throw ('Wrong linked Supabase project: ' + $LinkedRef + '. No changes made.')
+}
+Write-Host 'Local project reference matches the expected source.'
+Write-Host 'This is a local check, not a live authentication check.'
+
+if (-not (Get-Command 'docker' -ErrorAction SilentlyContinue)) {
+    throw 'Docker CLI is missing from PATH. No changes made.'
+}
+$DockerVersion = Invoke-CheckedNative -Executable 'docker' -Arguments @('info', '--format', '{{.ServerVersion}}') -Description 'Docker engine check'
+if ([string]::IsNullOrWhiteSpace($DockerVersion)) {
+    throw 'Docker engine version was empty. Start Docker Desktop, then retry.'
+}
+Write-Host ('Docker engine: ' + $DockerVersion)
+
+$PrivateRoot = if ($env:LOCALAPPDATA) {
+    Join-Path $env:LOCALAPPDATA 'SuperLeader\PrivateSchemaExports'
+} else {
+    Join-Path $HOME '.super-leader\private-schema-exports'
+}
+Write-Host ('Private output location: ' + $PrivateRoot)
+Write-Host 'Scope: public schema only. No business rows or auth users.'
+Write-Host 'No production changes, new projects, migrations or restores.'
+
+if (-not $ExportSchema) {
+    Write-Host 'PREFLIGHT PASS' -ForegroundColor Green
+    return
+}
+
+# The export is separate from preflight and must be explicitly requested.
+# Never store the SQL under Git; function definitions may contain secrets.
+$Timestamp = Get-Date -Format 'yyyyMMdd-HHmmss-fff'
+$PrivateDir = Join-Path $PrivateRoot ('schema-' + $Timestamp)
+$null = New-Item -ItemType Directory -Path $PrivateDir -Force
+$OutputFile = Join-Path $PrivateDir 'public-schema-only.sql'
+$DumpArgs = @('db', 'dump')
+
+# Some CLI versions expose --linked explicitly; others use the linked
+# project by default. The local project reference is checked above.
+if ($HelpText -match '--linked') {
+    $DumpArgs += '--linked'
+}
+$DumpArgs += @('--schema', 'public', '--file', $OutputFile)
+
+Write-Host 'Starting a schema-only dump from the linked project...' -ForegroundColor Yellow
+try {
+    Push-Location $RepoRoot
+    try {
+        $null = Invoke-CheckedNative -Executable $CliCommand -PrefixArgs $CliPrefixArgs -Arguments $DumpArgs -Description 'Supabase schema dump'
+    } finally {
+        Pop-Location
+    }
+    if (-not (Test-Path -LiteralPath $OutputFile)) {
+        throw 'Expected schema SQL file was not created.'
+    }
+    $OutputInfo = Get-Item -LiteralPath $OutputFile
+    if ($OutputInfo.Length -eq 0) {
+        throw 'Schema SQL file is empty.'
+    }
+    $Sha256 = (Get-FileHash -LiteralPath $OutputFile -Algorithm SHA256).Hash
+    Write-Host 'SCHEMA EXPORT COMPLETED; NO RESTORE WAS PERFORMED.' -ForegroundColor Green
+    Write-Host ('Private file: ' + $OutputFile)
+    Write-Host ('Bytes: ' + $OutputInfo.Length)
+    Write-Host ('SHA256: ' + $Sha256)
+    Write-Host 'Do not upload, commit or share the SQL file: it may contain secrets.' -ForegroundColor Yellow
+} catch {
+    if (Test-Path -LiteralPath $OutputFile) {
+        Remove-Item -LiteralPath $OutputFile -Force
+    }
+    throw
+}
+ })
+if ($VersionLines.Count -lt 1) {
+    throw 'Supabase CLI version not recognized. No changes made.'
+}
+$CliVersionText = $VersionLines[0].Trim()
 Write-Host ('Supabase CLI: ' + $CliVersionText)
 
-$HelpText = (& $CliCommand @CliPrefixArgs db dump --help 2>&1 | Out-String)
-if ($LASTEXITCODE -ne 0) {
-    throw 'Cannot read Supabase CLI dump help. No changes made.'
-}
+$HelpText = Invoke-CheckedNative -Executable $CliCommand -PrefixArgs $CliPrefixArgs -Arguments @('db', 'dump', '--help') -Description 'Supabase CLI dump help'
 if ($HelpText -notmatch '--schema' -or $HelpText -notmatch '--file') {
     throw 'Missing expected CLI dump flags. No changes made.'
 }
