@@ -7,12 +7,9 @@ import { signOutAction } from "@/app/actions/auth";
 import { LanguageSwitcher } from "@/components/i18n/language-switcher";
 import { useI18n } from "@/i18n/client";
 import { OperationalQuickActions } from "@/components/dashboard/operational-quick-actions";
+import {resolveDashboardNavigation, SITEMAP_LINK} from "@/lib/navigation/resolve-dashboard-navigation";
 
-import {
-  DASHBOARD_NAVIGATION_SECTIONS,
-  type DashboardIconName,
-  type DashboardNavigationItem,
-} from "@/lib/navigation/dashboard-menu";
+import {type DashboardIconName} from "@/lib/navigation/dashboard-menu";
 
 type DashboardNavigationProps = {
   children: React.ReactNode;
@@ -418,79 +415,12 @@ export function DashboardNavigation({
   const desktopGlobalSearchInputRef = useRef<HTMLInputElement>(null);
   const mobileGlobalSearchInputRef = useRef<HTMLInputElement>(null);
 
-  type ResolvedNavigationItem = DashboardNavigationItem & {
-    lockedByPlan: boolean;
-    resolvedHref: string;
-  };
-
-  const canSeeLockedPlanModules = role === "owner" || role === "admin";
   const canAccessIdentity360 = role === "owner" || role === "admin";
-  // V4_8_70_ADMIN_COMMAND_CENTER_NAV
-  const resolvedSections = DASHBOARD_NAVIGATION_SECTIONS.map((section) => {
-    const sourceItems: DashboardNavigationItem[] =
-      section.id === "administration" && hasOrganization
-        ? [
-            {
-              labelKey: "navigation.adminDashboard",
-              label: { fr: "Tableau de bord", en: "Dashboard" },
-              href: "/dashboard/admin",
-              icon: "dashboard",
-              roles: ["owner", "admin", "hr"],
-            },
-            ...section.items,
-          ]
-        : section.items;
-
-    const items = sourceItems.flatMap<ResolvedNavigationItem>((item) => {
-      if (!hasOrganization) {
-        return item.href === "/dashboard"
-          ? [{ ...item, lockedByPlan: false, resolvedHref: item.href }]
-          : [];
-      }
-      if (item.platformOnly && !isPlatformWorkspace) return [];
-
-      // V4.8.83 R2: a delegated VIP Growth & Membership Manager may access
-      // only the dedicated growth command center without inheriting VIP admin rights.
-      const grantedByVipGrowthAssignment =
-        item.href === "/dashboard/vip/growth" && hasVipGrowthMembershipAssignment;
-      const grantedByFinanceVerification =
-        item.href === "/dashboard/finance?view=overview" && canVerifySalesForFinance;
-      const grantedByFinanceCustomerAccounts =
-        item.href === "/dashboard/finance/customer-accounts" && canAccessFinanceCustomerAccounts;
-
-      if (item.roles && !item.roles.includes(role) && !grantedByVipGrowthAssignment && !grantedByFinanceVerification && !grantedByFinanceCustomerAccounts) return [];
-      if (item.paymentReconciliationOnly && !canReconcilePayments) return [];
-      if (item.ambassadorManagementOnly && !canManageAmbassadors) return [];
-      if (item.academyFinanceControlOnly && !canAccessAcademyFinanceControl) return [];
-
-      const lockedByPlan = Boolean(
-        item.featureKey && !enabledFeatures.includes(item.featureKey),
-      );
-      if (lockedByPlan && !canSeeLockedPlanModules) return [];
-
-      const scopedHref =
-        item.organizationScoped && organizationId
-          ? `${item.href}${item.href.includes("?") ? "&" : "?"}organization=${encodeURIComponent(organizationId)}`
-          : item.href;
-      const resolvedHref =
-        lockedByPlan && item.featureKey
-          ? `/dashboard/subscription?upgrade=${encodeURIComponent(item.featureKey)}`
-          : scopedHref;
-      return [{ ...item, lockedByPlan, resolvedHref }];
-    });
-    const orderedItems = section.id === "finance"
-      ? [...items].sort((left, right) => {
-          const priority = (href: string) => {
-            if (href === "/dashboard/finance?view=overview") return 0;
-            if (href === "/dashboard/finance/payments") return 1;
-            if (href === "/dashboard/finance/customer-accounts") return 2;
-            return 3;
-          };
-          return priority(left.href) - priority(right.href);
-        })
-      : items;
-    return { ...section, items: orderedItems };
-  }).filter((section) => section.items.length > 0);
+  const resolvedSections = resolveDashboardNavigation({
+    role, organizationId, hasOrganization, isPlatformWorkspace, enabledFeatures,
+    canReconcilePayments, canVerifySalesForFinance, canAccessFinanceCustomerAccounts,
+    canManageAmbassadors, canAccessAcademyFinanceControl, hasVipGrowthMembershipAssignment,
+  });
   const normalizedMenuSearch = normalizeNavigationSearch(menuSearch);
   const normalizedGlobalSearch = normalizeNavigationSearch(globalSearch);
 
@@ -769,6 +699,16 @@ export function DashboardNavigation({
         </div>
 
       
+        {hasOrganization ? (
+          <Link
+            href={SITEMAP_LINK.href}
+            onClick={() => setMobileOpen(false)}
+            className={`mt-3 flex items-center gap-3 rounded-xl border border-amber-300/20 bg-amber-400/10 px-3 py-3 text-sm font-semibold text-amber-200 hover:bg-amber-400/20`}
+          >
+            <Icon name="menu" className="h-5 w-5"/>
+            <span>{locale==="fr" ? SITEMAP_LINK.label?.fr : SITEMAP_LINK.label?.en}</span>
+          </Link>
+        ):null}
         {/* V4_10_138_CANTON_MENU_FINAL_R10 */}
         {hasOrganization ? (
           <section className="mt-5" aria-labelledby="navigation-section-canton-r10">
