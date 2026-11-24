@@ -13,7 +13,7 @@
 | Migrations enregistrées | 15 | 14 |
 | Statut branche QA | — | `MIGRATIONS_FAILED` |
 
-Le dépôt Golden ne contient que **10** fichiers de migration dans `supabase/migrations/`. Sur les 15 migrations enregistrées côté production, **9** n'ont pas de fichier équivalent dans ce dossier ; quatre des dix fichiers versionnés ne figurent pas dans cet historique. Les 190 autres scripts SQL hors dossier migrations ne sont pas automatiquement équivalents à une chaîne de migration reproductible. **Aucune restauration automatisée du schéma ne doit être lancée sur cette seule base.**
+Le dépôt Golden ne contient que **10** fichiers de migration dans `supabase/migrations/`. Sur les 15 migrations enregistrées côté production, **6** n'ont pas de fichier équivalent dans ce dossier ; un des dix fichiers versionnés ne figure pas dans cet historique. Les 190 autres scripts SQL hors dossier migrations ne sont pas automatiquement équivalents à une chaîne de migration reproductible. **Aucune restauration automatisée du schéma ne doit être lancée sur cette seule base.**
 
 ## Examen de sécurité : signaux à vérifier, pas vulnérabilités établies
 
