@@ -280,9 +280,10 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
  const input="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900";
  return <main data-active-view={activeView} className="space-y-6 p-4 md:p-8">
   <style>{`
-   /* R13_1_CANTON_HIDE_ACADEMY_QUICK_ACTIONS */
-   a[href^="/dashboard/admin/identity-audit"],
-   a[href^="/dashboard/academy/students/finance-control"] {
+   /* Hide redundant desktop header shortcuts on Canton only.
+      Keep Identity 360 and Academy visible in the authorized sidebar. */
+   header.sticky > div > div.flex.shrink-0 > a[href^="/dashboard/admin/identity-audit"],
+   header.sticky > div > div.flex.shrink-0 > a[href^="/dashboard/academy/students/finance-control"] {
      display: none !important;
    }
    main[data-active-view="dashboard"] [data-canton-view]:not([data-canton-view~="dashboard"]),
