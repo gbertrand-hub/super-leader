@@ -72,7 +72,15 @@ function resolveLocal(from, spec) {
   else return null;
   const relative = canonical(absolute);
   const candidates = [relative, ...extensions.map(ext => relative + ext)];
-  return candidates.find(p => known.has(p)) || null;
+  const sourceFile = candidates.find(p => known.has(p));
+  if (sourceFile) return sourceFile;
+  // JSON imports are static assets, not TypeScript modules. They must be
+  // checked for existence but never traversed as executable source files.
+  if (relative.endsWith(".json") && fs.existsSync(path.join(cwd, relative)) &&
+      fs.statSync(path.join(cwd, relative)).isFile()) {
+    return relative;
+  }
+  return null;
 }
 function inspect(file) {
   if (code.has(file)) return code.get(file);
@@ -82,13 +90,18 @@ function inspect(file) {
     ...extractMatches(source, sideEffectImportPattern),
     ...extractMatches(source, dynamicImportPattern),
   ])];
-  const deps = [...new Set(specs.map(spec => resolveLocal(file, spec)).filter(Boolean))].sort();
+  const deps = [...new Set(specs.map(spec => resolveLocal(file, spec)).filter(p => p && known.has(p)))].sort();
   const unresolved = specs.filter(spec =>
     (spec.startsWith("@/") || spec.startsWith(".")) && !resolveLocal(file, spec)
   );
+  // Explicit JSON references are retained as resolved assets for diagnostics,
+  // without entering the code dependency traversal.
+  const assets = specs.map(spec => resolveLocal(file, spec))
+    .filter(p => p && p.endsWith(".json"));
   const result = {
     imports: deps,
     unresolved,
+    assets: [...new Set(assets)].sort(),
     tables: [...new Set(extractMatches(source, fromPattern))].sort(),
     rpcs: [...new Set(extractMatches(source, rpcPattern))].sort(),
     dynamicTableCalls: [...source.matchAll(runtimeTablePattern)].length,
