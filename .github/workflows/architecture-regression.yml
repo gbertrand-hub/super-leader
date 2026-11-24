@@ -30,7 +30,8 @@ jobs:
           @(
             'scripts/preproduction/Export-SchemaOnly.ps1',
             'scripts/preproduction/Test-PrivateSchemaExport.ps1',
-            'scripts/preproduction/Initialize-LocalLab.ps1'
+            'scripts/preproduction/Initialize-LocalLab.ps1',
+            'scripts/preproduction/Verify-LocalLab.ps1'
           ) | ForEach-Object {
             $errors = $null
             [System.Management.Automation.Language.Parser]::ParseFile(
