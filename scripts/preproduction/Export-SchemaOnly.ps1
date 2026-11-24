@@ -58,7 +58,14 @@ if ($SupabaseCli) {
     Write-Host 'First use may download the CLI to the local npm cache.'
 }
 $VersionOutput = Invoke-CheckedNative -Executable $CliCommand -PrefixArgs $CliPrefixArgs -Arguments @('--version') -Description 'Supabase CLI version check'
-$VersionLines = @($VersionOutput -split "[\r\n]+" | Where-Object { $_ -match '^\s*v?\d+\.\d+\.\d+([-.+][A-Za-z0-9.-]+)?\s*
+$VersionLines = @($VersionOutput -split '[\r\n]+' | Where-Object { $_ -match '^\s*v?\d+\.\d+\.\d+([-.+][A-Za-z0-9.-]+)?\s*$' })
+if ($VersionLines.Count -lt 1) {
+    throw 'Supabase CLI version not recognized. No changes made.'
+}
+$CliVersionText = $VersionLines[0].Trim()
+Write-Host ('Supabase CLI: ' + $CliVersionText)
+
+$HelpText = Invoke-CheckedNative -Executable $CliCommand -PrefixArgs $CliPrefixArgs -Arguments @('db', 'dump', '--help') -Description 'Supabase CLI dump help'
 if ($HelpText -notmatch '--schema' -or $HelpText -notmatch '--file') {
     throw 'Missing expected CLI dump flags. No changes made.'
 }
