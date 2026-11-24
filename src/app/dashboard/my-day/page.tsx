@@ -328,7 +328,7 @@ export default async function MyDayPage({searchParams}: PageProps) {
   const isMinimalLocalQa =
     process.env.NODE_ENV === "development" &&
     !process.env.VERCEL_ENV &&
-    process.env.NEXT_PUBLIC_SUPABASE_URL?.replace(/\\/$/, "") === "https://xehstmnqljjhacjiukvc.supabase.co";
+    process.env.NEXT_PUBLIC_SUPABASE_URL?.replace(/\/$/, "") === "https://xehstmnqljjhacjiukvc.supabase.co";
   const personalTimeZoneRequest = isMinimalLocalQa
     ? Promise.resolve({data: null as TimeZoneProfileRow | null, error: null})
     : admin.from("profiles").select("time_zone").eq("id", authData.user.id).maybeSingle<TimeZoneProfileRow>();
