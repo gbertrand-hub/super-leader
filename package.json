@@ -9,7 +9,9 @@
     "lint": "eslint",
     "test:architecture": "node --test tests/architecture-regression.test.mjs",
     "audit:architecture": "node scripts/audit-architecture.mjs",
-    "audit:dependencies": "node scripts/map-dependencies.mjs"
+    "audit:dependencies": "node scripts/map-dependencies.mjs",
+    "test:security": "node --test tests/security-contracts.test.mjs",
+    "test:stability": "node --test tests/architecture-regression.test.mjs tests/security-contracts.test.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "latest",
