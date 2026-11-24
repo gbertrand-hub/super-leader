@@ -1,0 +1,47 @@
+{
+  "metadataOnly": true,
+  "capturedOn": "2026-11-24",
+  "source": "connected Supabase project metadata queries and list_migrations; no business rows accessed",
+  "production": {
+    "ref": "jjbuxrlvxnlnrjcorpwt",
+    "publicTables": 315,
+    "publicViews": 1,
+    "publicColumns": 4735,
+    "rlsEnabledTables": 315,
+    "publicTablesWithoutExplicitPolicies": 195,
+    "publicSecurityDefinerFunctions": 117,
+    "securityDefinerCallableByAnon": 82,
+    "securityDefinerCallableByAnonNonTrigger": 43,
+    "securityDefinerCallableByAnonTrigger": 39,
+    "functions": "178",
+    "viewSecurityInvokerConfirmed": true,
+    "migrationVersions": [
+      "20260906085203_academy_unified_student_identity_v4_10_23",
+      "20260906224125_academy_assessment_availability_schedule_v4_10_29",
+      "20260907032000_academy_coaches_balance_quiz_v4_10_30",
+      "20260908120000_hr_annual_leave_balance_adjustments_v4_10_31",
+      "20260908153000_hr_leave_balance_owner_admin_access_v4_10_32",
+      "20260909120000_hr_document_center_v4_10_38",
+      "20260909153000_hr_document_center_complete_v4_10_39",
+      "20260915221355_finance_customer_account_access_mode",
+      "20260916043606_fix_sales_payment_summary_null_initial",
+      "20261013031610_attendance_time_governance_v4_10_107",
+      "20261013044317_attendance_auto_close_v4_10_107_r2",
+      "20261103051802_academy_staff_training_modules_v4_10_110",
+      "20261116092446_academic_identity_alias_ambiguity_hotfix_v4_10_129_1",
+      "20261116112002_academy_payment_mode_catalog_v4_10_130",
+      "20261121123628_canton_next_action_reassignment"
+    ]
+  },
+  "cantonQa": {
+    "ref": "xehstmnqljjhacjiukvc",
+    "publicTables": 23,
+    "publicViews": 0,
+    "publicColumns": 237,
+    "rlsEnabledTables": 23,
+    "supabaseBranchStatus": "MIGRATIONS_FAILED",
+    "previewProjectStatus": "ACTIVE_HEALTHY",
+    "recordedMigrations": 14
+  },
+  "note": "Counts and history can change after capture. Lack of an explicit RLS policy does not by itself imply data exposure; EXECUTE grants on SECURITY DEFINER functions require per-function review."
+}
