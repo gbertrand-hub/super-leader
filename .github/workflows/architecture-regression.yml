@@ -24,5 +24,7 @@ jobs:
           node-version: '24'
       - name: Check architecture
         run: node scripts/audit-architecture.mjs
+      - name: Run schema drift report (non-blocking known QA divergence)
+        run: npm run audit:schema-drift
       - name: Run full stability contract suite
         run: npm run test:stability
