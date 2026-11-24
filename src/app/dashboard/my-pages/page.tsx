@@ -103,7 +103,14 @@ export default async function MyPages({searchParams}:{searchParams:Promise<Param
   const {data:profiles}=isAdmin&&memberIds.length
     ?await db.from("profiles").select("id,full_name,email").in("id",memberIds):{data:[]};
   const profileMap=new Map(((profiles||[]) as Profile[]).map(x=>[x.id,x]));
-  const allSources=getNavigationSourceSections().flatMap(s=>s.items.map(item=>({...item,section:s.id})));
+  // The same destination can legitimately be referenced under HR, Finance and
+  // Administration. Keep each entry for access diagnostics, with its section as identity.
+  const allSources=getNavigationSourceSections().flatMap(s=>s.items.map((item,index)=>({...item,section:s.id,entryIndex:index})));
+  const referencesByHref=new Map<string,string[]>();
+  for(const entry of allSources){
+    referencesByHref.set(entry.href,[...(referencesByHref.get(entry.href)||[]),entry.section]);
+  }
+  const sharedLinks=[...referencesByHref.entries()].filter(([,sections])=>sections.length>1);
   const links=new Set(allSources.map(x=>x.href.split("?")[0]));
   links.add("/dashboard/canton-visitors");links.add("/dashboard/my-pages");
   const urlIsKnown=(path:string)=>links.has(path)||[...links].some(link=>path.startsWith(link+"/"));
@@ -188,14 +195,19 @@ export default async function MyPages({searchParams}:{searchParams:Promise<Param
         <p className="mt-2 text-xs text-amber-800">{fr?"Une page non référencée peut être un détail interne légitime. Audit humain requis avant d'ajouter un lien.":"An unreferenced route may be an intentional detail page. Review before adding a shortcut."}</p>
       </details>
       <details className="rounded-lg border p-3"><summary className="cursor-pointer font-semibold">{fr?"Liens déclarés à examiner":"Registered links to review"} ({missingRoutes.length})</summary>
-        <div className="mt-3 max-h-80 space-y-1 overflow-auto">{missingRoutes.map(x=><div className="break-all rounded bg-amber-50 p-2 text-xs" key={x.href}>{x.href}</div>)}</div>
+        <div className="mt-3 max-h-80 space-y-1 overflow-auto">{missingRoutes.map(x=><div className="break-all rounded bg-amber-50 p-2 text-xs" key={`${x.section}-${x.href}-${x.entryIndex}`}>{x.href}</div>)}</div>
         <p className="mt-2 text-xs text-amber-800">{fr?"Les liens avec paramètres, réécritures et pages partagées nécessitent une vérification manuelle.":"Aliases, rewrites and shared paths require manual verification."}</p>
+      </details>
+      <details className="rounded-lg border p-3">
+        <summary className="cursor-pointer font-semibold">{fr?"Liens partagés entre plusieurs menus":"Links referenced in multiple menus"} ({sharedLinks.length})</summary>
+        <p className="mt-2 text-xs text-slate-600">{fr?"Ces répétitions sont parfois volontaires. Elles ne doivent pas être supprimées sans analyse des droits.":"Multiple references can be intentional; do not remove them without reviewing access rules."}</p>
+        <div className="mt-3 max-h-64 space-y-1 overflow-auto">{sharedLinks.map(([href,sections])=><div key={href} className="break-all rounded bg-slate-50 p-2 text-xs">{href} · {sections.join(" / ")}</div>)}</div>
       </details>
       <details className="rounded-lg border p-3"><summary className="cursor-pointer font-semibold">{fr?"Diagnostic des restrictions par page":"Page visibility reasons"} ({allItems.length})</summary>
         <div className="mt-3 max-h-96 space-y-1 overflow-auto">{allItems.map(x=>{
           const decision=navigationItemDecision(x,access);
-          return <div className="flex flex-wrap justify-between gap-2 rounded bg-slate-50 p-2 text-xs" key={x.href}>
-            <span className="break-all">{x.label?(fr?x.label.fr:x.label.en):t(x.labelKey)} · {x.href}</span>
+          return <div className="flex flex-wrap justify-between gap-2 rounded bg-slate-50 p-2 text-xs" key={`${x.section}-${x.href}-${x.entryIndex}`}>
+            <span className="break-all"><span className="font-semibold text-slate-700">[{x.section}]</span> {x.label?(fr?x.label.fr:x.label.en):t(x.labelKey)} · {x.href}</span>
             <span className={decision.visible?"font-semibold text-emerald-700":"font-semibold text-amber-900"}>{decision.visible&&decision.lockedByPlan?(fr?"Visible · plan requis":"Visible · upgrade needed"):reasonLabels[decision.reason]}</span>
           </div>;
         })}</div>
