@@ -86,7 +86,7 @@ export default async function MyPages({searchParams}:{searchParams:Promise<Param
     }),
   })).filter(section=>section.items.length>0);
   // Search before listing members: never preload hundreds of profiles to debug one access request.
-  const safeMemberSearch=memberSearch.replace(/[^\\p{L}\\p{N} .@-]/gu," ").trim();
+  const safeMemberSearch=memberSearch.replace(/[^\p{L}\p{N} .@-]/gu," ").trim();
   const {data:searchProfiles}=isAdmin&&safeMemberSearch
     ?await db.from("profiles").select("id,full_name,email")
       .or(`full_name.ilike.%${safeMemberSearch}%,email.ilike.%${safeMemberSearch}%`).limit(40)
@@ -156,7 +156,7 @@ export default async function MyPages({searchParams}:{searchParams:Promise<Param
         {q?<input type="hidden" name="q" value={q}/>:null}
         {memberSearch?<input type="hidden" name="memberSearch" value={memberSearch}/>:null}
         <select name="user" defaultValue={targetUserId} className="min-w-[260px] flex-1 rounded-lg border bg-white p-3">
-          {!memberIds.some(id=>(members||[]).some(m=>m.user_id===id)&&id===targetUserId)&&!(members||[]).some(m=>m.user_id===targetUserId)
+          {!(members||[]).some(m=>m.user_id===targetUserId)
             ?<option value={targetUserId}>{profileMap.get(targetUserId)?.full_name||profileMap.get(targetUserId)?.email||targetUserId} · {targetRole}</option>:null}
           {(members||[]).map(m=><option key={m.user_id} value={m.user_id}>{profileMap.get(m.user_id)?.full_name||profileMap.get(m.user_id)?.email||m.user_id} · {m.role}</option>)}
         </select>
