@@ -49,7 +49,14 @@ export async function updateCantonQrSiteAddress(f:FormData){
  .update({street_address:streetAddress}).eq("id",site).eq("organization_id",org).select("id");
  if(error||!data?.length)fail("Office location could not be saved");
  revalidatePath(dash);
- redirect(dash+"?success="+encodeURIComponent("Office location saved"));
+ const requestedView=value(f,"returnView",20);
+ const returnView=["dashboard","reception","appointments","commercial","feedback","admin"].includes(requestedView)?requestedView:"dashboard";
+ const requestedSite=value(f,"returnSite",40);
+ // Return only to the fixed Canton route, never a caller-provided URL.
+ const returnSite=(requestedSite==="all"||uuid(requestedSite))?requestedSite:"";
+ const params=new URLSearchParams({view:returnView,success:"Office location saved",qrOpen:"1"});
+ if(returnSite)params.set("site",returnSite);
+ redirect(dash+"?"+params.toString()+"#canton-qr-management");
 }
 export async function submitCantonQrIntake(f:FormData){
  assertCantonLive();
