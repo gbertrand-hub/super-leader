@@ -11,6 +11,7 @@ import {getVisibleUserIds} from "@/lib/auth/scope";
 import {createAdminClient} from "@/lib/supabase/admin";
 import {createClient} from "@/lib/supabase/server";
 import {normalizeTimeZone} from "@/lib/timezone";
+import {isSitemapLocalQaSandbox} from "@/lib/navigation/sitemap-qa-sandbox";
 
 type SearchParams = {
   contact?: string | string[];
@@ -293,6 +294,8 @@ function workdaysInYear(start: string, end: string, year: number) {
 }
 
 export default async function MyDayPage({searchParams}: PageProps) {
+  // V4.10.140 sitemap QA must not execute modules with missing QA tables.
+  if (isSitemapLocalQaSandbox()) redirect("/dashboard/my-pages?qaUnsupported=1");
   const params = (await searchParams) ?? {};
   const firstParam = (value: string | string[] | undefined) => Array.isArray(value) ? value[0] ?? "" : value ?? "";
   const contactUserId = firstParam(params.contact);
