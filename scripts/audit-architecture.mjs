@@ -33,7 +33,7 @@ const all = walk(root);
 const pages = all.filter(p => p.startsWith("src/app/dashboard/") && p.endsWith("/page.tsx"));
 const api = all.filter(p => p.startsWith("src/app/api/") && p.endsWith("/route.ts"));
 const actions = all.filter(p => p.startsWith("src/app/actions/") && p.endsWith(".ts"));
-const tests = all.filter(p => /(^|\\/)(__tests__|tests)(\\/|$)|\\.(test|spec)\\.[jt]sx?$/.test(p));
+const tests = all.filter(p => p.includes("/__tests__/") || p.startsWith("tests/") || /\.(test|spec)\.[jt]sx?$/.test(p));
 const workflowFiles = all.filter(p => p.startsWith(".github/workflows/"));
 const sql = all.filter(p => p.endsWith(".sql"));
 const relativeToRoute = file => "/dashboard" + file.slice("src/app/dashboard".length, -"/page.tsx".length);
@@ -72,7 +72,7 @@ if (!scripts.test) found("WARN", "NO_TEST_SCRIPT", "Aucune commande npm test dé
 if (!scripts["typecheck"]) found("WARN", "NO_TYPECHECK_SCRIPT", "Aucune commande typecheck standardisée.");
 if (!workflowFiles.length) found("WARN", "NO_CI_WORKFLOW", "Aucun workflow CI versionné.");
 if (!tests.length) found("WARN", "NO_RECOGNIZED_TESTS", "Aucun test .test/.spec conventionnel trouvé.");
-if (exists("next.config.ts") && /ignoreBuildErrors:\\s*true/.test(read("next.config.ts")))
+if (exists("next.config.ts") && /ignoreBuildErrors:\s*true/.test(read("next.config.ts")))
   found("WARN", "BUILD_SKIPS_TYPES", "Next.js ignore les erreurs TypeScript pendant le build.");
 const floating = Object.entries({ ...pkg.dependencies, ...pkg.devDependencies })
   .filter(([, value]) => value === "latest" || value === "*" || value === "next")
