@@ -1,31 +1,32 @@
 {
-    "name":  "super-leader",
-    "version":  "4.10.138",
-    "private":  true,
-    "scripts":  {
-                    "dev":  "next dev -p 3002",
-                    "build":  "next build",
-                    "start":  "next start -p 3002",
-                    "lint":  "eslint"
-                },
-    "dependencies":  {
-                         "@supabase/ssr":  "latest",
-                         "@supabase/supabase-js":  "latest",
-                         "@types/papaparse":  "^5.5.2",
-                         "next":  "^16.3.0",
-                         "papaparse":  "^5.5.4",
-                         "react":  "latest",
-                         "react-dom":  "latest",
-                         "read-excel-file":  "^9.3.5"
-                     },
-    "devDependencies":  {
-                            "@tailwindcss/postcss":  "latest",
-                            "@types/node":  "latest",
-                            "@types/react":  "latest",
-                            "@types/react-dom":  "latest",
-                            "eslint":  "latest",
-                            "eslint-config-next":  "16.2.11",
-                            "tailwindcss":  "latest",
-                            "typescript":  "latest"
-                        }
+  "name": "super-leader",
+  "version": "4.10.138",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 3002",
+    "build": "next build",
+    "start": "next start -p 3002",
+    "lint": "eslint",
+    "sitemap:audit": "node scripts/audit-navigation.mjs"
+  },
+  "dependencies": {
+    "@supabase/ssr": "latest",
+    "@supabase/supabase-js": "latest",
+    "@types/papaparse": "^5.5.2",
+    "next": "^16.3.0",
+    "papaparse": "^5.5.4",
+    "react": "latest",
+    "react-dom": "latest",
+    "read-excel-file": "^9.3.5"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "latest",
+    "@types/node": "latest",
+    "@types/react": "latest",
+    "@types/react-dom": "latest",
+    "eslint": "latest",
+    "eslint-config-next": "16.2.11",
+    "tailwindcss": "latest",
+    "typescript": "latest"
+  }
 }
