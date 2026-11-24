@@ -49,7 +49,14 @@ $FunctionCount = Count-SqlPattern '^\s*CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+'
 $ProcedureCount = Count-SqlPattern '^\s*CREATE\s+(?:OR\s+REPLACE\s+)?PROCEDURE\s+'
 $PolicyCount = Count-SqlPattern '^\s*CREATE\s+POLICY\s+'
 $IndexCount = Count-SqlPattern '^\s*CREATE\s+(?:UNIQUE\s+)?INDEX\s+'
-$TriggerCount = Count-SqlPattern '^\s*CREATE\s+(?:CONSTRAINT\s+)?TRIGGER\s+'
+# PostgreSQL can emit both CREATE TRIGGER and CREATE OR REPLACE TRIGGER.
+# Reference baseline was independently confirmed on the production catalog:
+# 178 non-internal, non-extension-owned triggers across public tables.
+$ExpectedPublicTriggers = 178
+$TriggerCount = Count-SqlPattern '^\s*CREATE\s+(?:OR\s+REPLACE\s+)?(?:CONSTRAINT\s+)?TRIGGER\s+'
+$PgDumpTriggerCommentCount = Count-SqlPattern '^\s*--\s*Name:\s*[^\r\n;]+;\s*Type:\s*TRIGGER\s*;'
+$TriggerAlterCount = Count-SqlPattern '^\s*ALTER\s+TABLE[^\r\n]*\b(?:ENABLE|DISABLE)\s+(?:ALWAYS\s+|REPLICA\s+)?TRIGGER\b'
+$TriggerMentionCount = Count-SqlPattern '\bTRIGGER\b'
 $ViewCount = Count-SqlPattern '^\s*CREATE\s+(?:OR\s+REPLACE\s+)?(?:MATERIALIZED\s+)?VIEW\s+'
 
 # pg_dump data-block signatures. We never echo matching SQL text.
@@ -68,6 +75,10 @@ Write-Host ('CREATE PROCEDURE statements (approximate): ' + $ProcedureCount)
 Write-Host ('CREATE POLICY statements (approximate): ' + $PolicyCount)
 Write-Host ('CREATE INDEX statements (approximate): ' + $IndexCount)
 Write-Host ('CREATE TRIGGER statements (approximate): ' + $TriggerCount)
+Write-Host ('Expected public user-defined triggers: ' + $ExpectedPublicTriggers)
+Write-Host ('pg_dump trigger object comments: ' + $PgDumpTriggerCommentCount)
+Write-Host ('ALTER TABLE ENABLE/DISABLE TRIGGER statements: ' + $TriggerAlterCount)
+Write-Host ('TRIGGER keyword mentions (anywhere): ' + $TriggerMentionCount)
 Write-Host ('CREATE VIEW statements (approximate): ' + $ViewCount)
 Write-Host ('pg_dump data section markers: ' + $DataSectionCount)
 Write-Host ('COPY FROM stdin statements: ' + $CopyFromStdinCount)
@@ -83,6 +94,12 @@ if ($UnsafeMarkers -gt 0) {
 if ($TableCount -lt 250) {
     Write-Warning 'Fewer than 250 CREATE TABLE statements detected; expected public schema is around 315 tables.'
     throw 'INSPECTION INCOMPLETE. Review privately before any restore.'
+}
+if ($TriggerCount -ne $ExpectedPublicTriggers) {
+    Write-Warning 'TRIGGER GAP: SQL declarations do not match the 178 live public user-defined triggers.'
+    Write-Warning 'Possible explanations: alternate dump syntax, insufficient schema coverage, or missing trigger definitions.'
+    Write-Warning 'Do not restore or modify production. Review the counts above first.'
+    throw 'B4 TRIGGER COVERAGE BLOCKED. A full local schema replay must not begin yet.'
 }
 Write-Host 'B4 PRIVATE SQL INSPECTION: PASS (HEURISTIC ONLY)' -ForegroundColor Green
 Write-Host 'No SQL executed, uploaded, copied, or displayed.'
