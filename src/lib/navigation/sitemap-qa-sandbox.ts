@@ -15,3 +15,18 @@ export function isSitemapLocalQaSandbox(): boolean {
     return false;
   }
 }
+
+/** For Next.js proxy: request-host scoping is stronger than relying on
+ * NODE_ENV or a copied VERCEL_ENV variable in local .env.local. Only the
+ * dedicated isolated QA project on a loopback host enters sitemap-only mode.
+ * Neither production nor Vercel deployment hosts satisfy this predicate.
+ */
+export function isSitemapLocalQaRequest(hostname: string): boolean {
+  if (!["localhost", "127.0.0.1", "::1", "[::1]"].includes(hostname.toLowerCase())) return false;
+  try {
+    return new URL(process.env.NEXT_PUBLIC_SUPABASE_URL || "").origin ===
+      "https://xehstmnqljjhacjiukvc.supabase.co";
+  } catch {
+    return false;
+  }
+}
