@@ -7,6 +7,8 @@
  *   node scripts/map-dependencies.mjs
  *   node scripts/map-dependencies.mjs --focus /dashboard/hr
  *   node scripts/map-dependencies.mjs --json
+ *   node scripts/map-dependencies.mjs --impact src/lib/auth/permissions.ts
+ *   node scripts/map-dependencies.mjs --unresolved
  *
  * Limitations: heuristic import and Supabase-call analysis. Runtime calls,
  * code generation, SQL in template strings, server actions invoked indirectly,
@@ -18,11 +20,17 @@ import path from "node:path";
 const cwd = process.cwd();
 const args = process.argv.slice(2);
 const focus = args.includes("--focus") ? args[args.indexOf("--focus") + 1] : "";
+const impactedFile = args.includes("--impact") ? args[args.indexOf("--impact") + 1] : "";
+const listUnresolved = args.includes("--unresolved");
 if (args.includes("--focus") && (!focus || focus.startsWith("--"))) {
   console.error("Usage: --focus /dashboard/hr");
   process.exit(2);
 }
-const asJson = args.includes("--json") || Boolean(focus);
+if (args.includes("--impact") && (!impactedFile || impactedFile.startsWith("--"))) {
+  console.error("Usage: --impact src/lib/auth/permissions.ts");
+  process.exit(2);
+}
+const asJson = args.includes("--json") || Boolean(focus) || Boolean(impactedFile) || listUnresolved;
 const extensions = [".ts", ".tsx", ".js", ".jsx", "/index.ts", "/index.tsx", "/index.js", "/index.jsx"];
 const toPosix = p => p.split(path.sep).join("/");
 const canonical = p => toPosix(path.relative(cwd, p));
@@ -38,7 +46,7 @@ function walk(dir) {
 }
 walk(path.join(cwd, "src"));
 const code = new Map();
-const refs = new Map();
+// The graph covers imported code only; layout/proxy are treated separately below.
 
 const importPattern = /(?:^|\n)\s*(?:import|export)\s+(?:(?!\b(?:import|export)\s)[\s\S]){0,1400}?\bfrom\s*["']([^"']+)["']/g;
 const sideEffectImportPattern = /(?:^|\n)\s*import\s*["']([^"']+)["']/g;
@@ -136,6 +144,41 @@ for (const file of pageFiles) {
     reachableSourceFiles: reachable.size,
   });
 }
+// Routes inherit app-level and dashboard-level layout imports even though
+// those imports do not appear in individual page source files. The proxy runs
+// ahead of protected requests; its effect is global to dashboard routes.
+const globalEntryFiles = ["src/app/layout.tsx", "src/app/dashboard/layout.tsx"].filter(file => known.has(file));
+const globalReach = new Set();
+for (const file of globalEntryFiles) {
+  for (const dependency of reach(file)) globalReach.add(dependency);
+}
+const unresolvedDetails = routes
+  .filter(row => row.unresolvedLocalImports.length)
+  .map(row => ({ route: row.route, unresolvedImports: row.unresolvedLocalImports }));
+
+let impact = null;
+if (impactedFile) {
+  const normalized = toPosix(path.normalize(impactedFile.replaceAll("\\", "/"))).replace(/^\.\//, "");
+  const isProxy = normalized === "proxy.ts" || normalized === "src/proxy.ts";
+  const isGlobal = isProxy || globalReach.has(normalized);
+  const pageImpacts = isGlobal
+    ? routes.map(row => row.route)
+    : [...(dependents.get(normalized) || [])].sort();
+  // API route imports are scanned separately: page import graphs do not
+  // automatically capture calls made over HTTP.
+  const apiImpacts = apiFiles.filter(file => {
+    if (isProxy) return true;
+    return reach(file).has(normalized);
+  }).map(file => "/" + file.slice("src/app/".length, -"/route.ts".length));
+  impact = {
+    file: normalized,
+    existsInTrackedSource: known.has(normalized) || isProxy,
+    globalDashboardDependency: isGlobal,
+    dashboardRoutesPotentiallyAffected: pageImpacts,
+    apiRoutesPotentiallyAffected: apiImpacts,
+    limitations: "Static imports only; dynamic imports, background jobs, server action entrypoints and remote API calls may require additional manual review.",
+  };
+}
 const mostShared = [...dependents.entries()]
   .map(([file, pages]) => ({ file, pageCount: pages.size }))
   .filter(x => x.pageCount > 1 && !x.file.includes("/supabase/"))
@@ -152,7 +195,9 @@ const report = {
     routesWithDynamicTableCalls: routes.filter(x => x.dynamicTableCalls > 0).length,
   },
   sharedFiles: mostShared,
-  routes: focus ? routes.filter(r => r.route === focus || r.route.startsWith(focus + "/")) : routes,
+  ...(impact ? { impact } : {}),
+  ...(listUnresolved ? { unresolvedDetails } : {}),
+  routes: focus ? routes.filter(r => r.route === focus || r.route.startsWith(focus + "/")) : (impact || listUnresolved ? [] : routes),
 };
 if (focus && !report.routes.length) {
   console.error("No route found for: " + focus);
@@ -172,6 +217,10 @@ if (asJson) {
     console.log("  " + p + " — " + row.transitivelyReferencedTables.length +
       " table references, " + row.actionFiles.length + " action files, " +
       row.unresolvedLocalImports.length + " unresolved imports");
+  }
+  if (unresolvedDetails.length) {
+    console.log("\nRoutes to review for unresolved local imports:");
+    for (const issue of unresolvedDetails) console.log("  " + issue.route + " — " + issue.unresolvedImports.join(", "));
   }
   console.log("\nLIMITATIONS: references are inferred; no Supabase/production calls are made.");
 }
