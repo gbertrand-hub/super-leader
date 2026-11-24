@@ -20,17 +20,31 @@ Write-Host 'SUPER LEADER B4 - PRIVATE SCHEMA-ONLY PREFLIGHT' -ForegroundColor Cy
 Write-Host ('Expected source project: ' + $ProductionRef)
 Write-Host ('Mode: ' + $Mode)
 
-if (-not (Get-Command 'supabase' -ErrorAction SilentlyContinue)) {
-    throw 'Supabase CLI is missing from PATH. No changes made.'
+# Use installed Supabase CLI if present. Otherwise, invoke the CLI using npx
+# with a pinned version. This downloads only to the npm cache on first use;
+# no npm dependency or lockfile is added to the application worktree.
+$SupabaseCli = Get-Command 'supabase' -ErrorAction SilentlyContinue
+$CliPrefixArgs = @()
+if ($SupabaseCli) {
+    $CliCommand = $SupabaseCli.Source
+    Write-Host 'Supabase CLI executable found in PATH.'
+} else {
+    $NpxCli = Get-Command 'npx.cmd' -ErrorAction SilentlyContinue
+    if (-not $NpxCli) {
+        throw 'Supabase CLI and npx.cmd are both missing. Install Node.js/npm or Supabase CLI. No changes made.'
+    }
+    $CliCommand = $NpxCli.Source
+    $CliPrefixArgs = @('--yes', 'supabase@2.117.0')
+    Write-Host 'Supabase CLI is not installed globally; using npx with pinned supabase@2.117.0.'
+    Write-Host 'First use may download the CLI to the local npm cache.'
 }
-
-$CliVersionText = (& supabase --version 2>&1 | Out-String).Trim()
+$CliVersionText = (& $CliCommand @CliPrefixArgs --version 2>&1 | Out-String).Trim()
 if ($LASTEXITCODE -ne 0) {
-    throw 'Cannot read Supabase CLI version. No changes made.'
+    throw 'Supabase CLI version check failed. No changes made.'
 }
 Write-Host ('Supabase CLI: ' + $CliVersionText)
 
-$HelpText = (& supabase db dump --help 2>&1 | Out-String)
+$HelpText = (& $CliCommand @CliPrefixArgs db dump --help 2>&1 | Out-String)
 if ($LASTEXITCODE -ne 0) {
     throw 'Cannot read Supabase CLI dump help. No changes made.'
 }
@@ -90,7 +104,7 @@ Write-Host 'Starting a schema-only dump from the linked project...' -ForegroundC
 try {
     Push-Location $RepoRoot
     try {
-        & supabase @DumpArgs
+        & $CliCommand @CliPrefixArgs @DumpArgs
         $DumpExitCode = $LASTEXITCODE
     } finally {
         Pop-Location
