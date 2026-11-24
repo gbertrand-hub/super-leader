@@ -34,7 +34,38 @@ function Invoke-CheckedNative {
     $captured = (& $Executable @PrefixArgs @Arguments 2>&1 | Out-String)
     $nativeExit = $LASTEXITCODE
     if ($nativeExit -ne 0) {
-        throw ($Description + ' failed with exit code ' + $nativeExit + '.')
+        # Never display raw CLI diagnostic output. It can contain database
+        # URLs, tokens or passwords. Only show predefined error categories.
+        $category = 'Unclassified CLI failure'
+        $guidance = 'Inspect the CLI error locally. Do not share raw logs or credentials.'
+        if ($captured -match '(?i)(not logged in|not authenticated|login to supabase|access token not provided|please run supabase login|unauthorized|invalid access token)') {
+            $category = 'Supabase CLI authentication missing or expired'
+            $guidance = 'Run the Supabase CLI login flow locally, then retry.'
+        } elseif ($captured -match '(?i)(password authentication failed|database password|SASL authentication|authentication failed for user)') {
+            $category = 'Database credentials rejected'
+            $guidance = 'Check the linked project database credentials privately. Never paste them in chat.'
+        } elseif ($captured -match '(?i)(connection refused|could not connect|could not translate host|network is unreachable|lookup .* failed|i/o timeout|connection timed out)') {
+            $category = 'Database/network connection failure'
+            $guidance = 'Check network, DNS and database connection availability.'
+        } elseif ($captured -match '(?i)(unknown flag|flag provided but not defined|unexpected argument|invalid argument)') {
+            $category = 'Supabase CLI argument incompatibility'
+            $guidance = 'Compare arguments with the installed CLI db dump --help.'
+        } elseif ($captured -match '(?i)(docker daemon|docker.*(connect|unavailable|permission denied)|Cannot connect to the Docker)') {
+            $category = 'Docker daemon or image access failure'
+            $guidance = 'Check Docker Desktop engine and image availability.'
+        } elseif ($captured -match '(?i)(pg_dump|database version mismatch|unsupported server version)') {
+            $category = 'Database dump or PostgreSQL compatibility failure'
+            $guidance = 'Check pg_dump/Pg version support and local Docker image.'
+        } elseif ($captured -match '(?i)(not linked|linked project|project reference|project ref|project does not exist|project not found)') {
+            $category = 'Supabase linked project resolution failure'
+            $guidance = 'Validate linked project configuration and account access.'
+        } elseif ($captured -match '(?i)(403|permission denied|insufficient privileges|permission error)') {
+            $category = 'Access rights denied'
+            $guidance = 'Check CLI account permissions without sharing secrets.'
+        }
+        Write-Warning ($Description + ': ' + $category)
+        Write-Warning $guidance
+        throw ($Description + ' failed with exit code ' + $nativeExit + '. No remote writes performed by this script.')
     }
     return $captured.Trim()
 }
