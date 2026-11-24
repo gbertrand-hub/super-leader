@@ -22,6 +22,21 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '24'
+      - name: Parse PowerShell preproduction script
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            (Join-Path $PWD 'scripts/preproduction/Export-SchemaOnly.ps1'),
+            [ref]$tokens,
+            [ref]$errors
+          ) | Out-Null
+          if ($errors.Count -gt 0) {
+            $errors | ForEach-Object { Write-Error $_.Message }
+            exit 1
+          }
+          Write-Host 'PowerShell syntax PASS'
       - name: Check architecture
         run: node scripts/audit-architecture.mjs
       - name: Run schema drift report (non-blocking known QA divergence)
