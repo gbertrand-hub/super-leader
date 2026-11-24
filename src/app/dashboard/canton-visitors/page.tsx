@@ -145,7 +145,18 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
    : visitQuery.or(`announced_by.eq.${user.id},follow_up_owner_id.eq.${user.id},host_user_id.eq.${user.id}`).neq("department","DIRECTION");
  }
  const {data:visits,error:queryError}=await visitQuery.order("created_at",{ascending:false}).limit(150);
- const {data:sites}=(isSenior||isManager||isReception)?await db.from("canton_qr_sites").select("id,label,enabled,street_address").eq("organization_id",membership.organization_id).order("created_at",{ascending:false}):{data:[]};
+ // QR points are explicitly linked to operational sites. Never list codes for
+ // another city just because the user has legacy reception permissions.
+ const qrVisibleSiteIds=selectedSiteId==="all"
+  ? (isSenior?(visitorSites||[]).map(s=>s.id):[])
+  : siteById.has(selectedSiteId)?[selectedSiteId]:[];
+ const {data:sites}=(isSenior||isManager||isReception)&&qrVisibleSiteIds.length
+  ?await db.from("canton_qr_sites").select("id,label,enabled,street_address,visitor_site_id")
+   .eq("organization_id",membership.organization_id)
+   .eq("enabled",true)
+   .in("visitor_site_id",qrVisibleSiteIds)
+   .order("created_at",{ascending:false})
+  :{data:[]};
  const {data:requests}=isSenior||isManager||isReception?await db.from("canton_intake_requests").select("id,full_name,department,purpose,email,phone,created_at").eq("organization_id",membership.organization_id).eq("status","pending").order("created_at",{ascending:true}).limit(100):{data:[]};
  const visitorIds=[...new Set((visits||[]).map(v=>v.visitor_id))];
  const {data:people}=visitorIds.length?await db.from("canton_visitors").select("id,full_name,phone,email").eq("organization_id",membership.organization_id).in("id",visitorIds):{data:[]};
