@@ -322,20 +322,10 @@ export default async function MyDayPage({searchParams}: PageProps) {
   if (membershipError) throw new Error(membershipError.message);
   if (!membership) redirect("/dashboard/company");
 
-  // The isolated Canton QA project intentionally has a minimal profiles table.
-  // Do not query its absent time_zone field. On every other environment the
-  // original query and error reporting remain unchanged.
-  const isMinimalLocalQa =
-    process.env.NODE_ENV === "development" &&
-    !process.env.VERCEL_ENV &&
-    process.env.NEXT_PUBLIC_SUPABASE_URL?.replace(/\/$/, "") === "https://xehstmnqljjhacjiukvc.supabase.co";
-  const personalTimeZoneRequest = isMinimalLocalQa
-    ? Promise.resolve({data: null as TimeZoneProfileRow | null, error: null})
-    : admin.from("profiles").select("time_zone").eq("id", authData.user.id).maybeSingle<TimeZoneProfileRow>();
   const [{data: settingsData}, {data: currentScheduleData}, {data: timeZoneProfileData, error: timeZoneProfileError}] = await Promise.all([
     admin.from("performance_settings").select("timezone, default_start_time, default_end_time, report_deadline_time, report_lock_enabled, long_day_warning_minutes").eq("organization_id", membership.organization_id).maybeSingle<SettingsRow>(),
     admin.from("member_work_schedules").select("*").eq("organization_id", membership.organization_id).eq("user_id", authData.user.id).eq("is_active", true).maybeSingle<ScheduleRow>(),
-    personalTimeZoneRequest,
+    admin.from("profiles").select("time_zone").eq("id", authData.user.id).maybeSingle<TimeZoneProfileRow>(),
   ]);
   if (timeZoneProfileError) console.error("Ma journée : fuseau personnel indisponible", timeZoneProfileError.message);
 
