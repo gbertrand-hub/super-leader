@@ -12,8 +12,8 @@ import {createClient} from "@/lib/supabase/server";
 import {createAdminClient} from "@/lib/supabase/admin";
 import {createCantonAppointment,createCantonCrmReferral,updateCantonVisit,manageCantonReceptionStaff,assignCantonFollowUp,completeCantonFollowUp,createCantonNextAction,completeCantonNextAction,simulateCantonFeedbackInvitations,sendCantonQaEmailTest,markCantonArrivalAlertRead,saveCantonVisitDebrief,qualifyCantonLegacyProspect,createCantonSlaRecovery,completeCantonSlaRecovery,createVisitorSite,updateVisitorSite,manageVisitorSiteStaff} from "@/app/actions/canton-visitors";
 export const dynamic="force-dynamic";
-export default async function CantonVisitorPage({searchParams}:{searchParams:Promise<{error?:string;success?:string;q?:string;view?:string;site?:string;filter?:string;accessQ?:string;accessPage?:string}>}){
- const {error,success,q="",view="",site="",filter="",accessQ="",accessPage="1"}=await searchParams;
+export default async function CantonVisitorPage({searchParams}:{searchParams:Promise<{error?:string;success?:string;q?:string;view?:string;site?:string;filter?:string;accessQ?:string;accessPage?:string;qrOpen?:string}>}){
+ const {error,success,q="",view="",site="",filter="",accessQ="",accessPage="1",qrOpen=""}=await searchParams;
  const {locale}=await getI18n();const fr=locale==="fr";
  if (!cantonUiPreviewEnabled()) return <main className="mx-auto max-w-2xl p-8"><h1 className="text-2xl font-bold">Canton Visitor Center</h1><p className="mt-3 rounded-lg bg-amber-50 p-4 text-amber-900">Real operations are disabled in this preview until the separate QA database, authentication, and access controls pass end-to-end testing.</p><a href="/canton-demo" className="mt-4 inline-block underline">Open the simulation</a></main>;
  const host=(await headers()).get("host")||"";
@@ -617,7 +617,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
    {!invitationQueue?.length&&<p className="mt-4 text-sm text-slate-700">{fr?"Aucune invitation programmée.":"No invitations scheduled."}</p>}
   </section>}
 
-  <details className="rounded-xl border bg-white">
+  <details id="canton-qr-management" open={qrOpen==="1"} className="scroll-mt-28 rounded-xl border bg-white">
    <summary className="cursor-pointer list-none p-5">
     <div className="flex flex-wrap items-center justify-between gap-3">
      <div>
@@ -641,7 +641,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
       </div>:<p>{fr?"QR indisponible sur cet hôte":"QR unavailable on unknown host"}</p>}
       <p className="mt-2 text-xs text-slate-500">{fr?"Le feedback est rattaché à ce site sans exposer l’organisation au visiteur.":"Feedback is scoped to this site without exposing organization details to the visitor."}</p>
       {site.street_address&&<p className="mt-3 text-sm text-slate-600">{site.street_address}</p>}
-      {isSenior&&<form action={updateCantonQrSiteAddress} className="mt-3 space-y-2 border-t pt-3"><input type="hidden" name="site" value={site.id}/><label className="block text-sm">{fr?"Adresse du bureau pour Google Maps":"Office address for Google Maps"}<input required minLength={8} maxLength={300} name="streetAddress" defaultValue={site.street_address||""} className={input} placeholder={fr?"Adresse exacte du bureau":"Exact office address"}/></label><button className="rounded bg-indigo-700 px-3 py-2 text-sm text-white">{fr?"Enregistrer l’adresse":"Save address"}</button></form>}
+      {isSenior&&<form action={updateCantonQrSiteAddress} className="mt-3 space-y-2 border-t pt-3"><input type="hidden" name="site" value={site.id}/><input type="hidden" name="returnView" value={activeView}/><input type="hidden" name="returnSite" value={selectedSiteId}/><label className="block text-sm">{fr?"Adresse du bureau pour Google Maps":"Office address for Google Maps"}<input required minLength={8} maxLength={300} name="streetAddress" defaultValue={site.street_address||""} className={input} placeholder={fr?"Adresse exacte du bureau":"Exact office address"}/></label><button className="rounded bg-indigo-700 px-3 py-2 text-sm text-white">{fr?"Enregistrer l’adresse":"Save address"}</button></form>}
      </div>;
    })}</div>
    </div>
