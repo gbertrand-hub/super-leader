@@ -75,6 +75,18 @@ test("Canton isolated browser simulator covers tabs, site and reassignment witho
  assert.match(route, /process\.env\.NODE_ENV!=="development"/);
 });
 
+test("Canton demo requires explicit reassignment confirmation and records receipt timestamps", () => {
+ const sim=read("src/app/canton-demo/simulator.tsx");
+ assert.match(sim, /const \[selectedOwner,setSelectedOwner\]=useState/);
+ assert.match(sim, /disabled=\{selectedOwner===owner\}/);
+ assert.match(sim, /setOwner\(selectedOwner\)/);
+ assert.match(sim, /const \[checkInAt,setCheckInAt\]=useState/);
+ assert.match(sim, /const \[checkOutAt,setCheckOutAt\]=useState/);
+ assert.match(sim, /setCheckInAt\(new Date\(\)\.toISOString\(\)\)/);
+ assert.match(sim, /setCheckOutAt\(new Date\(\)\.toISOString\(\)\)/);
+ assert.match(sim, /timeZone:"America\/Chicago"/);
+});
+
 test("Canton rollout remains fail-closed until target Supabase and release gates are configured", () => {
   const gate = read("src/lib/canton/feature-gate.ts");
   assert.match(gate, /export function assertCantonLive/);
