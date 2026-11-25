@@ -11,7 +11,7 @@
     "audit:architecture": "node scripts/audit-architecture.mjs",
     "audit:dependencies": "node scripts/map-dependencies.mjs",
     "test:security": "node --test tests/security-contracts.test.mjs",
-    "test:stability": "node --test tests/architecture-regression.test.mjs tests/security-contracts.test.mjs tests/schema-fingerprint.test.mjs",
+    "test:stability": "node --test tests/architecture-regression.test.mjs tests/security-contracts.test.mjs tests/schema-fingerprint.test.mjs tests/canton-handoff.test.mjs",
     "audit:schema-drift": "node scripts/compare-schema-fingerprints.mjs",
     "test:schema": "node --test tests/schema-fingerprint.test.mjs"
   },
