@@ -63,6 +63,9 @@ jobs:
       - name: Compile isolated Canton demo TSX (syntax only)
         run: npx --yes esbuild@0.25.12 src/app/canton-demo/simulator.tsx --bundle --platform=browser --external:react --outfile=/tmp/canton-demo-check.js
 
+      - name: Compile Canton real staff view (syntax only)
+        run: npx --yes esbuild@0.25.12 src/app/dashboard/canton-visitors/page.tsx --outfile=/tmp/canton-real-page-check.js
+
       - name: Check architecture
         run: node scripts/audit-architecture.mjs
       - name: Run schema drift report (non-blocking known QA divergence)
