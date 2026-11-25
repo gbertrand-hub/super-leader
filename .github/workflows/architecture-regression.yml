@@ -56,6 +56,10 @@ jobs:
         shell: pwsh
         run: ./scripts/preproduction/Audit-PrivilegedSchema.ps1 -SelfTest
 
+      - name: Self-test B6 native Git command forwarding
+        shell: pwsh
+        run: ./scripts/preproduction/Check-DevelopmentRestart.ps1 -SelfTest
+
       - name: Check architecture
         run: node scripts/audit-architecture.mjs
       - name: Run schema drift report (non-blocking known QA divergence)
