@@ -11,12 +11,6 @@ $Repo = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..\..')).Path
 if (-not $SelfTest -and -not $Repo.Equals($ExpectedRepo,[StringComparison]::OrdinalIgnoreCase)) {
     throw 'STOP: only the dedicated Super Leader audit worktree is allowed.'
 }
-$Lab = Join-Path $env:LOCALAPPDATA 'SuperLeader\PreprodLab-B5'
-$Cfg = Join-Path $Lab 'supabase\config.toml'
-$Sql = Join-Path $env:LOCALAPPDATA 'SuperLeader\PrivateSchemaExports\schema-20261124-211550-347\public-schema-only.sql'
-$SqlHash = 'F126AFE9D38B7B3C4F8C030FB03596CCAE6826CAD107E280709AB585C71D3785'
-$DbName = 'supabase_db_super-leader-preprod-b5-isolated'
-$FirewallName = 'SuperLeader-B5-LocalPostgres-55322-InboundBlock'
 Write-Host 'SUPER LEADER B6.1 - DEVELOPMENT RESTART READINESS' -ForegroundColor Cyan
 Write-Host 'READ ONLY - neither production nor EFOS is modified.'
 
@@ -42,6 +36,13 @@ if ($SelfTest) {
     Write-Host 'B6.1 NATIVE COMMAND SELF TEST: PASS' -ForegroundColor Green
     return
 }
+
+$Lab = Join-Path $env:LOCALAPPDATA 'SuperLeader\PreprodLab-B5'
+$Cfg = Join-Path $Lab 'supabase\config.toml'
+$Sql = Join-Path $env:LOCALAPPDATA 'SuperLeader\PrivateSchemaExports\schema-20261124-211550-347\public-schema-only.sql'
+$SqlHash = 'F126AFE9D38B7B3C4F8C030FB03596CCAE6826CAD107E280709AB585C71D3785'
+$DbName = 'supabase_db_super-leader-preprod-b5-isolated'
+$FirewallName = 'SuperLeader-B5-LocalPostgres-55322-InboundBlock'
 
 # Guard against running from production, cloud-linked or wrong Git tree.
 $ActualRoot = Run-External -Exe 'git' -ArgumentList @('-C',$Repo,'rev-parse','--show-toplevel')
