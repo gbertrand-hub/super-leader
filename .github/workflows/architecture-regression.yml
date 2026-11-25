@@ -33,7 +33,8 @@ jobs:
             'scripts/preproduction/Initialize-LocalLab.ps1',
             'scripts/preproduction/Verify-LocalLab.ps1',
             'scripts/preproduction/Start-PrivateDatabase.ps1',
-            'scripts/preproduction/Inspect-PrivateDatabase.ps1'
+            'scripts/preproduction/Inspect-PrivateDatabase.ps1',
+            'scripts/preproduction/Scan-PrivateSchemaRisks.ps1'
           ) | ForEach-Object {
             $errors = $null
             [System.Management.Automation.Language.Parser]::ParseFile(
