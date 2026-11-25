@@ -105,6 +105,18 @@ test("Canton demo supports session-only scheduled appointments, walk-ins and ded
  assert.doesNotMatch(desk, /createAdminClient|createClient\(|fetch\(|supabase|@\/app\/actions/);
 });
 
+test("Canton mock visitor entries persist in browser session only and reset removes them", () => {
+ const sim=read("src/app/canton-demo/simulator.tsx");
+ assert.match(sim, /const DEMO_VISITS_KEY=/);
+ assert.match(sim, /function decodeSavedVisits\(raw:string\|null\):DemoVisit\[\]/);
+ assert.match(sim, /\.filter\(validDemoVisit\)/);
+ assert.match(sim, /window\.sessionStorage\.getItem\(DEMO_VISITS_KEY\)/);
+ assert.match(sim, /if\(!demoStorageReady\)return/);
+ assert.match(sim, /window\.sessionStorage\.setItem\(DEMO_VISITS_KEY/);
+ assert.match(sim, /window\.sessionStorage\.removeItem\(DEMO_VISITS_KEY\)/);
+ assert.doesNotMatch(sim, /window\.localStorage/);
+});
+
 test("Canton rollout remains fail-closed until target Supabase and release gates are configured", () => {
   const gate = read("src/lib/canton/feature-gate.ts");
   assert.match(gate, /export function assertCantonLive/);
