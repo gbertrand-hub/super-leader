@@ -41,6 +41,12 @@ test("Canton UI provides bilingual reassignment and validated completion", () =>
   assert.match(page, /<details className="rounded-xl border bg-white">\s*<summary/);
 });
 
+test("Canton reception search retains selected view and site", () => {
+  assert.match(page, /<form method="get" action="\/dashboard\/canton-visitors"[^>]*><input type="hidden" name="view" value="reception"\/><input type="hidden" name="site" value=\{selectedSiteId\}\/>/);
+  assert.match(page, /href=\{routeByView\.reception\+"&site="\+encodeURIComponent\(selectedSiteId\)\}/);
+  assert.match(page, /aria-current=\{activeView===item\.id\?"page":undefined\}/);
+});
+
 test("Canton rollout remains fail-closed until target Supabase and release gates are configured", () => {
   const gate = read("src/lib/canton/feature-gate.ts");
   assert.match(gate, /export function assertCantonLive/);
