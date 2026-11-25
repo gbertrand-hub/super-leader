@@ -87,6 +87,24 @@ test("Canton demo requires explicit reassignment confirmation and records receip
  assert.match(sim, /timeZone:"America\/Chicago"/);
 });
 
+test("Canton demo supports session-only scheduled appointments, walk-ins and deduplication", () => {
+ const desk=read("src/components/canton/canton-demo-visits.tsx");
+ const sim=read("src/app/canton-demo/simulator.tsx");
+ assert.match(desk, /export function CantonDemoAppointmentDesk/);
+ assert.match(desk, /export function CantonDemoReceptionQueue/);
+ assert.match(desk, /mode==="walkin"\?"arrived":"scheduled"/);
+ assert.match(desk, /const duplicate=here\.some/);
+ assert.match(desk, /v\.status!=="completed"/);
+ assert.match(desk, /digits\(v\.phone\)===digits\(phone\)/);
+ assert.match(desk, /onChange\(v\.id,"pending"\)/);
+ assert.match(desk, /onChange\(v\.id,"arrived"\)/);
+ assert.match(desk, /onChange\(v\.id,"completed"\)/);
+ assert.match(sim, /<CantonDemoAppointmentDesk/);
+ assert.match(sim, /<CantonDemoReceptionQueue/);
+ assert.match(sim, /setAdditionalVisits\(\[\]\)/);
+ assert.doesNotMatch(desk, /createAdminClient|createClient\(|fetch\(|supabase|@\/app\/actions/);
+});
+
 test("Canton rollout remains fail-closed until target Supabase and release gates are configured", () => {
   const gate = read("src/lib/canton/feature-gate.ts");
   assert.match(gate, /export function assertCantonLive/);
