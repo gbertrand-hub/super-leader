@@ -60,6 +60,9 @@ jobs:
         shell: pwsh
         run: ./scripts/preproduction/Check-DevelopmentRestart.ps1 -SelfTest
 
+      - name: Compile isolated Canton demo TSX (syntax only)
+        run: npx --yes esbuild@0.25.12 src/app/canton-demo/simulator.tsx --bundle --platform=browser --external:react --outfile=/tmp/canton-demo-check.js
+
       - name: Check architecture
         run: node scripts/audit-architecture.mjs
       - name: Run schema drift report (non-blocking known QA divergence)
