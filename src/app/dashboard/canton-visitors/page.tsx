@@ -125,7 +125,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
  const map=new Map((people||[]).map(p=>[p.id,p]));
  const visitIds=(visits||[]).map(v=>v.id);
  const {data:feedback}=visitIds.length?await db.from("canton_visit_feedback")
-  .select("appointment_id,rating,contact_requested,submitted_at").in("appointment_id",visitIds):{data:[]};
+  .select("appointment_id,rating,contact_requested,submitted_at,comment").in("appointment_id",visitIds):{data:[]};
  const {data:nextActions}=await db.from("canton_next_actions")
   .select("id,appointment_id,assigned_to,action_text,due_date,status,created_at,completion_note,completed_at")
   .eq("organization_id",membership.organization_id)
@@ -153,8 +153,10 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
    .eq("organization_id",membership.organization_id)
    .order("created_at",{ascending:false}).limit(100)
   :{data:[]};
- const invitationPending=(invitationQueue||[]).filter(x=>x.status==="pending").length;
- const invitationDue=(invitationQueue||[]).filter(x=>x.status==="pending"&&Date.parse(x.due_at)<=Date.now()).length;
+ const feedbackByVisit=new Map((feedback||[]).map(item=>[item.appointment_id,item]));
+ const receivedFeedback=(feedback||[]).filter(item=>item.rating>=1&&item.rating<=5);
+ const invitationPending=(invitationQueue||[]).filter(x=>x.status==="pending"&&!feedbackByVisit.has(x.appointment_id)).length;
+ const invitationDue=(invitationQueue||[]).filter(x=>x.status==="pending"&&!feedbackByVisit.has(x.appointment_id)&&Date.parse(x.due_at)<=Date.now()).length;
  const completedCount=(visits||[]).filter(v=>v.status==="completed").length;
  const feedbackResponseRate=completedCount?Math.round(100*(feedback||[]).length/completedCount)+"%":"—";
  const pendingFeedback=(feedback||[]).filter(x=>x.rating<=2||x.contact_requested).length;
@@ -493,6 +495,25 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
   </section>}
 
 
+  {(isSenior||isManager)&&<section data-canton-view="feedback" className="rounded-2xl border border-emerald-200 bg-white p-5 shadow-sm" data-canton-live-feedback-review="true">
+   <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-widest text-emerald-700">{fr?"Avis reçus — dossiers des visites":"Submitted feedback — visit records"}</p><h2 className="mt-1 text-xl font-bold">{fr?"Satisfaction des visiteurs":"Visitor satisfaction"}</h2><p className="mt-1 text-sm text-slate-600">{fr?"Une seule réponse identifiée par visite. Les commentaires sont réservés aux responsables autorisés.":"One identified response per visit. Comments are shown only to authorized managers."}</p></div>
+    <span className="rounded-full bg-emerald-100 px-4 py-2 text-sm font-bold text-emerald-900">{receivedFeedback.length} {fr?"avis reçu(s)":"responses"}</span>
+   </div>
+   {receivedFeedback.length>0?<div className="mt-4 grid gap-3">{[...receivedFeedback].sort((a,b)=>Date.parse(b.submitted_at||"")-Date.parse(a.submitted_at||"")).slice(0,40).map(item=>{
+    const visit=(visits||[]).find(v=>v.id===item.appointment_id);
+    if(!visit)return null;
+    const visitor=map.get(visit.visitor_id);
+    const flagged=item.rating<=2||item.contact_requested;
+    return <article key={item.appointment_id} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+     <div className="flex flex-wrap items-start justify-between gap-3"><div><h3 className="font-semibold text-slate-900">{visitor?.full_name|| (fr?"Visiteur":"Visitor")} · {visit.department}</h3><p className="mt-1 text-xs text-slate-600">{activeSite?.name|| (fr?"Site":"Site")} · {item.submitted_at?new Date(item.submitted_at).toLocaleString(fr?"fr-FR":"en-US",{timeZone:"America/Chicago"}):"—"} Canton</p></div>
+      <div className="flex flex-wrap items-center gap-2"><span className="rounded-lg bg-indigo-100 px-3 py-2 text-sm font-bold text-indigo-900">{item.rating}/5 ★</span>
+      <span className={"rounded-lg px-3 py-2 text-xs font-semibold "+(flagged?"bg-amber-100 text-amber-900":"bg-emerald-100 text-emerald-800")}>{flagged?(fr?"Attention nécessaire":"Needs attention"):(fr?"Avis enregistré":"Feedback received")}</span></div></div>
+     {item.comment&&<p className="mt-3 whitespace-pre-wrap break-words rounded-lg bg-white p-3 text-sm text-slate-800">{item.comment}</p>}
+     {item.contact_requested&&<p className="mt-2 text-xs font-semibold text-amber-900">{fr?"Le visiteur souhaite être recontacté.":"Visitor requests a follow-up."}</p>}
+     <p className="mt-2 text-xs text-slate-600">{fr?"Réponse déjà enregistrée : ne pas solliciter un second avis pour cette visite.":"Feedback already submitted: do not request another response for this visit."}</p>
+    </article>;
+   })}</div>:<p className="mt-4 rounded-xl bg-slate-50 p-4 text-sm text-slate-600">{fr?"Aucun avis identifié reçu sur les visites visibles de ce site.":"No identified feedback submitted for the visible visits at this site."}</p>}
+  </section>}
   {(isSenior||isManager)&&<section className="rounded-xl border border-indigo-200 bg-indigo-50 p-5" data-canton-view="feedback admin" data-r13-1="R13_1_TEST_INVITATIONS_CONTEXT">
    <h2 className="text-lg font-semibold">{fr?"Invitations de satisfaction (TEST)":"Feedback invitation queue (QA)"}</h2>
    <p className="mt-2 text-sm text-slate-700">{fr?"Une invitation email est programmée 15 minutes après le départ uniquement avec l’accord du visiteur. Un avis reçu annule l’invitation en attente. ":"An email invitation is queued 15 minutes after checkout only with explicit consent. A submitted review cancels pending invitations. "}<strong>{fr?"La simulation n’envoie rien. Seul le test email autorisé par un administrateur peut expédier un vrai message à l’adresse QA. WhatsApp reste désactivé.":"Simulation sends nothing. Only an admin-approved email test may send a real message to the allowlisted QA address. WhatsApp remains disabled."}</strong></p>
@@ -504,16 +525,16 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
     <div className="rounded-lg bg-white p-3"><div className="text-xs text-slate-600">{fr?"Annulées":"Cancelled"}</div><div className="text-xl font-bold">{(invitationQueue||[]).filter(x=>x.status==="cancelled").length}</div></div>
     <div className="rounded-lg bg-white p-3"><div className="text-xs text-slate-600">{fr?"Simulées (aucun envoi)":"Simulated (not sent)"}</div><div className="text-xl font-bold">{(invitationQueue||[]).filter(x=>x.status==="simulated").length}</div></div>
    </div>
-   {(invitationQueue||[]).length>0&&<div className="mt-4 space-y-2">{(invitationQueue||[]).slice(0,10).map(x=><div key={x.id} className="rounded-lg border bg-white p-3 text-sm">
+   {(invitationQueue||[]).length>0&&<div className="mt-4 space-y-2">{(invitationQueue||[]).filter(x=>!feedbackByVisit.has(x.appointment_id)).slice(0,10).map(x=><div key={x.id} className="rounded-lg border bg-white p-3 text-sm">
     <span className="font-semibold">{x.channel==="email"?"Email":"WhatsApp"}</span> · {fr?({pending:"En attente",cancelled:"Annulée",simulated:"Simulée — aucun envoi",sending:"Envoi en cours",sent:"Accepté par le fournisseur",failed:"Échec — vérification nécessaire"} as Record<string,string>)[x.status]||x.status:x.status} · {new Date(x.due_at).toLocaleString("en-US",{timeZone:"America/Chicago"})} Canton
     <span className="ml-2 text-slate-500">({map.get((visits||[]).find(v=>v.id===x.appointment_id)?.visitor_id||"")?.full_name||"Visite"})</span>
-    {isSenior&&x.channel==="email"&&x.status==="pending"&&Date.parse(x.due_at)<=Date.now()&&<form action={sendCantonQaEmailTest} className="mt-2"><input type="hidden" name="id" value={x.appointment_id}/><button className="rounded border border-indigo-700 px-3 py-2 text-xs text-indigo-800">{fr?"Tester un email QA (destinataire autorisé)":"Test QA email (allowlisted recipient)"}</button></form>}
+    {isSenior&&x.channel==="email"&&x.status==="pending"&&!feedbackByVisit.has(x.appointment_id)&&Date.parse(x.due_at)<=Date.now()&&<form action={sendCantonQaEmailTest} className="mt-2"><input type="hidden" name="id" value={x.appointment_id}/><button className="rounded border border-indigo-700 px-3 py-2 text-xs text-indigo-800">{fr?"Tester un email QA (destinataire autorisé)":"Test QA email (allowlisted recipient)"}</button></form>}
     {x.status==="sent"&&<span className="mt-1 block text-xs text-emerald-800">{fr?"Resend a accepté la demande d’envoi. Cela ne garantit pas la livraison en boîte de réception.":"Resend accepted the send request; this does not guarantee inbox delivery."}</span>}
     {x.status==="sending"&&<span className="mt-1 block text-xs text-amber-900">{fr?"État à examiner avant tout nouvel essai.":"Needs review before any retry."}</span>}
     {x.provider_error_code&&<span className="mt-1 block text-xs text-rose-800">{fr?"Erreur fournisseur":"Provider error"}: {x.provider_error_code}</span>}
 
    </div>)}</div>}
-   {!invitationQueue?.length&&<p className="mt-4 text-sm text-slate-700">{fr?"Aucune invitation programmée.":"No invitations scheduled."}</p>}
+   {!(invitationQueue||[]).some(x=>!feedbackByVisit.has(x.appointment_id))&&<p className="mt-4 text-sm text-slate-700">{fr?"Aucune invitation programmée.":"No invitations scheduled."}</p>}
   </section>}
 
   <details className="rounded-xl border bg-white">
