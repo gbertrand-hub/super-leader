@@ -14,6 +14,8 @@ export type DemoVisit={
  status:DemoVisitStatus;
  checkInAt:string|null;
  checkOutAt:string|null;
+ feedbackRating?:number|null;
+ feedbackComment?:string|null;
 };
 const field="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm";
 const btn="cursor-pointer rounded-lg bg-indigo-700 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-800";
@@ -83,9 +85,10 @@ export function CantonDemoAppointmentDesk({site,fr,visits,onAdd,onReception}:{
  </div>;
 }
 
-export function CantonDemoReceptionQueue({site,fr,visits,search,onChange}:{
+export function CantonDemoReceptionQueue({site,fr,visits,search,onChange,onFeedback}:{
  site:DemoSite;fr:boolean;visits:DemoVisit[];search:string;
  onChange:(id:string,status:DemoVisitStatus)=>void;
+ onFeedback:(id:string)=>void;
 }){
  const t=(f:string,e:string)=>fr?f:e;
  const visible=visits.filter(v=>v.site===site&&(normalize(v.name)+" "+digits(v.phone)).includes(normalize(search)));
@@ -101,6 +104,7 @@ export function CantonDemoReceptionQueue({site,fr,visits,search,onChange}:{
     {v.status==="scheduled"&&<button type="button" className={action} onClick={()=>onChange(v.id,"pending")}>{t("Simuler le QR d'arrivée","Simulate arrival QR")}</button>}
     {v.status==="pending"&&<button type="button" className={btn} onClick={()=>onChange(v.id,"arrived")}>{t("Confirmer sur la visite existante","Confirm existing visit")}</button>}
     {v.status==="arrived"&&<button type="button" className={btn} onClick={()=>onChange(v.id,"completed")}>{t("Enregistrer le départ","Check out")}</button>}
+    {v.status==="completed"&&(v.feedbackRating?<span className="rounded-lg bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800">{t("Avis enregistré","Feedback recorded")}: {v.feedbackRating}/5</span>:<button type="button" className={action} onClick={()=>onFeedback(v.id)}>{t("Recueillir un avis","Record feedback")}</button>)}
    </div>
   </article>)}
   {visible.length===0&&visits.length>0&&<p className="text-sm text-slate-500">{t("Aucune nouvelle visite correspondante.","No additional visits match the search.")}</p>}
