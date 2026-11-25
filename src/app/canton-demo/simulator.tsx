@@ -21,6 +21,9 @@ export default function CantonDemoClient(){
  const [stage,setStage]=useState<Stage>("scheduled");
  const [search,setSearch]=useState("");
  const [owner,setOwner]=useState<(typeof teammates)[number]>("Cécile (demo)");
+ const [selectedOwner,setSelectedOwner]=useState<(typeof teammates)[number]>("Cécile (demo)");
+ const [checkInAt,setCheckInAt]=useState<string|null>(null);
+ const [checkOutAt,setCheckOutAt]=useState<string|null>(null);
  const [outcome,setOutcome]=useState("");
  const [resultNote,setResultNote]=useState("");
  const [followupOpen,setFollowupOpen]=useState(true);
@@ -35,8 +38,9 @@ export default function CantonDemoClient(){
  const stageLabel=stage==="scheduled"?t("Attendu","Expected"):stage==="pending"?t("Arrivée QR à confirmer","QR arrival awaiting review"):stage==="arrived"?t("Sur place","On site"):t("Visite terminée","Visit completed");
  const siteRows=site==="Canton HQ"?1:0;
  const showVisitor=siteRows>0&&visitorName.toLowerCase().includes(search.trim().toLowerCase());
+ const cantonTime=(iso:string|null)=>iso?new Date(iso).toLocaleString(fr?"fr-FR":"en-US",{timeZone:"America/Chicago",hour:"2-digit",minute:"2-digit",month:"short",day:"numeric"}):"—";
  const reset=()=>{
-  setStage("scheduled");setOwner("Cécile (demo)");setOutcome("");setResultNote("");
+  setStage("scheduled");setOwner("Cécile (demo)");setSelectedOwner("Cécile (demo)");setCheckInAt(null);setCheckOutAt(null);setOutcome("");setResultNote("");
   setFollowupOpen(true);setRating(0);setSearch("");setToast("");setView("dashboard");setSite("Canton HQ");
  };
  return <main className="mx-auto max-w-6xl space-y-5 p-4 text-slate-900 md:p-7">
@@ -70,10 +74,15 @@ export default function CantonDemoClient(){
    <h2 className="text-xl font-bold">{t("Poste de réception","Reception desk")}</h2>
    <form onSubmit={e=>e.preventDefault()} className="flex flex-col gap-2 md:flex-row"><label htmlFor="canton-demo-search" className="sr-only">{t("Rechercher un visiteur","Find a visitor")}</label><input id="canton-demo-search" className={input+" flex-1"} value={search} onChange={e=>setSearch(e.target.value)} placeholder={t("Rechercher un nom…","Search by name…")}/><button type="button" onClick={()=>setSearch("")} className={outline}>{t("Effacer","Clear")}</button></form>
    {showVisitor?<article className="rounded-xl border p-4"><div className="flex flex-wrap items-center justify-between gap-3"><div><h3 className="font-bold">{visitorName} · DIG</h3><p className="text-sm text-slate-600">{stageLabel} · {site}</p></div><span className="rounded-full bg-indigo-50 px-3 py-1 text-xs font-semibold text-indigo-800">QA DEMO</span></div>
+    {checkInAt&&<div className="mt-3 grid gap-2 rounded-lg bg-slate-50 p-3 text-sm sm:grid-cols-3">
+     <span><strong>{t("Arrivée","Check-in")}:</strong> {cantonTime(checkInAt)}</span>
+     <span><strong>{t("Accueil","Reception by")}:</strong> {t("Réception Canton (démo)","Canton reception (demo)")}</span>
+     <span><strong>{t("Départ","Checkout")}:</strong> {cantonTime(checkOutAt)}</span>
+    </div>}
     <div className="mt-3 flex flex-wrap gap-2">
      {stage==="scheduled"&&<button type="button" className={button} onClick={()=>{setStage("pending");setToast(t("Demande QR simulée.","QR request simulated."))}}>{t("Simuler le scan QR","Simulate QR arrival")}</button>}
-     {stage==="pending"&&<button type="button" className={button} onClick={()=>{setStage("arrived");setToast(t("Arrivée confirmée sans doublon.","Arrival confirmed without duplicate."))}}>{t("Confirmer l'arrivée","Confirm check-in")}</button>}
-     {stage==="arrived"&&<button type="button" className={button} onClick={()=>{setStage("completed");setToast(t("Départ enregistré.","Checkout recorded."))}}>{t("Enregistrer le départ","Check out")}</button>}
+     {stage==="pending"&&<button type="button" className={button} onClick={()=>{setStage("arrived");setCheckInAt(new Date().toISOString());setToast(t("Arrivée confirmée sans doublon.","Arrival confirmed without duplicate."))}}>{t("Confirmer l'arrivée","Confirm check-in")}</button>}
+     {stage==="arrived"&&<button type="button" className={button} onClick={()=>{setStage("completed");setCheckOutAt(new Date().toISOString());setToast(t("Départ enregistré.","Checkout recorded."))}}>{t("Enregistrer le départ","Check out")}</button>}
      {stage==="completed"&&<button type="button" className={outline} onClick={()=>setPage("feedback")}>{t("Recueillir un avis","Record feedback")}</button>}
     </div>
    </article>:<p className="rounded-lg bg-slate-50 p-4 text-sm text-slate-600">{t("Aucun visiteur fictif sur ce site pour cette recherche.","No simulated visitor matches this site and search.")}</p>}
@@ -81,19 +90,21 @@ export default function CantonDemoClient(){
   </section>}
   {view==="appointments"&&<section className="rounded-xl border bg-white p-5">
    <h2 className="text-xl font-bold">{t("Visites et rendez-vous","Visits and appointments")}</h2>
-   {siteRows?<div className="mt-4 rounded-xl border p-4"><div className="font-semibold">{visitorName} · DIG</div><div className="mt-1 text-sm text-slate-600">{stageLabel} · Canton HQ</div><button className={outline+" mt-3"} type="button" onClick={()=>setPage("reception")}>{t("Ouvrir à la réception","Open in reception")}</button></div>:<p className="mt-4 text-sm text-slate-600">{t("Aucune visite fictive sur ce site.","No simulated visits at this site.")}</p>}
+   {siteRows?<div className="mt-4 rounded-xl border p-4"><div className="font-semibold">{visitorName} · DIG</div><div className="mt-1 text-sm text-slate-600">{stageLabel} · Canton HQ</div><div className="mt-2 text-sm text-slate-600">{t("Arrivée","Check-in")}: {cantonTime(checkInAt)} · {t("Départ","Checkout")}: {cantonTime(checkOutAt)}</div><button className={outline+" mt-3"} type="button" onClick={()=>setPage("reception")}>{t("Ouvrir à la réception","Open in reception")}</button></div>:<p className="mt-4 text-sm text-slate-600">{t("Aucune visite fictive sur ce site.","No simulated visits at this site.")}</p>}
   </section>}
   {view==="commercial"&&<section className="space-y-4">
    <div><h2 className="text-xl font-bold">{t("Suivi commercial","Commercial follow-up")}</h2><p className="text-sm text-slate-600">{t("Réaffecter une action si Cécile est indisponible, puis enregistrer le résultat réel avant clôture.","Reassign an action if Cécile is unavailable, then record a concrete result before closure.")}</p></div>
    {siteRows?<article className="space-y-4 rounded-xl border bg-white p-5"><div className="flex flex-wrap items-center justify-between gap-2"><h3 className="font-semibold">{visitorName} · DIG</h3><span className={followupOpen?"rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-900":"rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-900"}>{followupOpen?t("Ouvert","Open"):t("Terminé","Completed")}</span></div>
     <p className="text-sm">{t("Prochaine action : rappeler pour confirmer les documents.","Next action: call to confirm paperwork.")}</p>
     <p className="text-sm font-semibold text-slate-700">{t("Responsable actuel","Current owner")}: {owner}</p>
-    {followupOpen?<><div className="rounded-xl border border-indigo-200 bg-indigo-50 p-4"><label className="block text-sm font-semibold">{t("Attribuer à un autre collaborateur","Assign to another teammate")}<select className={input+" mt-2"} value={owner} onChange={e=>setOwner(e.target.value as (typeof teammates)[number])}>{teammates.map(x=><option key={x} value={x}>{x}</option>)}</select></label><button type="button" className={button+" mt-3"} onClick={()=>setToast(t("Responsable mis à jour dans la simulation.","Owner updated in the simulation."))}>{t("Réattribuer","Reassign")}</button></div>
+    {followupOpen?<><div className="rounded-xl border border-indigo-200 bg-indigo-50 p-4"><label className="block text-sm font-semibold">{t("Attribuer à un autre collaborateur","Assign to another teammate")}<select className={input+" mt-2"} value={selectedOwner} onChange={e=>setSelectedOwner(e.target.value as (typeof teammates)[number])}>{teammates.map(x=><option key={x} value={x}>{x}</option>)}</select></label>
+     <p className="mt-2 text-xs text-indigo-900">{selectedOwner===owner?t("Sélectionnez un autre collaborateur avant de confirmer.","Choose a different teammate before confirming."):t("En attente de confirmation : ","Pending confirmation: ")+selectedOwner}</p>
+     <button type="button" disabled={selectedOwner===owner} className={button+" mt-3"} onClick={()=>{setOwner(selectedOwner);setToast(t("Réaffectation confirmée : ","Reassignment confirmed: ")+selectedOwner)}}>{t("Confirmer la réaffectation","Confirm reassignment")}</button></div>
      <form className="space-y-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4" onSubmit={e=>{e.preventDefault();if(outcome&&resultNote.trim().length>=5){setFollowupOpen(false);setToast(t("Résultat enregistré et suivi clôturé (simulation).","Outcome recorded and follow-up closed (simulation)."))}}}>
       <label className="block text-sm font-semibold">{t("Résultat du suivi *","Follow-up outcome *")}<select name="outcome" className={input+" mt-2"} required value={outcome} onChange={e=>setOutcome(e.target.value)}><option value="">{t("Sélectionner","Select")}</option><option value="contacted">{t("Contact établi","Contacted")}</option><option value="appointment_scheduled">{t("Rendez-vous fixé","Appointment scheduled")}</option><option value="proposal_sent">{t("Proposition envoyée","Proposal sent")}</option><option value="no_response">{t("Sans réponse","No response")}</option><option value="other">{t("Autre résultat","Other outcome")}</option></select></label>
       <label className="block text-sm font-semibold">{t("Compte rendu obligatoire *","Required result note *")}<textarea className={input+" mt-2"} rows={3} minLength={5} maxLength={1000} required value={resultNote} onChange={e=>setResultNote(e.target.value)}/></label>
       <button className={button} disabled={!outcome||resultNote.trim().length<5} type="submit">{t("Enregistrer le résultat et clôturer","Save outcome and close")}</button>
-     </form></>:<div className="rounded-lg bg-emerald-50 p-4 text-sm text-emerald-900">{t("Compte rendu","Result")}: {resultNote}</div>}
+     </form></>:<div className="rounded-lg bg-emerald-50 p-4 text-sm text-emerald-900"><p><strong>{t("Résultat","Outcome")}:</strong> {({contacted:t("Contact établi","Contacted"),appointment_scheduled:t("Rendez-vous fixé","Appointment scheduled"),proposal_sent:t("Proposition envoyée","Proposal sent"),no_response:t("Sans réponse","No response"),other:t("Autre résultat","Other outcome")} as Record<string,string>)[outcome]||outcome}</p><p className="mt-1"><strong>{t("Compte rendu","Result note")}:</strong> {resultNote}</p></div>}
    </article>:<p className="rounded-xl border bg-white p-4 text-sm text-slate-500">{t("Aucune action fictive sur ce site.","No simulated action at this site.")}</p>}
   </section>}
   {view==="feedback"&&<section className="space-y-4 rounded-xl border bg-white p-5">
