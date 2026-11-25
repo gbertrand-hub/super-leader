@@ -53,6 +53,8 @@ export default function CantonDemoClient(){
  const [resultNote,setResultNote]=useState("");
  const [followupOpen,setFollowupOpen]=useState(true);
  const [rating,setRating]=useState(0);
+ const [feedbackVisitId,setFeedbackVisitId]=useState("");
+ const [feedbackComment,setFeedbackComment]=useState("");
  const [showQr,setShowQr]=useState(false);
  const [toast,setToast]=useState("");
  const [additionalVisits,setAdditionalVisits]=useState<DemoVisit[]>([]);
@@ -91,7 +93,7 @@ export default function CantonDemoClient(){
  const cantonTime=(iso:string|null)=>iso?new Date(iso).toLocaleString(fr?"fr-FR":"en-US",{timeZone:"America/Chicago",hour:"2-digit",minute:"2-digit",month:"short",day:"numeric"}):"—";
  const reset=()=>{
   setStage("scheduled");setOwner("Cécile (demo)");setSelectedOwner("Cécile (demo)");setCheckInAt(null);setCheckOutAt(null);setOutcome("");setResultNote("");
-  setFollowupOpen(true);setRating(0);setSearch("");setToast("");setView("dashboard");setSite("Canton HQ");setAdditionalVisits([]);setRestoredVisits(0);
+  setFollowupOpen(true);setRating(0);setFeedbackVisitId("");setFeedbackComment("");setSearch("");setToast("");setView("dashboard");setSite("Canton HQ");setAdditionalVisits([]);setRestoredVisits(0);
   try{window.sessionStorage.removeItem(DEMO_VISITS_KEY);}catch{}
  };
  return <main className="mx-auto max-w-6xl space-y-5 p-4 text-slate-900 md:p-7">
@@ -138,7 +140,7 @@ export default function CantonDemoClient(){
      {stage==="completed"&&<button type="button" className={outline} onClick={()=>setPage("feedback")}>{t("Recueillir un avis","Record feedback")}</button>}
     </div>
    </article>:<p className="rounded-lg bg-slate-50 p-4 text-sm text-slate-600">{t("Aucun visiteur fictif sur ce site pour cette recherche.","No simulated visitor matches this site and search.")}</p>}
-   <CantonDemoReceptionQueue site={site} fr={fr} visits={additionalVisits} search={search} onChange={handleAdditionalVisitStatus}/>
+   <CantonDemoReceptionQueue site={site} fr={fr} visits={additionalVisits} search={search} onChange={handleAdditionalVisitStatus} onFeedback={id=>{setFeedbackVisitId(id);setRating(0);setFeedbackComment("");setPage("feedback")}}/>
    <p className="text-xs text-slate-500">{t("La simulation n'utilise aucun vrai QR ni compte utilisateur.","No real QR codes or user accounts are used.")}</p>
   </section>}
   {view==="appointments"&&<section className="space-y-4 rounded-xl border bg-white p-5">
@@ -164,6 +166,25 @@ export default function CantonDemoClient(){
   {view==="feedback"&&<section className="space-y-4 rounded-xl border bg-white p-5">
    <h2 className="text-xl font-bold">{t("Avis du visiteur","Visitor feedback")}</h2>
    <p className="text-sm text-slate-600">{t("Le visiteur retrouve sa visite par nom et quatre derniers chiffres du téléphone, ou répond anonymement. Aucun code de réception.","The visitor matches their visit by name and last four phone digits, or replies anonymously. No reception code.")}</p>
+   {additionalVisits.some(v=>v.site===site&&v.status==="completed")&&<div className="space-y-3 rounded-xl border border-indigo-200 bg-indigo-50 p-4">
+    <h3 className="text-base font-semibold text-indigo-950">{t("Avis liés à une visite terminée","Feedback linked to a completed visit")}</h3>
+    <label className="block text-sm font-medium">{t("Visiteur et visite","Visitor and visit")}
+     <select className={input+" mt-1"} value={feedbackVisitId} onChange={e=>{setFeedbackVisitId(e.target.value);setRating(0);setFeedbackComment("")}}>
+      <option value="">{t("Choisir la visite","Choose a visit")}</option>
+      {additionalVisits.filter(v=>v.site===site&&v.status==="completed").map(v=><option key={v.id} value={v.id}>{v.name} · {v.department}{v.feedbackRating?" · "+v.feedbackRating+"/5":""}</option>)}
+     </select>
+    </label>
+    {additionalVisits.filter(v=>v.site===site&&v.status==="completed"&&v.id===feedbackVisitId).map(v=><div key={v.id} className="space-y-3">
+     {v.feedbackRating?<p className="rounded-lg bg-emerald-50 p-3 text-sm font-semibold text-emerald-900">{t("Avis enregistré pour cette visite","Feedback recorded for this visit")}: {v.feedbackRating}/5 {v.feedbackComment?"· "+v.feedbackComment:""}</p>:<>
+      <div className="flex flex-wrap gap-2">{[1,2,3,4,5].map(n=><button type="button" key={n} aria-pressed={rating===n} onClick={()=>setRating(n)} className={rating===n?"min-h-11 min-w-11 rounded-lg bg-indigo-700 p-3 font-semibold text-white":"min-h-11 min-w-11 rounded-lg border bg-white p-3 font-semibold text-slate-800"}>{n} ★</button>)}</div>
+      <label className="block text-sm font-medium">{t("Commentaire (facultatif)","Comment (optional)")}<textarea className={input+" mt-1"} value={feedbackComment} maxLength={500} rows={2} onChange={e=>setFeedbackComment(e.target.value)}/></label>
+      <button type="button" className={button} disabled={!rating} onClick={()=>{
+       setAdditionalVisits(items=>items.map(item=>item.id===v.id&&item.status==="completed"&&!item.feedbackRating?{...item,feedbackRating:rating,feedbackComment:feedbackComment.trim()}:item));
+       setToast(t("Avis fictif enregistré pour ","Simulated feedback saved for ")+v.name);
+      }}>{t("Enregistrer l'avis de cette visite","Save feedback for this visit")}</button>
+     </>}
+    </div>)}
+   </div>}
    {siteRows?<><div className="flex flex-wrap gap-2">{[1,2,3,4,5].map(n=><button type="button" key={n} aria-pressed={rating===n} onClick={()=>setRating(n)} className={rating===n?"min-h-11 min-w-11 rounded-lg bg-indigo-700 p-3 font-semibold text-white":"min-h-11 min-w-11 rounded-lg border bg-white p-3 font-semibold"}>{n} ★</button>)}</div>
     <p className="text-sm">{rating? t("Note fictive sélectionnée : ","Simulated score selected: ")+rating+"/5":t("Choisissez une note pour tester l'interface.","Select a rating to test the interface.")}</p>
     <button type="button" className={button} onClick={()=>setToast(t("Feedback fictif enregistré uniquement à l'écran.","Simulated feedback recorded on screen only."))} disabled={!rating}>{t("Enregistrer l'avis (simulation)","Record feedback (simulation)")}</button></>:<p className="text-sm text-slate-500">{t("Aucun feedback fictif pour ce site.","No simulated feedback for this site.")}</p>}
