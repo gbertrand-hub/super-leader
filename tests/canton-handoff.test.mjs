@@ -128,6 +128,29 @@ test("Canton mock feedback is scoped to the selected completed visit and persist
  assert.match(sim, /feedbackRating:rating,feedbackComment:feedbackComment\.trim\(\)/);
  assert.match(sim, /JSON\.stringify\(additionalVisits\.slice\(0,100\)\)/);
 });
+test("Real Canton management integrates visit-linked feedback without permitting duplicate invitation controls", () => {
+ const page=read("src/app/dashboard/canton-visitors/page.tsx");
+ const start=page.indexOf('data-canton-live-feedback-review="true"');
+ assert.ok(start>0,"Real Canton visit-linked feedback panel exists");
+ assert.match(page, /\.select\("appointment_id,rating,contact_requested,submitted_at,comment"\)/);
+ assert.match(page, /const feedbackByVisit=new Map/);
+ assert.match(page, /data-canton-view="feedback" className=/);
+ assert.match(page, /receivedFeedback\.length/);
+ assert.match(page, /item\.appointment_id/);
+ assert.match(page, /item\.comment&&/);
+ assert.match(page, /item\.contact_requested&&/);
+ assert.match(page, /\.find\(s=>s\.id===visit\.site_id\)/);
+ assert.match(page, /!feedbackByVisit\.has\(x\.appointment_id\)/);
+ assert.match(page, /\(isSenior\|\|isManager\)&&<section data-canton-view="feedback"/);
+ const gate=read("src/lib/canton/feature-gate.ts");
+ assert.match(gate, /process\.env\.CANTON_PRODUCTION_RELEASE_APPROVED === "true"/);
+});
+test("Canton visual simulation has a single visit-linked feedback workflow and no sticky overlapping tabs", () => {
+ const sim=read("src/app/canton-demo/simulator.tsx");
+ assert.doesNotMatch(sim, /Record feedback \(simulation\)|Enregistrer l'avis \(simulation\)/);
+ assert.doesNotMatch(sim, /sticky top-0 z-10 overflow-x-auto/);
+ assert.match(sim, /!additionalVisits\.some\(v=>v\.site===site&&v\.status==="completed"\)/);
+});
 test("Canton rollout remains fail-closed until target Supabase and release gates are configured", () => {
   const gate = read("src/lib/canton/feature-gate.ts");
   assert.match(gate, /export function assertCantonLive/);
