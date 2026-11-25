@@ -117,6 +117,17 @@ test("Canton mock visitor entries persist in browser session only and reset remo
  assert.doesNotMatch(sim, /window\.localStorage/);
 });
 
+test("Canton mock feedback is scoped to the selected completed visit and persists in session", () => {
+ const sim=read("src/app/canton-demo/simulator.tsx");
+ const desk=read("src/components/canton/canton-demo-visits.tsx");
+ assert.match(desk, /feedbackRating\?:number\|null/);
+ assert.match(desk, /onFeedback:\(id:string\)=>void/);
+ assert.match(desk, /v\.status==="completed"/);
+ assert.match(sim, /setFeedbackVisitId\(id\)/);
+ assert.match(sim, /item\.id===v\.id&&item\.status==="completed"&&!item\.feedbackRating/);
+ assert.match(sim, /feedbackRating:rating,feedbackComment:feedbackComment\.trim\(\)/);
+ assert.match(sim, /JSON\.stringify\(additionalVisits\.slice\(0,100\)\)/);
+});
 test("Canton rollout remains fail-closed until target Supabase and release gates are configured", () => {
   const gate = read("src/lib/canton/feature-gate.ts");
   assert.match(gate, /export function assertCantonLive/);
