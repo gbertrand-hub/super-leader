@@ -1,5 +1,6 @@
 "use client";
 import {useState} from "react";
+import {CantonDemoAppointmentDesk,CantonDemoReceptionQueue,type DemoVisit,type DemoVisitStatus} from "@/components/canton/canton-demo-visits";
 
 type View="dashboard"|"reception"|"appointments"|"commercial"|"feedback"|"admin";
 type Stage="scheduled"|"pending"|"arrived"|"completed";
@@ -30,6 +31,14 @@ export default function CantonDemoClient(){
  const [rating,setRating]=useState(0);
  const [showQr,setShowQr]=useState(false);
  const [toast,setToast]=useState("");
+ const [additionalVisits,setAdditionalVisits]=useState<DemoVisit[]>([]);
+ const handleAdditionalVisitStatus=(id:string,status:DemoVisitStatus)=>{
+  setAdditionalVisits(items=>items.map(v=>v.id===id?{
+   ...v,status,checkInAt:status==="arrived"?new Date().toISOString():v.checkInAt,
+   checkOutAt:status==="completed"?new Date().toISOString():v.checkOutAt
+  }:v));
+  setToast(status==="pending"?t("QR fictif enregistré.","Simulated QR queued."):status==="arrived"?t("Arrivée fictive confirmée.","Simulated check-in confirmed."):t("Départ fictif enregistré.","Simulated checkout recorded."));
+ };
  const fr=language==="fr";
  const t=(f:string,e:string)=>fr?f:e;
  const setPage=(p:View)=>{setView(p);setToast("")};
@@ -41,7 +50,7 @@ export default function CantonDemoClient(){
  const cantonTime=(iso:string|null)=>iso?new Date(iso).toLocaleString(fr?"fr-FR":"en-US",{timeZone:"America/Chicago",hour:"2-digit",minute:"2-digit",month:"short",day:"numeric"}):"—";
  const reset=()=>{
   setStage("scheduled");setOwner("Cécile (demo)");setSelectedOwner("Cécile (demo)");setCheckInAt(null);setCheckOutAt(null);setOutcome("");setResultNote("");
-  setFollowupOpen(true);setRating(0);setSearch("");setToast("");setView("dashboard");setSite("Canton HQ");
+  setFollowupOpen(true);setRating(0);setSearch("");setToast("");setView("dashboard");setSite("Canton HQ");setAdditionalVisits([]);
  };
  return <main className="mx-auto max-w-6xl space-y-5 p-4 text-slate-900 md:p-7">
   <header className="rounded-2xl bg-slate-900 p-5 text-white md:p-7">
@@ -63,9 +72,9 @@ export default function CantonDemoClient(){
    <h2 className="text-xl font-bold">{t("Vue d'ensemble","Overview")}</h2>
    <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
     {[
-     {title:t("Attendus","Expected"),value:siteRows&&stage==="scheduled"?1:0,open:"reception" as View},
-     {title:t("Sur place","On site"),value:siteRows&&stage==="arrived"?1:0,open:"reception" as View},
-     {title:t("Terminées","Completed"),value:siteRows&&stage==="completed"?1:0,open:"appointments" as View},
+     {title:t("Attendus","Expected"),value:(siteRows&&stage==="scheduled"?1:0)+additionalVisits.filter(v=>v.site===site&&["scheduled","pending"].includes(v.status)).length,open:"reception" as View},
+     {title:t("Sur place","On site"),value:(siteRows&&stage==="arrived"?1:0)+additionalVisits.filter(v=>v.site===site&&v.status==="arrived").length,open:"reception" as View},
+     {title:t("Terminées","Completed"),value:(siteRows&&stage==="completed"?1:0)+additionalVisits.filter(v=>v.site===site&&v.status==="completed").length,open:"appointments" as View},
      {title:t("Suivis ouverts","Open follow-ups"),value:siteRows&&followupOpen?1:0,open:"commercial" as View}
     ].map(card=><button type="button" onClick={()=>setPage(card.open)} key={card.title} className="rounded-xl border bg-white p-4 text-left shadow-sm transition hover:border-indigo-400 hover:shadow-md"><div className="flex justify-between text-sm text-slate-600"><span>{card.title}</span><span aria-hidden>→</span></div><div className="mt-1 text-3xl font-bold">{card.value}</div></button>)}
    </div><p className="text-sm text-slate-600">{t("Cliquez sur un compteur pour ouvrir directement le poste concerné.","Click a metric to open the relevant workspace directly.")}</p>
@@ -86,10 +95,12 @@ export default function CantonDemoClient(){
      {stage==="completed"&&<button type="button" className={outline} onClick={()=>setPage("feedback")}>{t("Recueillir un avis","Record feedback")}</button>}
     </div>
    </article>:<p className="rounded-lg bg-slate-50 p-4 text-sm text-slate-600">{t("Aucun visiteur fictif sur ce site pour cette recherche.","No simulated visitor matches this site and search.")}</p>}
+   <CantonDemoReceptionQueue site={site} fr={fr} visits={additionalVisits} search={search} onChange={handleAdditionalVisitStatus}/>
    <p className="text-xs text-slate-500">{t("La simulation n'utilise aucun vrai QR ni compte utilisateur.","No real QR codes or user accounts are used.")}</p>
   </section>}
-  {view==="appointments"&&<section className="rounded-xl border bg-white p-5">
+  {view==="appointments"&&<section className="space-y-4 rounded-xl border bg-white p-5">
    <h2 className="text-xl font-bold">{t("Visites et rendez-vous","Visits and appointments")}</h2>
+   <CantonDemoAppointmentDesk site={site} fr={fr} visits={additionalVisits} onAdd={v=>{setAdditionalVisits(items=>[...items,v]);setToast(t("Nouvelle visite fictive enregistrée.","New simulated visit registered."))}} onReception={()=>setPage("reception")}/>
    {siteRows?<div className="mt-4 rounded-xl border p-4"><div className="font-semibold">{visitorName} · DIG</div><div className="mt-1 text-sm text-slate-600">{stageLabel} · Canton HQ</div><div className="mt-2 text-sm text-slate-600">{t("Arrivée","Check-in")}: {cantonTime(checkInAt)} · {t("Départ","Checkout")}: {cantonTime(checkOutAt)}</div><button className={outline+" mt-3"} type="button" onClick={()=>setPage("reception")}>{t("Ouvrir à la réception","Open in reception")}</button></div>:<p className="mt-4 text-sm text-slate-600">{t("Aucune visite fictive sur ce site.","No simulated visits at this site.")}</p>}
   </section>}
   {view==="commercial"&&<section className="space-y-4">
