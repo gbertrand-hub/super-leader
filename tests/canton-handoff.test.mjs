@@ -47,6 +47,19 @@ test("Canton reception search retains selected view and site", () => {
   assert.match(page, /aria-current=\{activeView===item\.id\?"page":undefined\}/);
 });
 
+test("Canton QR staff forms preserve the selected view and site", () => {
+ const qr = read("src/app/actions/canton-qr.ts");
+ assert.match(qr, /const safeStaffReturn=/);
+ assert.match(qr, /params\.get\("view"\)!==view/);
+ assert.match(qr, /site!=="all"&&!uuid\(site\)/);
+ assert.match(qr, /const back=safeStaffReturn\(value\(f,"returnTo",500\),"admin"\)/);
+ assert.match(qr, /const back=safeStaffReturn\(value\(f,"returnTo",500\),"reception"\)/);
+ assert.match(qr, /success\(back,"QR request "/);
+ assert.match(page, /action=\{reviewCantonQrIntake\}[^>]*><input type="hidden" name="returnTo" value=\{routeByView\.reception/);
+ assert.match(page, /action=\{createCantonQrSite\}[^>]*><input type="hidden" name="returnTo" value=\{routeByView\.admin/);
+ assert.match(page, /action=\{updateCantonQrSiteAddress\}[^>]*><input type="hidden" name="returnTo" value=\{routeByView\.admin/);
+});
+
 test("Canton rollout remains fail-closed until target Supabase and release gates are configured", () => {
   const gate = read("src/lib/canton/feature-gate.ts");
   assert.match(gate, /export function assertCantonLive/);
