@@ -729,7 +729,8 @@ export async function createCantonNextAction(f:FormData){
 export async function reassignCantonNextAction(f:FormData){
  assertCantonLive();
  const returnTo=safeCantonReturn(field(f,"returnTo",500));
- const {db,org,role}=await context();
+ const ctx=await context();
+ const {db,org,role}=ctx;
  if(!["owner","admin","manager"].includes(role)) fail("Only a manager can reassign a commercial action");
  const actionId=field(f,"actionId",40),ownerId=field(f,"ownerId",40);
  if(!/^[0-9a-f-]{36}$/i.test(actionId)||!/^[0-9a-f-]{36}$/i.test(ownerId))
@@ -742,10 +743,11 @@ export async function reassignCantonNextAction(f:FormData){
   .eq("id",actionId).eq("organization_id",org).maybeSingle();
  if(actionError||!action||action.status!=="open") fail("This commercial action is no longer open");
  const {data:visit,error:visitError}=await db.from("canton_appointments")
-  .select("id,status,department").eq("id",action.appointment_id)
+  .select("id,site_id,status,department").eq("id",action.appointment_id)
   .eq("organization_id",org).maybeSingle();
  if(visitError||!visit||visit.status!=="completed"||!["DIG","TCF"].includes(visit.department))
   fail("Only completed DIG/TCF visit actions may be reassigned");
+ await requireVisitorSiteAccess(ctx,visit.site_id);
  if(action.assigned_to===ownerId) redirect(withMessage(returnTo,"success","This employee already owns the action"));
  let update=db.from("canton_next_actions").update({assigned_to:ownerId})
   .eq("id",actionId).eq("organization_id",org).eq("status","open");
