@@ -36,7 +36,8 @@ jobs:
             'scripts/preproduction/Inspect-PrivateDatabase.ps1',
             'scripts/preproduction/Scan-PrivateSchemaRisks.ps1',
             'scripts/preproduction/Guard-PrivateDatabasePort.ps1',
-            'scripts/preproduction/Audit-PrivilegedSchema.ps1'
+            'scripts/preproduction/Audit-PrivilegedSchema.ps1',
+            'scripts/preproduction/Check-DevelopmentRestart.ps1'
           ) | ForEach-Object {
             $errors = $null
             [System.Management.Automation.Language.Parser]::ParseFile(
