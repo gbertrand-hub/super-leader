@@ -722,6 +722,40 @@ export async function createCantonNextAction(f:FormData){
  if(error)fail("Could not save next action");
  revalidatePath(route);redirect(withMessage(returnTo,"success","Next commercial action scheduled"));
 }
+/** Reassign an OPEN DIG/TCF next action to another active team member.
+ * Preserves the prior visit follow-up outcome and completion history.
+ * No emails, WhatsApp or external messages are sent.
+ */
+export async function reassignCantonNextAction(f:FormData){
+ assertCantonLive();
+ const returnTo=safeCantonReturn(field(f,"returnTo",500));
+ const {db,org,role}=await context();
+ if(!["owner","admin","manager"].includes(role)) fail("Only a manager can reassign a commercial action");
+ const actionId=field(f,"actionId",40),ownerId=field(f,"ownerId",40);
+ if(!/^[0-9a-f-]{36}$/i.test(actionId)||!/^[0-9a-f-]{36}$/i.test(ownerId))
+  fail("Select a valid action and responsible employee");
+ const {data:member,error:memberError}=await db.from("organization_members").select("user_id")
+  .eq("organization_id",org).eq("user_id",ownerId).eq("is_active",true).maybeSingle();
+ if(memberError||!member) fail("The new owner must be an active organization member");
+ const {data:action,error:actionError}=await db.from("canton_next_actions")
+  .select("id,appointment_id,assigned_to,status")
+  .eq("id",actionId).eq("organization_id",org).maybeSingle();
+ if(actionError||!action||action.status!=="open") fail("This commercial action is no longer open");
+ const {data:visit,error:visitError}=await db.from("canton_appointments")
+  .select("id,status,department").eq("id",action.appointment_id)
+  .eq("organization_id",org).maybeSingle();
+ if(visitError||!visit||visit.status!=="completed"||!["DIG","TCF"].includes(visit.department))
+  fail("Only completed DIG/TCF visit actions may be reassigned");
+ if(action.assigned_to===ownerId) redirect(withMessage(returnTo,"success","This employee already owns the action"));
+ let update=db.from("canton_next_actions").update({assigned_to:ownerId})
+  .eq("id",actionId).eq("organization_id",org).eq("status","open");
+ update=action.assigned_to?update.eq("assigned_to",action.assigned_to):update.is("assigned_to",null);
+ const {data:changed,error}=await update.select("id");
+ if(error||!changed?.length) fail("Action changed while reassigning. Refresh and try again");
+ revalidatePath(route);
+ redirect(withMessage(returnTo,"success","Commercial action reassigned"));
+}
+
 export async function completeCantonNextAction(f:FormData){
  assertCantonLive();
  const returnTo=safeCantonReturn(field(f,"returnTo",500));
