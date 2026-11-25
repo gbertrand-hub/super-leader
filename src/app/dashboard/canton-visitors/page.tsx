@@ -9,7 +9,7 @@ import {createCantonQrSite,reviewCantonQrIntake,updateCantonQrSiteAddress} from 
 import {redirect} from "next/navigation";
 import {createClient} from "@/lib/supabase/server";
 import {createAdminClient} from "@/lib/supabase/admin";
-import {createCantonAppointment,createCantonCrmReferral,updateCantonVisit,manageCantonReceptionStaff,assignCantonFollowUp,completeCantonFollowUp,createCantonNextAction,completeCantonNextAction,simulateCantonFeedbackInvitations,sendCantonQaEmailTest,markCantonArrivalAlertRead,saveCantonVisitDebrief,qualifyCantonLegacyProspect,createCantonSlaRecovery,completeCantonSlaRecovery,createVisitorSite,updateVisitorSite} from "@/app/actions/canton-visitors";
+import {createCantonAppointment,createCantonCrmReferral,updateCantonVisit,manageCantonReceptionStaff,assignCantonFollowUp,completeCantonFollowUp,createCantonNextAction,completeCantonNextAction,reassignCantonNextAction,simulateCantonFeedbackInvitations,sendCantonQaEmailTest,markCantonArrivalAlertRead,saveCantonVisitDebrief,qualifyCantonLegacyProspect,createCantonSlaRecovery,completeCantonSlaRecovery,createVisitorSite,updateVisitorSite} from "@/app/actions/canton-visitors";
 export const dynamic="force-dynamic";
 export default async function CantonVisitorPage({searchParams}:{searchParams:Promise<{error?:string;success?:string;q?:string;view?:string;site?:string;filter?:string}>}){
  const {error,success,q="",view="",site="",filter=""}=await searchParams;
@@ -352,7 +352,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
     {label:fr?"Prochaines actions":"Next actions",value:openNextActions.length,href:"/dashboard/canton-visitors?view=commercial&filter=actions"},
     {label:fr?"À faire aujourd’hui":"Due today",value:nextActionsToday.length,href:"/dashboard/canton-visitors?view=commercial&filter=due_today"},
     {label:fr?"En retard":"Overdue",value:overdueNextActions.length,href:"/dashboard/canton-visitors?view=commercial&filter=overdue"}
-   ].map(card=><Link key={card.label} href={card.href} className="group rounded-xl border bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:border-indigo-300 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-indigo-500">
+   ].map(card=><Link key={card.label} href={card.href+"&site="+encodeURIComponent(selectedSiteId)} className="group rounded-xl border bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:border-indigo-300 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-indigo-500">
     <div className="flex items-start justify-between gap-2"><div className="text-sm text-slate-500">{card.label}</div><span aria-hidden className="text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-indigo-600">→</span></div>
     <div className="mt-1 text-2xl font-bold">{card.value}</div>
    </Link>)}</div>
@@ -727,6 +727,18 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
      return <article key={action.id} className="rounded-lg border bg-white p-4">
       <div className="font-semibold">{map.get(visit?.visitor_id||"")?.full_name||(fr?"Visiteur":"Visitor")} · {visit?.department}</div>
       <p className="mt-1 text-sm">{action.action_text}</p>
+      <p className="mt-1 text-xs font-medium text-slate-600">{fr?"Responsable actuel":"Current owner"}: {profileMap.get(action.assigned_to)?.full_name||profileMap.get(action.assigned_to)?.email||action.assigned_to||(fr?"Non attribué":"Unassigned")}</p>
+      {(isSenior||isManager)&&<form action={reassignCantonNextAction} className="mt-3 flex flex-wrap items-end gap-2 rounded-lg border border-indigo-200 bg-indigo-50 p-3">
+       <input type="hidden" name="returnTo" value={currentReturnPath}/>
+       <input type="hidden" name="actionId" value={action.id}/>
+       <label className="min-w-[220px] flex-1 text-sm font-semibold text-slate-700">{fr?"Confier l’action à un autre collaborateur":"Assign action to another teammate"}
+        <select name="ownerId" required defaultValue={action.assigned_to||""} className={input}>
+         <option value="">{fr?"Choisir un collaborateur actif":"Choose an active teammate"}</option>
+         {(members||[]).map(m=><option key={m.user_id} value={m.user_id}>{profileMap.get(m.user_id)?.full_name||profileMap.get(m.user_id)?.email||m.user_id}</option>)}
+        </select>
+       </label>
+       <button type="submit" className="cursor-pointer rounded-lg bg-indigo-700 px-4 py-2 font-semibold text-white shadow-sm hover:bg-indigo-800">{fr?"Réattribuer":"Reassign"}</button>
+      </form>}
       <p className="mt-1 text-xs text-slate-700">{fr?"Échéance":"Due"}: {action.due_date} {action.due_date<today?"⚠️":""}
        {action.due_date===today&&<span className="ml-2 rounded bg-amber-100 px-2 py-1 font-semibold text-amber-900">{fr?"À faire aujourd’hui":"Due today"}</span>}
        {action.due_date<today&&<span className="ml-2 rounded bg-rose-100 px-2 py-1 font-semibold text-rose-900">{fr?"En retard":"Overdue"}</span>}
@@ -759,9 +771,17 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
        <label className="flex-1 text-sm">{fr?"Collaborateur responsable":"Responsible employee"}<select name="ownerId" required className={input} defaultValue={v.follow_up_owner_id||""}><option value="">{fr?"Choisir un collaborateur":"Choose team member"}</option>{(members||[]).map(m=><option value={m.user_id} key={m.user_id}>{profileMap.get(m.user_id)?.full_name||profileMap.get(m.user_id)?.email||m.user_id}</option>)}</select></label>
        <label className="text-sm">{fr?"Échéance":"Due date"}<input name="dueDate" type="date" className={input} required defaultValue={v.follow_up_due_date||""}/></label>
        <label className="min-w-[150px] flex-1 text-sm">{fr?"Prochaine action":"Next action"}<input name="note" className={input} maxLength={1000} defaultValue={v.follow_up_note||""} placeholder={fr?"Appeler le visiteur pour la suite":"Call visitor about next steps"}/></label>
-       <button className="rounded-lg bg-indigo-700 px-3 py-2 text-white">{fr?"Attribuer":"Assign"}</button>
+       <button className="cursor-pointer rounded-lg bg-indigo-700 px-4 py-2 font-semibold text-white shadow-sm hover:bg-indigo-800">{v.follow_up_status==="open"?(fr?"Réattribuer le suivi":"Reassign follow-up"):(fr?"Attribuer":"Assign")}</button>
       </form>
-      {v.follow_up_status==="open"&&<form action={completeCantonFollowUp} className="mt-2"><input type="hidden" name="returnTo" value={currentReturnPath}/><input type="hidden" name="id" value={v.id}/><button className="rounded bg-green-100 px-3 py-2 text-sm">{fr?"Clôturer le suivi":"Mark follow-up completed"}</button></form>}
+      {v.follow_up_status==="open"&&<details className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50">
+       <summary className="cursor-pointer px-3 py-2 text-sm font-semibold text-emerald-900">{fr?"Enregistrer le résultat et clôturer ce suivi":"Record the outcome and close this follow-up"}</summary>
+       <form action={completeCantonFollowUp} className="grid gap-2 border-t border-emerald-200 p-3 md:grid-cols-2">
+        <input type="hidden" name="returnTo" value={currentReturnPath}/><input type="hidden" name="id" value={v.id}/>
+        <label className="text-sm font-medium">{fr?"Résultat *":"Outcome *"}<select required name="outcome" defaultValue="" className={input}><option value="" disabled>{fr?"Choisir":"Choose"}</option><option value="contacted">{fr?"Contact établi":"Contacted"}</option><option value="appointment_scheduled">{fr?"Rendez-vous fixé":"Appointment scheduled"}</option><option value="proposal_sent">{fr?"Proposition envoyée":"Proposal sent"}</option><option value="sale_closed">{fr?"Vente conclue":"Sale closed"}</option><option value="no_response">{fr?"Sans réponse":"No response"}</option><option value="not_interested">{fr?"Pas intéressé":"Not interested"}</option><option value="other">{fr?"Autre":"Other"}</option></select></label>
+        <label className="text-sm font-medium">{fr?"Compte rendu obligatoire *":"Required result note *"}<textarea required minLength={5} maxLength={1000} rows={2} name="resultNote" className={input}/></label>
+        <button className="cursor-pointer rounded-lg bg-emerald-700 px-4 py-2 font-semibold text-white hover:bg-emerald-800 md:col-span-2">{fr?"Valider le résultat et clôturer":"Confirm result and close"}</button>
+       </form>
+      </details>}
     </div>
    )}</div>
   </section>}
