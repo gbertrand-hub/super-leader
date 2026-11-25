@@ -18,7 +18,7 @@ export type DemoVisit={
 const field="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm";
 const btn="cursor-pointer rounded-lg bg-indigo-700 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-800";
 const action="cursor-pointer rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-2 text-sm font-semibold text-indigo-900 hover:bg-indigo-100";
-const normalize=(s:string)=>s.trim().replace(/\\s+/g," ").toLocaleLowerCase("en-US");
+const normalize=(s:string)=>s.trim().replace(/\s+/g," ").toLocaleLowerCase("en-US");
 const digits=(s:string)=>s.replace(/[^0-9]/g,"");
 const validPhone=(s:string)=>digits(s).length>=7;
 const validDate=(s:string)=>!Number.isNaN(Date.parse(s));
