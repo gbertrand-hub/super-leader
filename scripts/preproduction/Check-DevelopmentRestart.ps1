@@ -8,7 +8,7 @@ $ErrorActionPreference = 'Stop'
 
 $ExpectedRepo = 'C:\Projects\SUPER-LEADER\super-leader-v4-10-141-audit'
 $Repo = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..\..')).Path
-if (-not $Repo.Equals($ExpectedRepo,[StringComparison]::OrdinalIgnoreCase)) {
+if (-not $SelfTest -and -not $Repo.Equals($ExpectedRepo,[StringComparison]::OrdinalIgnoreCase)) {
     throw 'STOP: only the dedicated Super Leader audit worktree is allowed.'
 }
 $Lab = Join-Path $env:LOCALAPPDATA 'SuperLeader\PreprodLab-B5'
