@@ -505,7 +505,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
     const visitor=map.get(visit.visitor_id);
     const flagged=item.rating<=2||item.contact_requested;
     return <article key={item.appointment_id} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-     <div className="flex flex-wrap items-start justify-between gap-3"><div><h3 className="font-semibold text-slate-900">{visitor?.full_name|| (fr?"Visiteur":"Visitor")} · {visit.department}</h3><p className="mt-1 text-xs text-slate-600">{activeSite?.name|| (fr?"Site":"Site")} · {item.submitted_at?new Date(item.submitted_at).toLocaleString(fr?"fr-FR":"en-US",{timeZone:"America/Chicago"}):"—"} Canton</p></div>
+     <div className="flex flex-wrap items-start justify-between gap-3"><div><h3 className="font-semibold text-slate-900">{visitor?.full_name|| (fr?"Visiteur":"Visitor")} · {visit.department}</h3><p className="mt-1 text-xs text-slate-600">{(allVisitorSites||[]).find(s=>s.id===visit.site_id)?.name|| (fr?"Site":"Site")} · {item.submitted_at?new Date(item.submitted_at).toLocaleString(fr?"fr-FR":"en-US",{timeZone:"America/Chicago"}):"—"} Canton</p></div>
       <div className="flex flex-wrap items-center gap-2"><span className="rounded-lg bg-indigo-100 px-3 py-2 text-sm font-bold text-indigo-900">{item.rating}/5 ★</span>
       <span className={"rounded-lg px-3 py-2 text-xs font-semibold "+(flagged?"bg-amber-100 text-amber-900":"bg-emerald-100 text-emerald-800")}>{flagged?(fr?"Attention nécessaire":"Needs attention"):(fr?"Avis enregistré":"Feedback received")}</span></div></div>
      {item.comment&&<p className="mt-3 whitespace-pre-wrap break-words rounded-lg bg-white p-3 text-sm text-slate-800">{item.comment}</p>}
