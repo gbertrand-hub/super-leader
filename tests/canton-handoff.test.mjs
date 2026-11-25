@@ -60,6 +60,20 @@ test("Canton QR staff forms preserve the selected view and site", () => {
  assert.match(page, /action=\{updateCantonQrSiteAddress\}[^>]*><input type="hidden" name="returnTo" value=\{routeByView\.admin/);
 });
 
+test("Canton isolated browser simulator covers tabs, site and reassignment without backend calls", () => {
+ const sim=read("src/app/canton-demo/simulator.tsx");
+ const route=read("src/app/canton-demo/page.tsx");
+ assert.match(sim, /const \[view,setView\]=useState<View>\("dashboard"\)/);
+ assert.match(sim, /const \[site,setSite\]=useState/);
+ assert.match(sim, /const \[owner,setOwner\]=useState/);
+ assert.match(sim, /const \[showQr,setShowQr\]=useState\(false\)/);
+ assert.match(sim, /setPage\("commercial"\)/);
+ assert.match(sim, /setFollowupOpen\(false\)/);
+ assert.match(sim, /SIMULATION LOCALE/);
+ assert.doesNotMatch(sim, /createAdminClient|createClient\(|from\("@\/app\/actions|fetch\(/);
+ assert.match(route, /process\.env\.NODE_ENV!=="development"/);
+});
+
 test("Canton rollout remains fail-closed until target Supabase and release gates are configured", () => {
   const gate = read("src/lib/canton/feature-gate.ts");
   assert.match(gate, /export function assertCantonLive/);
