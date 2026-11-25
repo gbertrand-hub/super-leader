@@ -10,7 +10,17 @@ import {createClient} from "@/lib/supabase/server";
 const dash="/dashboard/canton-visitors";
 const value=(f:FormData,key:string,max=200)=>String(f.get(key)??"").trim().slice(0,max);
 const uuid=(v:string)=>/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
-const fail=(msg:string):never=>redirect(dash+"?error="+encodeURIComponent(msg));
+const safeStaffReturn=(raw:string,view:"admin"|"reception")=>{
+ const fallback=dash+"?view="+view;
+ if(!raw.startsWith(dash+"?")||raw.length>500) return fallback;
+ const params=new URLSearchParams(raw.slice(dash.length+1));
+ if(params.get("view")!==view)return fallback;
+ const site=params.get("site")||"";
+ if(site&&site!=="all"&&!uuid(site))return fallback;
+ return fallback+(site?"&site="+encodeURIComponent(site):"");
+};
+const fail=(msg:string,back=dash):never=>redirect(back+(back.includes("?")?"&":"?")+"error="+encodeURIComponent(msg));
+const success=(back:string,msg:string):never=>redirect(back+(back.includes("?")?"&":"?")+"success="+encodeURIComponent(msg));
 async function staff(){
  const sb=await createClient();
  const {data:{user}}=await sb.auth.getUser();
@@ -23,33 +33,35 @@ async function staff(){
 }
 export async function createCantonQrSite(f:FormData){
  assertCantonLive();
+ const back=safeStaffReturn(value(f,"returnTo",500),"admin");
  const {db,user,org,role}=await staff();
- if(!["owner","admin"].includes(role))fail("Only administrators can create public QR sites");
+ if(!["owner","admin"].includes(role))fail("Only administrators can create public QR sites",back);
  const label=value(f,"label",120);
  const streetAddress=value(f,"streetAddress",300).replace(/\s+/g," ").trim();
  const visitorSiteId=value(f,"visitorSiteId",40);
- if(label.length<3||!uuid(visitorSiteId))fail("Site name and operational site are required");
+ if(label.length<3||!uuid(visitorSiteId))fail("Site name and operational site are required",back);
  const {data:visitorSite}=await db.from("visitor_sites")
   .select("id").eq("id",visitorSiteId).eq("organization_id",org).eq("is_active",true).maybeSingle();
- if(!visitorSite)fail("Operational visitor site is not active");
+ if(!visitorSite)fail("Operational visitor site is not active",back);
  const {error}=await db.from("canton_qr_sites").insert({
   organization_id:org,label,street_address:streetAddress||null,visitor_site_id:visitorSiteId,created_by:user.id
  });
- if(error)fail("Could not create site");
- revalidatePath(dash);redirect(dash+"?success=QR%20site%20created");
+ if(error)fail("Could not create site",back);
+ revalidatePath(dash);success(back,"QR site created");
 }
 export async function updateCantonQrSiteAddress(f:FormData){
  assertCantonLive();
+ const back=safeStaffReturn(value(f,"returnTo",500),"admin");
  const {db,org,role}=await staff();
- if(!["owner","admin"].includes(role))fail("Only administrators can edit office location");
+ if(!["owner","admin"].includes(role))fail("Only administrators can edit office location",back);
  const site=value(f,"site",40);
  const streetAddress=value(f,"streetAddress",300).trim();
- if(!uuid(site)||streetAddress.length<8)fail("A valid office street address is required");
+ if(!uuid(site)||streetAddress.length<8)fail("A valid office street address is required",back);
  const {data,error}=await db.from("canton_qr_sites")
  .update({street_address:streetAddress}).eq("id",site).eq("organization_id",org).select("id");
- if(error||!data?.length)fail("Office location could not be saved");
+ if(error||!data?.length)fail("Office location could not be saved",back);
  revalidatePath(dash);
- redirect(dash+"?success="+encodeURIComponent("Office location saved"));
+ success(back,"Office location saved");
 }
 export async function submitCantonQrIntake(f:FormData){
  assertCantonLive();
@@ -91,10 +103,11 @@ export async function submitCantonQrIntake(f:FormData){
 }
 export async function reviewCantonQrIntake(f:FormData){
  assertCantonLive();
+ const back=safeStaffReturn(value(f,"returnTo",500),"reception");
  const {db,user,org,canReview}=await staff();
- if(!canReview)fail("Reception authorization required");
+ if(!canReview)fail("Reception authorization required",back);
  const id=value(f,"id",40),decision=value(f,"decision",20);
- if(!uuid(id)||!["approve","reject"].includes(decision))fail("Invalid request");
+ if(!uuid(id)||!["approve","reject"].includes(decision))fail("Invalid request",back);
  const {data:request}=await db.from("canton_intake_requests")
   .select("id,status,full_name,email,phone,department,purpose,organization_id")
   .eq("id",id).eq("organization_id",org).maybeSingle();
@@ -103,15 +116,15 @@ export async function reviewCantonQrIntake(f:FormData){
  if(decision==="reject"){
   const {data:changed,error}=await db.from("canton_intake_requests").update({status:"rejected",reviewed_by:user.id,reviewed_at:new Date().toISOString()})
    .eq("id",id).eq("organization_id",org).eq("status","pending").select("id");
-  if(error||!changed?.length)fail("Request changed, refresh");
+  if(error||!changed?.length)fail("Request changed, refresh",back);
  }else{
   const {data:visitId,error}=await db.rpc("canton_approve_qr_intake",{
    p_request_id:id,p_organization_id:org,p_actor_id:user.id
   });
-  if(error||!visitId)fail("QR registration needs review: "+(error?.message||"Unknown database error").slice(0,140));
+  if(error||!visitId)fail("QR registration needs review: "+(error?.message||"Unknown database error").slice(0,140),back);
  }
  revalidatePath(dash);
- redirect(dash+"?success="+encodeURIComponent("QR request "+(decision==="approve"?"approved":"rejected")));
+ success(back,"QR request "+(decision==="approve"?"approved":"rejected"));
 }
 export async function submitCantonQrFeedback(f:FormData){
  assertCantonLive();
