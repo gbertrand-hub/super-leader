@@ -104,7 +104,7 @@ export default function CantonDemoClient(){
    </div>
    <div className="mt-4 inline-flex rounded-full bg-amber-200 px-3 py-1 text-xs font-bold text-amber-950">{t("SIMULATION LOCALE — AUCUN MESSAGE ENVOYÉ","LOCAL SIMULATION — NO MESSAGES SENT")}</div>
   </header>
-  <nav aria-label={t("Navigation Canton","Canton navigation")} className="sticky top-0 z-10 overflow-x-auto rounded-2xl border bg-white p-2 shadow-sm"><div className="flex min-w-max gap-2">
+  <nav aria-label={t("Navigation Canton","Canton navigation")} className="relative overflow-x-auto rounded-2xl border bg-white p-2 shadow-sm"><div className="flex min-w-max gap-2">
    {(Object.keys(labels) as View[]).map(p=><button type="button" key={p} aria-current={view===p?"page":undefined} onClick={()=>setPage(p)} className={view===p?"rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white":"rounded-xl bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-indigo-50"}>{labels[p][fr?0:1]}</button>)}
   </div></nav>
   <section className="flex flex-wrap items-center gap-3 rounded-xl border bg-white p-4"><span className="text-sm font-bold">{t("Site actif","Active site")}</span>
@@ -137,7 +137,7 @@ export default function CantonDemoClient(){
      {stage==="scheduled"&&<button type="button" className={button} onClick={()=>{setStage("pending");setToast(t("Demande QR simulée.","QR request simulated."))}}>{t("Simuler le scan QR","Simulate QR arrival")}</button>}
      {stage==="pending"&&<button type="button" className={button} onClick={()=>{setStage("arrived");setCheckInAt(new Date().toISOString());setToast(t("Arrivée confirmée sans doublon.","Arrival confirmed without duplicate."))}}>{t("Confirmer l'arrivée","Confirm check-in")}</button>}
      {stage==="arrived"&&<button type="button" className={button} onClick={()=>{setStage("completed");setCheckOutAt(new Date().toISOString());setToast(t("Départ enregistré.","Checkout recorded."))}}>{t("Enregistrer le départ","Check out")}</button>}
-     {stage==="completed"&&<button type="button" className={outline} onClick={()=>setPage("feedback")}>{t("Recueillir un avis","Record feedback")}</button>}
+     {stage==="completed"&&<p className="rounded-lg bg-slate-50 p-3 text-xs text-slate-600">{t("Pour tester un avis lié à une visite, utilisez une fiche créée depuis Rendez-vous.","To test visit-linked feedback, use a visit created in Appointments.")}</p>}
     </div>
    </article>:<p className="rounded-lg bg-slate-50 p-4 text-sm text-slate-600">{t("Aucun visiteur fictif sur ce site pour cette recherche.","No simulated visitor matches this site and search.")}</p>}
    <CantonDemoReceptionQueue site={site} fr={fr} visits={additionalVisits} search={search} onChange={handleAdditionalVisitStatus} onFeedback={id=>{setFeedbackVisitId(id);setRating(0);setFeedbackComment("");setPage("feedback")}}/>
@@ -185,9 +185,7 @@ export default function CantonDemoClient(){
      </>}
     </div>)}
    </div>}
-   {siteRows?<><div className="flex flex-wrap gap-2">{[1,2,3,4,5].map(n=><button type="button" key={n} aria-pressed={rating===n} onClick={()=>setRating(n)} className={rating===n?"min-h-11 min-w-11 rounded-lg bg-indigo-700 p-3 font-semibold text-white":"min-h-11 min-w-11 rounded-lg border bg-white p-3 font-semibold"}>{n} ★</button>)}</div>
-    <p className="text-sm">{rating? t("Note fictive sélectionnée : ","Simulated score selected: ")+rating+"/5":t("Choisissez une note pour tester l'interface.","Select a rating to test the interface.")}</p>
-    <button type="button" className={button} onClick={()=>setToast(t("Feedback fictif enregistré uniquement à l'écran.","Simulated feedback recorded on screen only."))} disabled={!rating}>{t("Enregistrer l'avis (simulation)","Record feedback (simulation)")}</button></>:<p className="text-sm text-slate-500">{t("Aucun feedback fictif pour ce site.","No simulated feedback for this site.")}</p>}
+      {!additionalVisits.some(v=>v.site===site&&v.status==="completed")&&<div className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">{t("Aucune visite terminée pour ce site. Enregistrez une visite depuis Rendez-vous, confirmez le départ dans Réception, puis revenez ici pour recueillir un seul avis lié à cette visite.","No completed visit for this site. Create a visit in Appointments, check it out in Reception, then return here to submit one linked review.")}</div>}
   </section>}
   {view==="admin"&&<section className="space-y-4 rounded-xl border bg-white p-5">
    <h2 className="text-xl font-bold">{t("QR codes et gestion du site","QR codes & site management")}</h2>
