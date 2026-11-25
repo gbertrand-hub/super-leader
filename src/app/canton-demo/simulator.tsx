@@ -1,11 +1,35 @@
 "use client";
-import {useState} from "react";
+import {useEffect,useState} from "react";
 import {CantonDemoAppointmentDesk,CantonDemoReceptionQueue,type DemoVisit,type DemoVisitStatus} from "@/components/canton/canton-demo-visits";
 
 type View="dashboard"|"reception"|"appointments"|"commercial"|"feedback"|"admin";
 type Stage="scheduled"|"pending"|"arrived"|"completed";
 type Language="fr"|"en";
 const sites=["Canton HQ","Dallas (simulation)"] as const;
+const DEMO_VISITS_KEY="super-leader-canton-demo-session-visits-v1";
+const validDemoVisit=(value:unknown):value is DemoVisit=>{
+ if(!value||typeof value!=="object")return false;
+ const v=value as Partial<DemoVisit>;
+ return typeof v.id==="string"&&v.id.length<=100&&
+  typeof v.name==="string"&&v.name.length>=2&&v.name.length<=100&&
+  typeof v.phone==="string"&&v.phone.length<=30&&
+  typeof v.purpose==="string"&&v.purpose.length<=160&&
+  (v.site==="Canton HQ"||v.site==="Dallas (simulation)")&&
+  (v.department==="DIG"||v.department==="TCF"||v.department==="DIRECTION")&&
+  (v.status==="scheduled"||v.status==="pending"||v.status==="arrived"||v.status==="completed")&&
+  typeof v.scheduledAt==="string"&&v.scheduledAt.length<=64&&
+  (v.checkInAt===null||(typeof v.checkInAt==="string"&&v.checkInAt.length<=64))&&
+  (v.checkOutAt===null||(typeof v.checkOutAt==="string"&&v.checkOutAt.length<=64));
+};
+function decodeSavedVisits(raw:string|null):DemoVisit[]{
+ if(!raw||raw.length>100000)return [];
+ try{
+  const parsed:unknown=JSON.parse(raw);
+  if(!Array.isArray(parsed))return [];
+  return parsed.slice(0,100).filter(validDemoVisit);
+ }catch{return [];}
+}
+
 const teammates=["Cécile (demo)","Jordan (demo)","Patricia (demo)"] as const;
 const input="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900";
 const button="min-h-10 cursor-pointer rounded-lg bg-indigo-700 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-800 disabled:cursor-not-allowed disabled:opacity-40";
@@ -32,6 +56,23 @@ export default function CantonDemoClient(){
  const [showQr,setShowQr]=useState(false);
  const [toast,setToast]=useState("");
  const [additionalVisits,setAdditionalVisits]=useState<DemoVisit[]>([]);
+ const [demoStorageReady,setDemoStorageReady]=useState(false);
+ const [restoredVisits,setRestoredVisits]=useState(0);
+ // Session storage only; intentionally not a real customer database or remote sync.
+ // Restore before enabling writes, so development hot reload cannot erase visit records.
+ useEffect(()=>{
+  try{
+   const restored=decodeSavedVisits(window.sessionStorage.getItem(DEMO_VISITS_KEY));
+   setAdditionalVisits(restored);
+   setRestoredVisits(restored.length);
+  }catch{}
+  setDemoStorageReady(true);
+ },[]);
+ useEffect(()=>{
+  if(!demoStorageReady)return;
+  try{window.sessionStorage.setItem(DEMO_VISITS_KEY,JSON.stringify(additionalVisits.slice(0,100)));}
+  catch{/* Private browsing or disabled browser storage: simulation stays in memory. */}
+ },[additionalVisits,demoStorageReady]);
  const handleAdditionalVisitStatus=(id:string,status:DemoVisitStatus)=>{
   setAdditionalVisits(items=>items.map(v=>v.id===id?{
    ...v,status,checkInAt:status==="arrived"?new Date().toISOString():v.checkInAt,
@@ -50,7 +91,8 @@ export default function CantonDemoClient(){
  const cantonTime=(iso:string|null)=>iso?new Date(iso).toLocaleString(fr?"fr-FR":"en-US",{timeZone:"America/Chicago",hour:"2-digit",minute:"2-digit",month:"short",day:"numeric"}):"—";
  const reset=()=>{
   setStage("scheduled");setOwner("Cécile (demo)");setSelectedOwner("Cécile (demo)");setCheckInAt(null);setCheckOutAt(null);setOutcome("");setResultNote("");
-  setFollowupOpen(true);setRating(0);setSearch("");setToast("");setView("dashboard");setSite("Canton HQ");setAdditionalVisits([]);
+  setFollowupOpen(true);setRating(0);setSearch("");setToast("");setView("dashboard");setSite("Canton HQ");setAdditionalVisits([]);setRestoredVisits(0);
+  try{window.sessionStorage.removeItem(DEMO_VISITS_KEY);}catch{}
  };
  return <main className="mx-auto max-w-6xl space-y-5 p-4 text-slate-900 md:p-7">
   <header className="rounded-2xl bg-slate-900 p-5 text-white md:p-7">
@@ -67,6 +109,7 @@ export default function CantonDemoClient(){
    {sites.map(s=><button key={s} type="button" onClick={()=>{setSite(s);setToast("")}} aria-pressed={site===s} className={site===s?"rounded-full bg-indigo-700 px-4 py-2 text-sm font-semibold text-white":"rounded-full bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-indigo-100"}>{s}</button>)}
    <span className="ml-auto text-xs text-slate-500">{t("Le site reste sélectionné lors des changements d'onglet.","Site stays selected across tabs.")}</span>
   </section>
+  {restoredVisits>0&&<p role="status" className="rounded-lg border border-sky-300 bg-sky-50 p-3 text-sm font-medium text-sky-900">{t("Visites de test restaurées dans cet onglet : ","Test visits restored in this tab: ")}{restoredVisits}. {t("Ouvrez Rendez-vous ou Réception pour les retrouver.","Open Appointments or Reception to see them.")}</p>}
   {toast&&<p role="status" className="rounded-lg border border-emerald-300 bg-emerald-50 p-4 text-sm font-medium text-emerald-900">{toast}</p>}
   {view==="dashboard"&&<section className="space-y-4">
    <h2 className="text-xl font-bold">{t("Vue d'ensemble","Overview")}</h2>
@@ -132,6 +175,6 @@ export default function CantonDemoClient(){
    {showQr&&<div className="grid gap-4 md:grid-cols-2"><div className="rounded-lg border border-dashed p-5"><p className="font-semibold">{t("QR d'arrivée","Arrival QR")}</p><p className="mt-2 text-sm text-slate-600">{t("Emplacement réservé au QR réel, à configurer dans la préproduction.","Placeholder for the real QR, to be configured in preproduction.")}</p></div><div className="rounded-lg border border-dashed p-5"><p className="font-semibold">{t("QR de satisfaction","Feedback QR")}</p><p className="mt-2 text-sm text-slate-600">{t("Emplacement réservé au QR réel, à configurer dans la préproduction.","Placeholder for the real QR, to be configured in preproduction.")}</p></div></div>}
    <p className="rounded-lg bg-amber-50 p-3 text-xs text-amber-900">{t("Aucun QR public, email, WhatsApp ou changement de droits n'est exécuté ici.","No public QR, email, WhatsApp, or permission changes run here.")}</p>
   </section>}
-  <footer className="flex flex-wrap items-center justify-between gap-3 border-t pt-4"><p className="text-xs text-slate-600">{t("Prototype local : les changements disparaissent au rechargement.","Local prototype: changes are cleared on reload.")}</p><button type="button" className={outline} onClick={reset}>{t("Réinitialiser la simulation","Reset simulation")}</button></footer>
+  <footer className="flex flex-wrap items-center justify-between gap-3 border-t pt-4"><p className="text-xs text-slate-600">{t("Prototype local : les visites fictives restent enregistrées dans cet onglet pendant la session. « Réinitialiser » les efface. N’utilisez aucune donnée personnelle réelle.","Local prototype: simulated visits are retained in this tab for the session. Reset clears them. Do not enter real personal data.")}</p><button type="button" className={outline} onClick={reset}>{t("Réinitialiser la simulation","Reset simulation")}</button></footer>
  </main>;
 }
