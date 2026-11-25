@@ -151,7 +151,7 @@ function Inspect-FunctionSql {
     return [pscustomobject]$Res
 }
 
-Write-Host 'SUPER LEADER B5.8.1 - PRECISE FUNCTION SCOPE (OFFLINE)' -ForegroundColor Cyan
+Write-Host 'SUPER LEADER B5.8.2 - PRECISE FUNCTION SCOPE (OFFLINE)' -ForegroundColor Cyan
 if ($SelfTest) {
     $Fixture = @'
 CREATE FUNCTION public.fn_one() RETURNS integer
@@ -179,7 +179,7 @@ $inner$;
     if ($Test.Definer -ne 2 -or $Test.DefinerWithPath -ne 1 -or $Test.DefinerWithoutPath -ne 1 -or $Test.DefinerWithDml -ne 1 -or $Test.DefinerWithDynamic -ne 1 -or $Test.MissingDollarBody -ne 0 -or $Test.SuspiciousSections -ne 0) {
         throw 'B5.8.2 SYNTHETIC SELF TEST FAILED.'
     }
-    Write-Host 'B5.8.1 SYNTHETIC SELF TEST: PASS' -ForegroundColor Green
+    Write-Host 'B5.8.2 SYNTHETIC SELF TEST: PASS' -ForegroundColor Green
     return
 }
 
