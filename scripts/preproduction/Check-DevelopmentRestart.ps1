@@ -1,8 +1,8 @@
-# SUPER LEADER B6 - development restart/readiness gate.
+# SUPER LEADER B6.1 - development restart/readiness gate (fix native argument binding).
 # Read-only: checks private lab, network posture, local code, and selected runtime config.
 # No SQL replay, cloud calls, Docker changes, EFOS operations, Vercel actions or secrets printed.
 [CmdletBinding()]
-param([switch]$RunTests)
+param([switch]$RunTests,[switch]$SelfTest)
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
@@ -17,7 +17,7 @@ $Sql = Join-Path $env:LOCALAPPDATA 'SuperLeader\PrivateSchemaExports\schema-2026
 $SqlHash = 'F126AFE9D38B7B3C4F8C030FB03596CCAE6826CAD107E280709AB585C71D3785'
 $DbName = 'supabase_db_super-leader-preprod-b5-isolated'
 $FirewallName = 'SuperLeader-B5-LocalPostgres-55322-InboundBlock'
-Write-Host 'SUPER LEADER B6 - DEVELOPMENT RESTART READINESS' -ForegroundColor Cyan
+Write-Host 'SUPER LEADER B6.1 - DEVELOPMENT RESTART READINESS' -ForegroundColor Cyan
 Write-Host 'READ ONLY - neither production nor EFOS is modified.'
 
 function Mark {
@@ -26,19 +26,30 @@ function Mark {
     Write-Host ('{0,-51} {1}' -f $Label,$State) -ForegroundColor $Color
 }
 function Run-External {
-    param([string]$Exe,[string[]]$Args)
-    $Output = @(& $Exe @Args 2>&1)
-    if ($LASTEXITCODE -ne 0) { throw ('Local command failed: ' + $Exe) }
+    param([string]$Exe,[string[]]$ArgumentList)
+    # Never name a parameter Args: $args is a built-in PowerShell automatic variable.
+    $Output = @(& $Exe @ArgumentList 2>&1)
+    if ($LASTEXITCODE -ne 0) { throw ('Local command failed: ' + $Exe + ' (exit ' + $LASTEXITCODE + ')') }
     return (($Output | ForEach-Object { [string]$_ }) -join [Environment]::NewLine).Trim()
 }
 
+if ($SelfTest) {
+    # Runs only a synthetic/native-command test. No secrets, Docker, SQL, local lab or cloud.
+    $Ver = Run-External -Exe 'git' -ArgumentList @('--version')
+    if ($Ver -notmatch '^git version ') { throw 'B6.1 Git argument forwarding self-test failed.' }
+    $InRepo = Run-External -Exe 'git' -ArgumentList @('-C',$Repo,'rev-parse','--is-inside-work-tree')
+    if ($InRepo -ne 'true') { throw 'B6.1 Git worktree self-test failed.' }
+    Write-Host 'B6.1 NATIVE COMMAND SELF TEST: PASS' -ForegroundColor Green
+    return
+}
+
 # Guard against running from production, cloud-linked or wrong Git tree.
-$ActualRoot = Run-External -Exe 'git' -Args @('-C',$Repo,'rev-parse','--show-toplevel')
+$ActualRoot = Run-External -Exe 'git' -ArgumentList @('-C',$Repo,'rev-parse','--show-toplevel')
 if (-not $ActualRoot.Replace('/','\').Equals($Repo,[StringComparison]::OrdinalIgnoreCase)) {
     throw 'STOP: worktree and Git root disagree.'
 }
-$Head = Run-External -Exe 'git' -Args @('-C',$Repo,'rev-parse','HEAD')
-$AuditHead = Run-External -Exe 'git' -Args @('-C',$Repo,'rev-parse','refs/remotes/origin/audit/architecture-stability-v4-10-141')
+$Head = Run-External -Exe 'git' -ArgumentList @('-C',$Repo,'rev-parse','HEAD')
+$AuditHead = Run-External -Exe 'git' -ArgumentList @('-C',$Repo,'rev-parse','refs/remotes/origin/audit/architecture-stability-v4-10-141')
 if ($Head -ne $AuditHead) { throw 'STOP: HEAD is not the expected audit branch tip.' }
 Mark 'Audit worktree at verified commit' 'PASS'
 
@@ -54,16 +65,16 @@ if (-not (Test-Path -LiteralPath $Sql -PathType Leaf)) { throw 'Private B4 schem
 if ((Get-FileHash -LiteralPath $Sql -Algorithm SHA256).Hash -ne $SqlHash) { throw 'STOP: private B4 export fingerprint mismatch.' }
 Mark 'Private schema fingerprint (no SQL displayed)' 'PASS'
 
-$Running = Run-External -Exe 'docker' -Args @('inspect','-f','{{.State.Running}}',$DbName)
+$Running = Run-External -Exe 'docker' -ArgumentList @('inspect','-f','{{.State.Running}}',$DbName)
 if ($Running -ne 'true') { throw 'STOP: isolated PostgreSQL is not running.' }
-$Version = Run-External -Exe 'docker' -Args @('exec',$DbName,'psql','-X','-q','-tA','-U','postgres','-d','postgres','-v','ON_ERROR_STOP=1','-c','SHOW server_version;')
+$Version = Run-External -Exe 'docker' -ArgumentList @('exec',$DbName,'psql','-X','-q','-tA','-U','postgres','-d','postgres','-v','ON_ERROR_STOP=1','-c','SHOW server_version;')
 if ($Version -notmatch '^17\.') { throw 'STOP: unexpected private PostgreSQL major version.' }
 Mark ('Isolated PostgreSQL '+$Version) 'PASS'
-$TableCount = Run-External -Exe 'docker' -Args @('exec',$DbName,'psql','-X','-q','-tA','-U','postgres','-d','postgres','-v','ON_ERROR_STOP=1','-c',"SELECT count(*) FROM pg_catalog.pg_tables WHERE schemaname='public';")
+$TableCount = Run-External -Exe 'docker' -ArgumentList @('exec',$DbName,'psql','-X','-q','-tA','-U','postgres','-d','postgres','-v','ON_ERROR_STOP=1','-c',"SELECT count(*) FROM pg_catalog.pg_tables WHERE schemaname='public';")
 if ($TableCount -ne '0') { throw 'STOP: private public schema is not empty; read-only readiness only.' }
 Mark 'Private public tables: 0 (no restore yet)' 'PASS'
 
-$Ports = Run-External -Exe 'docker' -Args @('port',$DbName,'5432/tcp')
+$Ports = Run-External -Exe 'docker' -ArgumentList @('port',$DbName,'5432/tcp')
 if ($Ports -notmatch ':55322(?:\r?\n|$)') { throw 'STOP: unexpected host PostgreSQL port.' }
 if (-not (Get-Command Get-NetFirewallRule -ErrorAction SilentlyContinue)) {
     throw 'Windows Firewall cmdlets missing.'
