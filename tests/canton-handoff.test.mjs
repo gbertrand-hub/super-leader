@@ -67,7 +67,8 @@ test("Canton isolated browser simulator covers tabs, site and reassignment witho
  assert.match(sim, /const \[site,setSite\]=useState/);
  assert.match(sim, /const \[owner,setOwner\]=useState/);
  assert.match(sim, /const \[showQr,setShowQr\]=useState\(false\)/);
- assert.match(sim, /setPage\("commercial"\)/);
+ assert.match(sim, /commercial:\["Suivi commercial","Commercial follow-up"\]/);
+ assert.match(sim, /onClick=\{\(\)=>setPage\(p\)\}/);
  assert.match(sim, /setFollowupOpen\(false\)/);
  assert.match(sim, /SIMULATION LOCALE/);
  assert.doesNotMatch(sim, /createAdminClient|createClient\(|from\("@\/app\/actions|fetch\(/);
