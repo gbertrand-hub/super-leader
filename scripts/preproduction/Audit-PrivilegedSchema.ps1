@@ -1,4 +1,4 @@
-# SUPER LEADER B5.8.1 - corrected offline inventory of privileged functions.
+# SUPER LEADER B5.8.2 - corrected offline inventory of privileged functions.
 # Read only: no database operations, no SQL execution, no network, no SQL/function text printed.
 # -SelfTest exercises synthetic SQL only; it does not read the private schema export.
 # A lexical scan is not a full PostgreSQL parser and does NOT authorize restore.
@@ -146,7 +146,7 @@ function Inspect-FunctionSql {
             }
             if (Count-Pattern $Info.Body '\b(?:GRANT|REVOKE|SET\s+ROLE)\b') { $Res.DefinerWithGrant++ }
         }
-        if ((Count-Pattern $Info.Ddl '\bCREATE\s+FUNCTION\b') -ne 1) { $Res.SuspiciousSections++ }
+        if ((Count-Pattern $Info.Ddl '^\s*CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\b') -ne 1) { $Res.SuspiciousSections++ }
     }
     return [pscustomobject]$Res
 }
@@ -166,7 +166,7 @@ $body$;
 CREATE FUNCTION public.fn_two() RETURNS integer
 LANGUAGE sql SECURITY INVOKER
 AS $$ SELECT 2; $$;
-CREATE FUNCTION public.fn_three() RETURNS integer
+CREATE OR REPLACE FUNCTION public.fn_three() RETURNS integer
 LANGUAGE plpgsql SECURITY DEFINER
 AS $inner$
 BEGIN
@@ -177,7 +177,7 @@ $inner$;
 '@
     $Test = Inspect-FunctionSql -Sql $Fixture -ExpectedFunctions 3
     if ($Test.Definer -ne 2 -or $Test.DefinerWithPath -ne 1 -or $Test.DefinerWithoutPath -ne 1 -or $Test.DefinerWithDml -ne 1 -or $Test.DefinerWithDynamic -ne 1 -or $Test.MissingDollarBody -ne 0 -or $Test.SuspiciousSections -ne 0) {
-        throw 'B5.8.1 SYNTHETIC SELF TEST FAILED.'
+        throw 'B5.8.2 SYNTHETIC SELF TEST FAILED.'
     }
     Write-Host 'B5.8.1 SYNTHETIC SELF TEST: PASS' -ForegroundColor Green
     return
@@ -216,4 +216,4 @@ if ($Result.DefinerWithoutPath -gt 0) { Write-Warning 'Some privileged functions
 if ($Result.DefinerWithDynamic -gt 0) { Write-Warning 'Some privileged functions contain EXECUTE markers: targeted review required.' }
 if ($Result.MissingDollarBody -gt 0 -or $Result.SuspiciousSections -gt 0) { Write-Warning 'SQL parser assumptions require manual verification.' }
 if ($Rls -ne 315 -or $Policies -ne 169) { Write-Warning 'RLS/policy coverage differs from B4 baseline.' }
-Write-Host 'B5.8.1 CORRECTED OFFLINE AUDIT COMPLETE - NO RESTORE AUTHORIZED' -ForegroundColor Yellow
+Write-Host 'B5.8.2 CORRECTED OFFLINE AUDIT COMPLETE - NO RESTORE AUTHORIZED' -ForegroundColor Yellow
