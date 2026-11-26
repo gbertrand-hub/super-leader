@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 type Props={
  locale:"fr"|"en";
@@ -21,17 +21,17 @@ export function CantonQrActions({locale,label,arrivalUrl,feedbackUrl,posterHref}
   a.click();
  };
  const share=async()=>{
-  const text=(fr?"QR dÔÇÖarriv├®e et de feedback ÔÇö ":"Arrival and feedback QR ÔÇö ")+label+"\n"+arrivalUrl+"\n"+feedbackUrl;
+  const text=(fr?"QR d’arrivée et de feedback — ":"Arrival and feedback QR — ")+label+"\n"+arrivalUrl+"\n"+feedbackUrl;
   if(navigator.share){
    try{await navigator.share({title:label,text});return;}catch{}
   }
   await navigator.clipboard.writeText(text);
-  alert(fr?"Liens copi├®s. Vous pouvez les coller dans WhatsApp ou un email.":"Links copied. Paste them into WhatsApp or email.");
+  alert(fr?"Liens copiés. Vous pouvez les coller dans WhatsApp ou un email.":"Links copied. Paste them into WhatsApp or email.");
  };
  return <div className="mt-4 flex flex-wrap gap-2 border-t pt-3">
-  <button type="button" onClick={()=>download(arrivalUrl,"qr-arrivee")} className="rounded-lg border bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50">{fr?"T├®l├®charger QR arriv├®e":"Download arrival QR"}</button>
-  <button type="button" onClick={()=>download(feedbackUrl,"qr-feedback")} className="rounded-lg border bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50">{fr?"T├®l├®charger QR feedback":"Download feedback QR"}</button>
-  <a href={posterHref} target="_blank" rel="noreferrer" className="rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white">{fr?"Imprimer lÔÇÖaffiche":"Print poster"}</a>
+  <button type="button" onClick={()=>download(arrivalUrl,"qr-arrivee")} className="rounded-lg border bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50">{fr?"Télécharger QR arrivée":"Download arrival QR"}</button>
+  <button type="button" onClick={()=>download(feedbackUrl,"qr-feedback")} className="rounded-lg border bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50">{fr?"Télécharger QR feedback":"Download feedback QR"}</button>
+  <a href={posterHref} target="_blank" rel="noreferrer" className="rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white">{fr?"Imprimer l’affiche":"Print poster"}</a>
   <button type="button" onClick={share} className="rounded-lg bg-indigo-700 px-3 py-2 text-xs font-semibold text-white">{fr?"Partager":"Share"}</button>
  </div>;
 }

@@ -554,8 +554,18 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
    <div className="grid gap-4 md:grid-cols-2">{(sites||[]).filter(x=>x.enabled && (selectedSiteId === "all" || x.visitor_site_id === selectedSiteId)).map(site=>{
      const arrivalUrl=origin+"/canton-checkin?site="+encodeURIComponent(site.id);
      const feedbackUrl=origin+"/canton-feedback-qr?site="+encodeURIComponent(site.id);
-     return <div className="rounded-lg border p-4" key={site.id}>
-      <h3 className="font-semibold">{site.label}</h3>
+     return <details key={site.id} className="group rounded-xl border border-slate-200 bg-white shadow-sm">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-xl p-4 hover:bg-slate-50">
+       <div className="min-w-0">
+        <h3 className="font-semibold text-slate-900">{site.label}</h3>
+        <p className="mt-1 text-xs text-slate-500">{site.street_address|| (fr?"Adresse non renseignée":"Address not set")}</p>
+       </div>
+       <span className="shrink-0 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-semibold text-indigo-800">
+        {fr?"Afficher les QR et options":"Show QR codes and options"} ▼
+       </span>
+      </summary>
+      <div className="border-t border-slate-200 p-4">
+      
       {origin?<div className="grid gap-4 lg:grid-cols-2">
        <div><p className="mt-2 text-xs font-semibold uppercase tracking-wide text-slate-500">{fr?"QR arrivée":"Arrival QR"}</p><img src={qrImage(arrivalUrl)} width={220} height={220} alt={"QR registration for "+site.label} className="mx-auto my-3"/><a href={arrivalUrl} target="_blank" rel="noreferrer" className="break-all text-sm text-indigo-700 underline">{fr?"Ouvrir le formulaire d’arrivée":"Open registration form"}</a></div>
        <div><p className="mt-2 text-xs font-semibold uppercase tracking-wide text-slate-500">{fr?"QR feedback":"Feedback QR"}</p><img src={qrImage(feedbackUrl)} width={220} height={220} alt={"QR feedback for "+site.label} className="mx-auto my-3"/><a href={feedbackUrl} target="_blank" rel="noreferrer" className="break-all text-sm text-indigo-700 underline">{fr?"Ouvrir le formulaire d’avis":"Open feedback form"}</a></div>
@@ -570,7 +580,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
   posterHref={"/dashboard/canton-visitors/qr-poster?site="+encodeURIComponent(site.id)}
 />
       {isSenior&&<form action={updateCantonQrSiteAddress} className="mt-3 space-y-2 border-t pt-3"><input type="hidden" name="returnTo" value={routeByView.admin+"&site="+encodeURIComponent(selectedSiteId)}/><input type="hidden" name="site" value={site.id}/><label className="block text-sm">{fr?"Adresse du bureau pour Google Maps":"Office address for Google Maps"}<input required minLength={8} maxLength={300} name="streetAddress" defaultValue={site.street_address||""} className={input} placeholder={fr?"Adresse exacte du bureau":"Exact office address"}/></label><button className="rounded bg-indigo-700 px-3 py-2 text-sm text-white">{fr?"Enregistrer l’adresse":"Save address"}</button></form>}
-     </div>;
+      </div></details>;
    })}</div>
    </div>
   </details>
