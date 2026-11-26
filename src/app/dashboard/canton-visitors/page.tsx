@@ -433,7 +433,12 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
      <div><p className="text-xs font-bold uppercase tracking-wider text-indigo-700">{fr?"Configuration réseau":"Network configuration"}</p><h2 className="mt-1 text-xl font-bold text-indigo-950">{fr?"Bureaux & centres d’activité":"Offices & activity centers"}</h2><p className="mt-1 text-sm text-indigo-900">{fr?"Ajoutez les futurs bureaux, définissez leur fuseau horaire, leur adresse et leur équipe locale. Canton reste le HQ tant qu’un administrateur ne désigne pas explicitement un autre site.":"Add future offices, configure timezone, address and local team. Canton remains HQ until an administrator explicitly assigns another site."}</p></div>
      <span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-indigo-900">{(visitorSites||[]).length} {fr?"site(s) actif(s)":"active site(s)"}</span>
     </div>
-    <form action={createVisitorSite} className="mt-4 grid gap-3 rounded-xl border border-indigo-200 bg-white p-4 md:grid-cols-2 xl:grid-cols-3">
+    <details className="mt-4 rounded-xl border border-indigo-200 bg-white">
+ <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-indigo-900">
+  {fr?"+ Ajouter un nouveau bureau":"+ Add new office"}
+ </summary>
+ <div className="border-t border-indigo-200 p-4">
+  <form action={createVisitorSite} className="mt-4 grid gap-3 rounded-xl border border-indigo-200 bg-white p-4 md:grid-cols-2 xl:grid-cols-3">
      <label className="text-sm font-semibold text-slate-700">{fr?"Nom du site *":"Site name *"}<input name="name" required minLength={2} maxLength={180} className={input} placeholder={fr?"Ex. Paris Office":"E.g. Paris Office"}/></label>
      <label className="text-sm font-semibold text-slate-700">{fr?"Code interne *":"Internal code *"}<input name="code" required minLength={2} maxLength={40} className={input} placeholder="PARIS"/></label>
      <label className="text-sm font-semibold text-slate-700">{fr?"Ville":"City"}<input name="city" maxLength={120} className={input} placeholder="Paris"/></label>
@@ -442,6 +447,8 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
      <label className="text-sm font-semibold text-slate-700 md:col-span-2 xl:col-span-3">{fr?"Adresse physique":"Street address"}<input name="streetAddress" maxLength={300} className={input} placeholder={fr?"Adresse complète pour Google Maps et QR":"Full address for Google Maps and QR"}/></label>
      <button className="rounded-lg bg-indigo-800 px-5 py-3 font-bold text-white md:col-span-2 xl:col-span-3">{fr?"Ajouter le bureau / centre":"Add office / center"}</button>
     </form>
+ </div>
+</details>
 
     <div className="mt-5 space-y-4">
      {adminSitesToRender.map(s=><article key={s.id} className="rounded-xl border bg-white p-4">
@@ -538,7 +545,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
    {!(invitationQueue||[]).some(x=>!feedbackByVisit.has(x.appointment_id))&&<p className="mt-4 text-sm text-slate-700">{fr?"Aucune invitation programmée.":"No invitations scheduled."}</p>}
   </section>}
 
-  <details className="rounded-xl border bg-white">
+  <details data-canton-view="admin" className="rounded-xl border bg-white">
    <summary className="cursor-pointer list-none p-5">
     <div className="flex flex-wrap items-center justify-between gap-3">
      <div>
@@ -550,7 +557,14 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
    </summary>
    <div className="border-t p-5">
    <h2 className="text-lg font-semibold">{fr?"Deux QR Codes":"Two QR codes"}</h2><p className="mb-4 text-sm text-slate-500">{fr?"1. Le visiteur scanne le QR d’arrivée et la réception confirme. 2. Au départ, il donne son avis par QR avec son nom et quatre chiffres du téléphone, ou anonymement. Aucun code à mémoriser.":"1. Visitor scans the arrival QR and reception confirms. 2. After checkout, visitor scans the feedback QR and enters their name and last four phone digits, or responds anonymously. No visit code."}</p>
-   {isSenior&&<form action={createCantonQrSite} className="mb-4 flex flex-wrap gap-2"><input type="hidden" name="returnTo" value={routeByView.admin+"&site="+encodeURIComponent(selectedSiteId)}/><label className="min-w-[200px] flex-1 text-sm">{fr?"Nouveau point d’accueil":"New reception location"}<input required className="mt-1 w-full rounded border px-3 py-2" name="label" placeholder="Canton Main Reception"/></label><label className="min-w-[220px] flex-1 text-sm">{fr?"Site opérationnel":"Operational site"}<select required name="visitorSiteId" defaultValue={selectedSiteId==="all"?(hqSite?.id||""):selectedSiteId} className="mt-1 w-full rounded border px-3 py-2">{(allVisitorSites||[]).map(s=><option key={s.id} value={s.id}>{s.name}{s.is_hq?" · HQ":""}</option>)}</select></label><label className="min-w-[240px] flex-[2] text-sm">{fr?"Adresse physique du bureau (vérifiée)":"Verified physical office address"}<input name="streetAddress" className="mt-1 w-full rounded border px-3 py-2" placeholder={fr?"Adresse, ville, pays, code postal":"Street, city, country, postal code"}/></label><button className="self-end rounded bg-indigo-700 px-4 py-2 text-white">{fr?"Créer les QR du site":"Create site QR codes"}</button></form>}
+   <details className="mb-5 rounded-xl border border-indigo-200 bg-indigo-50">
+ <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-indigo-900">
+  {fr?"+ Créer un point d'accueil":"+ Create reception point"}
+ </summary>
+ <div className="border-t border-indigo-200 bg-white p-4">
+  {isSenior&&<form action={createCantonQrSite} className="mb-4 flex flex-wrap gap-2"><input type="hidden" name="returnTo" value={routeByView.admin+"&site="+encodeURIComponent(selectedSiteId)}/><label className="min-w-[200px] flex-1 text-sm">{fr?"Nouveau point d’accueil":"New reception location"}<input required className="mt-1 w-full rounded border px-3 py-2" name="label" placeholder="Canton Main Reception"/></label><label className="min-w-[220px] flex-1 text-sm">{fr?"Site opérationnel":"Operational site"}<select required name="visitorSiteId" defaultValue={selectedSiteId==="all"?(hqSite?.id||""):selectedSiteId} className="mt-1 w-full rounded border px-3 py-2">{(allVisitorSites||[]).map(s=><option key={s.id} value={s.id}>{s.name}{s.is_hq?" · HQ":""}</option>)}</select></label><label className="min-w-[240px] flex-[2] text-sm">{fr?"Adresse physique du bureau (vérifiée)":"Verified physical office address"}<input name="streetAddress" className="mt-1 w-full rounded border px-3 py-2" placeholder={fr?"Adresse, ville, pays, code postal":"Street, city, country, postal code"}/></label><button className="self-end rounded bg-indigo-700 px-4 py-2 text-white">{fr?"Créer les QR du site":"Create site QR codes"}</button></form>}
+ </div>
+</details>
    <div className="grid gap-4 md:grid-cols-2">{(sites||[]).filter(x=>x.enabled && (selectedSiteId === "all" || x.visitor_site_id === selectedSiteId)).map(site=>{
      const arrivalUrl=origin+"/canton-checkin?site="+encodeURIComponent(site.id);
      const feedbackUrl=origin+"/canton-feedback-qr?site="+encodeURIComponent(site.id);
@@ -565,7 +579,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
        </span>
       </summary>
       <div className="border-t border-slate-200 p-4">
-      
+
       {origin?<div className="grid gap-4 lg:grid-cols-2">
        <div><p className="mt-2 text-xs font-semibold uppercase tracking-wide text-slate-500">{fr?"QR arrivée":"Arrival QR"}</p><img src={qrImage(arrivalUrl)} width={220} height={220} alt={"QR registration for "+site.label} className="mx-auto my-3"/><a href={arrivalUrl} target="_blank" rel="noreferrer" className="break-all text-sm text-indigo-700 underline">{fr?"Ouvrir le formulaire d’arrivée":"Open registration form"}</a></div>
        <div><p className="mt-2 text-xs font-semibold uppercase tracking-wide text-slate-500">{fr?"QR feedback":"Feedback QR"}</p><img src={qrImage(feedbackUrl)} width={220} height={220} alt={"QR feedback for "+site.label} className="mx-auto my-3"/><a href={feedbackUrl} target="_blank" rel="noreferrer" className="break-all text-sm text-indigo-700 underline">{fr?"Ouvrir le formulaire d’avis":"Open feedback form"}</a></div>
