@@ -40,8 +40,13 @@ export function cantonLiveEnabled(): boolean {
  * operational write actions. Server actions continue to use assertCantonLive().
  */
 export function cantonUiPreviewEnabled(): boolean {
+  const previewUi =
+    process.env.VERCEL_ENV === "preview"
+    && process.env.CANTON_PREVIEW_UI_ENABLED === "true";
+
   return cantonLiveEnabled()
-    || process.env.CANTON_LOCAL_UI_PREVIEW === "true";
+    || process.env.CANTON_LOCAL_UI_PREVIEW === "true"
+    || previewUi;
 }
 export function assertCantonLive(): void {
   if (!cantonLiveEnabled()) {

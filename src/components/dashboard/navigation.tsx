@@ -499,7 +499,7 @@ export function DashboardNavigation({
 
     return resolvedSections
       .flatMap((section) =>
-        section.items.map((item) => {
+        section.items.map((item, itemIndex) => {
           const label = item.label
             ? locale === "fr" ? item.label.fr : item.label.en
             : t(item.labelKey);
@@ -707,7 +707,7 @@ export function DashboardNavigation({
                     id={`navigation-items-${section.id}`}
                     className="ml-4 mt-1 space-y-1 border-l border-white/10 pl-2"
                   >
-                    {section.items.map((item) => {
+                    {section.items.map((item, itemIndex) => {
                       const active = item.href === activeHref;
                       const title = item.lockedByPlan
                         ? t("navigation.planRequired")
@@ -717,7 +717,7 @@ export function DashboardNavigation({
 
                       return (
                         <Link
-                          key={`${section.id}-${item.href}`}
+                          key={`${section.id}-${item.href}-${itemIndex}`}
                           href={item.resolvedHref}
                           onClick={() => setMobileOpen(false)}
                           title={title}

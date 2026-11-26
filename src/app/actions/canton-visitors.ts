@@ -741,11 +741,19 @@ export async function reassignCantonNextAction(f:FormData){
  const {data:action,error:actionError}=await db.from("canton_next_actions")
   .select("id,appointment_id,assigned_to,status")
   .eq("id",actionId).eq("organization_id",org).maybeSingle();
- if(actionError||!action||action.status!=="open") fail("This commercial action is no longer open");
+ if(actionError||!action){
+  return fail("This commercial action is no longer open");
+}
+if(action.status!=="open"){
+  fail("This commercial action is no longer open");
+}
  const {data:visit,error:visitError}=await db.from("canton_appointments")
   .select("id,site_id,status,department").eq("id",action.appointment_id)
   .eq("organization_id",org).maybeSingle();
- if(visitError||!visit||visit.status!=="completed"||!["DIG","TCF"].includes(visit.department))
+ if(visitError||!visit){
+  return fail("Only completed DIG/TCF visit actions may be reassigned");
+}
+if(visit.status!=="completed"||!["DIG","TCF"].includes(visit.department))
   fail("Only completed DIG/TCF visit actions may be reassigned");
  await requireVisitorSiteAccess(ctx,visit.site_id);
  if(action.assigned_to===ownerId) redirect(withMessage(returnTo,"success","This employee already owns the action"));
