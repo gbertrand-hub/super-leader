@@ -1,3 +1,4 @@
+import {CantonQrActions} from "@/components/canton/canton-qr-actions";
 import {cantonUiPreviewEnabled} from "@/lib/canton/feature-gate";
 import {getI18n} from "@/i18n/server";
 import {CantonLanguageSwitch} from "@/components/canton/canton-language-switch";
@@ -118,7 +119,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
    : visitQuery.or(`announced_by.eq.${user.id},follow_up_owner_id.eq.${user.id},host_user_id.eq.${user.id}`).neq("department","DIRECTION");
  }
  const {data:visits,error:queryError}=await visitQuery.order("created_at",{ascending:false}).limit(150);
- const {data:sites}=(isSenior||isManager||isReception)?await db.from("canton_qr_sites").select("id,label,enabled,street_address").eq("organization_id",membership.organization_id).order("created_at",{ascending:false}):{data:[]};
+ const {data:sites}=(isSenior||isManager||isReception)?await db.from("canton_qr_sites").select("id,label,enabled,street_address,visitor_site_id").eq("organization_id",membership.organization_id).order("created_at",{ascending:false}):{data:[]};
  const {data:requests}=isSenior||isManager||isReception?await db.from("canton_intake_requests").select("id,full_name,department,purpose,email,phone,created_at").eq("organization_id",membership.organization_id).eq("status","pending").order("created_at",{ascending:true}).limit(100):{data:[]};
  const visitorIds=[...new Set((visits||[]).map(v=>v.visitor_id))];
  const {data:people}=visitorIds.length?await db.from("canton_visitors").select("id,full_name,phone,email").eq("organization_id",membership.organization_id).in("id",visitorIds):{data:[]};
@@ -561,6 +562,13 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
       </div>:<p>{fr?"QR indisponible sur cet hôte":"QR unavailable on unknown host"}</p>}
       <p className="mt-2 text-xs text-slate-500">{fr?"Le feedback est rattaché à ce site sans exposer l’organisation au visiteur.":"Feedback is scoped to this site without exposing organization details to the visitor."}</p>
       {site.street_address&&<p className="mt-3 text-sm text-slate-600">{site.street_address}</p>}
+<CantonQrActions
+  locale={fr?"fr":"en"}
+  label={site.label}
+  arrivalUrl={arrivalUrl}
+  feedbackUrl={feedbackUrl}
+  posterHref={"/dashboard/canton-visitors/qr-poster?site="+encodeURIComponent(site.id)}
+/>
       {isSenior&&<form action={updateCantonQrSiteAddress} className="mt-3 space-y-2 border-t pt-3"><input type="hidden" name="returnTo" value={routeByView.admin+"&site="+encodeURIComponent(selectedSiteId)}/><input type="hidden" name="site" value={site.id}/><label className="block text-sm">{fr?"Adresse du bureau pour Google Maps":"Office address for Google Maps"}<input required minLength={8} maxLength={300} name="streetAddress" defaultValue={site.street_address||""} className={input} placeholder={fr?"Adresse exacte du bureau":"Exact office address"}/></label><button className="rounded bg-indigo-700 px-3 py-2 text-sm text-white">{fr?"Enregistrer l’adresse":"Save address"}</button></form>}
      </div>;
    })}</div>
