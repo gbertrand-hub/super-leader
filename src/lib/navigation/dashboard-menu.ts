@@ -750,6 +750,12 @@ export const DASHBOARD_NAVIGATION_SECTIONS: DashboardNavigationSection[] = [
         organizationScoped: true,
       },
       {
+        labelKey: "navigation.myPages",
+        label: {fr: "Mes pages · Plan du site", en: "My pages · Site map"},
+        href: "/dashboard/my-pages",
+        icon: "menu",
+      },
+      {
         labelKey: "navigation.userHelpCenter",
         label: {fr: "Centre d’aide à l’utilisateur", en: "User help centre"},
         href: "/dashboard/help-center",

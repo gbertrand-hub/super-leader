@@ -1,0 +1,543 @@
+{
+  "reference": "v4.10.138-golden",
+  "sourceCommit": "57fdd9d3cebdafdbca843153fbfccd16bfe10378",
+  "generatedAt": "2026-11-24",
+  "routes": [
+    {
+      "path": "/dashboard",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/academy",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/academy/analytics",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/academy/assessments",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/academy/assessments/[assessmentId]/quiz-builder",
+      "kind": "dynamic"
+    },
+    {
+      "path": "/dashboard/academy/attendance",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/academy/certificate/[certificateId]",
+      "kind": "dynamic"
+    },
+    {
+      "path": "/dashboard/academy/certificates",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/academy/certificates/[certificateId]",
+      "kind": "dynamic"
+    },
+    {
+      "path": "/dashboard/academy/cohorts",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/academy/journey-control",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/academy/my-quizzes",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/academy/my-quizzes/[resultId]",
+      "kind": "dynamic"
+    },
+    {
+      "path": "/dashboard/academy/pricing",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/academy/quiz-builder",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/academy/quiz-review/[assessmentId]",
+      "kind": "dynamic"
+    },
+    {
+      "path": "/dashboard/academy/reports",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/academy/responsibilities",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/academy/responsibilities/manage",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/academy/schools",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/academy/schools/[schoolId]",
+      "kind": "dynamic"
+    },
+    {
+      "path": "/dashboard/academy/schools/[schoolId]/students",
+      "kind": "dynamic"
+    },
+    {
+      "path": "/dashboard/academy/staff-training",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/academy/staff-training/quiz-builder",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/academy/staff-training/results",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/academy/structure",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/academy/structure/[schoolId]",
+      "kind": "dynamic"
+    },
+    {
+      "path": "/dashboard/academy/student",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/academy/student-card/[cardId]",
+      "kind": "dynamic"
+    },
+    {
+      "path": "/dashboard/academy/students",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/academy/students/finance",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/academy/students/finance-control",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/academy/trainers",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/acquisition",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/actions",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/admin",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/admin/identity-audit",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/announcements",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/audit-security",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/badges/card/[badgeId]",
+      "kind": "dynamic"
+    },
+    {
+      "path": "/dashboard/badges/manage",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/canton-visitors",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/collections",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/coming-soon/[module]",
+      "kind": "dynamic"
+    },
+    {
+      "path": "/dashboard/coming-soon/advanced-priority-rules",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/coming-soon/crm-lead-scoring",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/coming-soon/daily-priorities-analytics",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/coming-soon/daily-report-auto-reminders",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/coming-soon/sales-performance-analytics",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/commissions",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/company",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/contracts",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/contracts/[contractId]",
+      "kind": "dynamic"
+    },
+    {
+      "path": "/dashboard/contracts/documents",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/contracts/execution-center",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/contracts/finance",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/contracts/provider-portal",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/contracts/reports",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/contracts/risk-center",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/contracts/settings",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/crm",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/crm/[clientId]",
+      "kind": "dynamic"
+    },
+    {
+      "path": "/dashboard/crm/ambassadors",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/crm/analytics",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/crm/catalog",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/crm/identity-sync",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/crm/my-sales-day",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/crm/opportunities/[opportunityId]",
+      "kind": "dynamic"
+    },
+    {
+      "path": "/dashboard/crm/pipeline",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/crm/prospects",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/crm/scoring",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/customer-service",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/customer-service/clients",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/customer-service/follow-up",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/customer-service/installments",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/customer-service/tickets",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/events",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/executive",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/feedback",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/feedback-automation",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/finance",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/finance/budgets",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/finance/cash-flow",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/finance/close",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/finance/close/[periodId]/certificate",
+      "kind": "dynamic"
+    },
+    {
+      "path": "/dashboard/finance/customer-accounts",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/finance/documents",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/finance/documents/[documentId]",
+      "kind": "dynamic"
+    },
+    {
+      "path": "/dashboard/finance/expenses",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/finance/payments",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/finance/receivables",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/finance/reports",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/finance/settings",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/growth",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/health-reliability",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/help-center",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/hr",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/hr/daily-priorities",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/hr/daily-reports",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/hr/document",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/hr/documents",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/hr/leave",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/hr/priority-rules",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/integrations",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/members",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/messages",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/module-status",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/my-day",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/my-payslips",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/notifications",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/performance",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/profile",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/profile/badge",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/recognition",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/reports",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/roles-permissions",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/sales",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/sales/performance",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/schedule",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/settings",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/subscription",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/team",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/team-tasks",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/vip",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/vip/annual-meeting",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/vip/benefits",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/vip/card/[cardId]",
+      "kind": "dynamic"
+    },
+    {
+      "path": "/dashboard/vip/communications",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/vip/country-welcome",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/vip/growth",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/vip/operations",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/vip/reports",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/vip/settings",
+      "kind": "static"
+    },
+    {
+      "path": "/dashboard/vip/travel",
+      "kind": "static"
+    }
+  ]
+}
