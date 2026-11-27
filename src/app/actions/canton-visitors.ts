@@ -1,5 +1,5 @@
 "use server";
-import {assertCantonLive} from "@/lib/canton/feature-gate";
+import {assertCantonLive,cantonAuthTestEnabled} from "@/lib/canton/feature-gate";
 import {revalidatePath} from "next/cache";
 import {redirect} from "next/navigation";
 import {createClient} from "@/lib/supabase/server";
@@ -846,7 +846,8 @@ export async function completeCantonSlaRecovery(f:FormData){
 
 /** QA ONLY: simulate due invitations; never call email or WhatsApp providers. */
 export async function simulateCantonFeedbackInvitations(f:FormData){
- assertCantonLive();
+ if (!cantonAuthTestEnabled()) { throw new Error("Canton simulation restricted to authorized QA."); }
+  assertCantonLive();
  const {db,org,role}=await context();
  if(!["owner","admin","manager"].includes(role))fail("Manager permission required");
  const limit=Math.max(1,Math.min(20,Number(field(f,"limit",3))||20));
