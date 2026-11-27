@@ -349,8 +349,8 @@ export default async function StudentsDirectoryPage({ searchParams }: Props) {
             >
               <CrmStudentSearch
                 schools={manageableSchools.map((school) => ({ id: String(school.id), name: String(school.name) }))}
-                programs={(allPrograms ?? []).map((program) => ({ id: String(program.id), schoolId: String(program.school_id), name: String(program.name) }))}
-                cohorts={(allCohorts ?? []).map((cohort) => ({ id: String(cohort.id), schoolId: String(cohort.school_id), name: String(cohort.name) }))}
+                programs={(allPrograms ?? []).filter((program) => program.status === "active").map((program) => ({ id: String(program.id), schoolId: String(program.school_id), name: String(program.name) }))}
+                cohorts={(allCohorts ?? []).filter((cohort) => cohort.status === "active").map((cohort) => ({ id: String(cohort.id), schoolId: String(cohort.school_id), name: String(cohort.name) }))}
               />
               <Label title="Responsable de suivi initial (facultatif)">
                 <select name="follow_up_user_id" className={input}>

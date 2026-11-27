@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { academyGlobalRoles, canEnrollStudents, getAcademyAssignments } from "@/lib/academy/access";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
+import { canEnrollInSchoolCohort } from "@/lib/academy/cohort-compatibility";
 
 const txt = (v: FormDataEntryValue | null, n = 500) =>
   String(v ?? "")
@@ -206,10 +207,12 @@ export async function enrollExistingStudentInSchoolsAction(fd: FormData) {
     }
     if (!programId || !cohortId) { failed++; continue; }
     const [{ data: validProgram }, { data: validCohort }] = await Promise.all([
-      a.from("academy_programs").select("id").eq("id", programId).eq("organization_id", m.organization_id).eq("school_id", schoolId).maybeSingle(),
-      a.from("academy_cohorts").select("id,program_id").eq("id", cohortId).eq("organization_id", m.organization_id).eq("school_id", schoolId).maybeSingle<{id:string;program_id:string|null}>(),
+      a.from("academy_programs").select("id,school_id,status").eq("id", programId).eq("organization_id", m.organization_id).eq("school_id", schoolId).maybeSingle<{id:string;school_id:string;status:string|null}>(),
+      a.from("academy_cohorts").select("id,school_id,program_id,status").eq("id", cohortId).eq("organization_id", m.organization_id).eq("school_id", schoolId).maybeSingle<{id:string;school_id:string;program_id:string|null;status:string|null}>(),
     ]);
-    if (!validProgram || !validCohort || (validCohort.program_id && String(validCohort.program_id) !== programId)) { failed++; continue; }
+    // A promotion may serve the school's normal and staff programs.
+    // Validate the actual school and active state, not cohort.program_id equality.
+    if (!canEnrollInSchoolCohort(schoolId, validProgram, validCohort)) { failed++; continue; }
     const { data: enrollment, error } = await a
       .from("academy_school_enrollments")
       .insert({
@@ -262,7 +265,8 @@ export async function enrollExistingStudentInSchoolsAction(fd: FormData) {
   }
   revalidatePath("/dashboard/academy/students");
   go(
-    `${created} inscription(s) créée(s), ${skipped} déjà existante(s)${failed ? `, ${failed} échec(s)` : ""}.`,
+    `${created} inscription(s) créée(s), ${skipped} déjà existante(s)${failed ? `, ${failed} échec(s) — vérifiez le programme et la cohorte actifs de la même école` : ""}.`,
+    failed > 0 && created === 0 ? "error" : "success",
   );
 }
 
