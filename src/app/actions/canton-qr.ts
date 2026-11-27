@@ -28,8 +28,16 @@ async function staff(){
  const db=createAdminClient();
  const {data:m}=await db.from("organization_members").select("role,organization_id").eq("user_id",user.id).eq("is_active",true).limit(1).maybeSingle();
  if(!m) throw new Error("Access denied");
- const {data:assigned}=await db.from("canton_reception_staff").select("user_id").eq("organization_id",m.organization_id).eq("user_id",user.id).maybeSingle();
- return {db,user,org:m.organization_id as string,role:m.role as string,canReview:["owner","admin","manager"].includes(m.role)||!!assigned};
+ const [{data:assigned},{data:localAssignment}]=await Promise.all([
+  db.from("canton_reception_staff").select("user_id")
+   .eq("organization_id",m.organization_id).eq("user_id",user.id).maybeSingle(),
+  db.from("visitor_site_staff").select("site_id")
+   .eq("user_id",user.id).eq("is_active",true).in("access_role",["reception","manager"])
+   .limit(1).maybeSingle()
+ ]);
+ return {db,user,org:m.organization_id as string,role:m.role as string,
+  isLegacyReception:!!assigned,
+  canReview:["owner","admin","manager"].includes(m.role)||!!assigned||!!localAssignment};
 }
 export async function createCantonQrSite(f:FormData){
  assertCantonLive();
@@ -104,14 +112,36 @@ export async function submitCantonQrIntake(f:FormData){
 export async function reviewCantonQrIntake(f:FormData){
  assertCantonLive();
  const back=safeStaffReturn(value(f,"returnTo",500),"reception");
- const {db,user,org,canReview}=await staff();
+ const {db,user,org,role,isLegacyReception,canReview}=await staff();
  if(!canReview)fail("Reception authorization required",back);
  const id=value(f,"id",40),decision=value(f,"decision",20);
  if(!uuid(id)||!["approve","reject"].includes(decision))fail("Invalid request",back);
  const {data:request}=await db.from("canton_intake_requests")
-  .select("id,status,full_name,email,phone,department,purpose,organization_id")
+  .select("id,site_id,status,full_name,email,phone,department,purpose,organization_id")
   .eq("id",id).eq("organization_id",org).maybeSingle();
  if(!request || request.status!=="pending")throw new Error("Request already processed");
+ // The QR request.site_id references canton_qr_sites, NOT visitor_sites.
+ const {data:qrSite}=await db.from("canton_qr_sites")
+  .select("visitor_site_id").eq("id",request.site_id).eq("organization_id",org).maybeSingle();
+ if(!qrSite?.visitor_site_id) fail("Invalid reception point",back);
+ if(!["owner","admin"].includes(role)){
+  const [{data:mySiteRole},{data:otherSiteRole}]=await Promise.all([
+   db.from("visitor_site_staff").select("access_role")
+    .eq("site_id",qrSite!.visitor_site_id).eq("user_id",user.id).eq("is_active",true).maybeSingle(),
+   db.from("visitor_site_staff").select("site_id")
+    .eq("user_id",user.id).eq("is_active",true).limit(1).maybeSingle()
+  ]);
+  if(mySiteRole){
+   if(!["manager","reception"].includes(mySiteRole.access_role) && role!=="manager")
+    fail("Reception permission required for this office",back);
+  }else{
+   // Legacy HQ reception access only applies if no explicit office assignment exists.
+   const {data:site}=await db.from("visitor_sites").select("is_hq")
+    .eq("id",qrSite!.visitor_site_id).eq("organization_id",org).maybeSingle();
+   if(otherSiteRole || !site?.is_hq || !(isLegacyReception || role==="manager"))
+    fail("This QR request belongs to another office",back);
+  }
+ }
  // Keep QR self-registration as a request; approval never automatically creates a CRM sales lead.
  if(decision==="reject"){
   const {data:changed,error}=await db.from("canton_intake_requests").update({status:"rejected",reviewed_by:user.id,reviewed_at:new Date().toISOString()})

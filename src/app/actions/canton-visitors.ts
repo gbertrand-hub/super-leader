@@ -28,8 +28,14 @@ async function context(){
  const {data:m,error}=await db.from("organization_members").select("organization_id,role")
  .eq("user_id",user.id).eq("is_active",true).limit(1).maybeSingle();
  if(error||!m||!roles.has(m.role)) throw new Error("No access to Canton Visitor Center");
- const {data:reception}=await db.from("canton_reception_staff").select("user_id").eq("organization_id",m.organization_id).eq("user_id",user.id).maybeSingle();
- return {db,user,org:m.organization_id as string,role:m.role as string,isReception:!!reception};
+ const [{data:reception},{data:siteReception}]=await Promise.all([
+  db.from("canton_reception_staff").select("user_id")
+   .eq("organization_id",m.organization_id).eq("user_id",user.id).maybeSingle(),
+  db.from("visitor_site_staff").select("user_id")
+   .eq("user_id",user.id).eq("access_role","reception").eq("is_active",true)
+   .limit(1).maybeSingle(),
+ ]);
+ return {db,user,org:m.organization_id as string,role:m.role as string,isReception:!!reception||!!siteReception};
 }
 async function canAccessVisitorSite(ctx:Awaited<ReturnType<typeof context>>,siteId:string|null){
  if(!siteId) return seniorRoles.has(ctx.role);
@@ -554,15 +560,17 @@ export async function manageCantonReceptionStaff(f:FormData) {
 
 export async function qualifyCantonLegacyProspect(f:FormData){
  assertCantonLive();
- const {db,org,user,role}=await context();
+ const ctx=await context();
+ const {db,org,user,role}=ctx;
  const id=field(f,"id",40);
  const interest=field(f,"interest",30);
  const allowed=["hot","warm","cold","non_commercial"];
  if(!/^[0-9a-f-]{36}$/i.test(id)||!allowed.includes(interest)) fail("Select a valid prospect qualification");
  const {data:visit}=await db.from("canton_appointments")
-  .select("id,status,department,host_user_id,announced_by,follow_up_owner_id,follow_up_outcome,follow_up_status,commercial_interest")
+  .select("id,site_id,status,department,host_user_id,announced_by,follow_up_owner_id,follow_up_outcome,follow_up_status,commercial_interest")
   .eq("id",id).eq("organization_id",org).maybeSingle();
  if(!visit) fail("Visit not found");
+ await requireVisitorSiteAccess(ctx,visit!.site_id);
  const legacyVisit=visit!;
  if(legacyVisit.status!=="completed"||!["DIG","TCF"].includes(legacyVisit.department)) fail("Only completed DIG/TCF visits can be qualified");
  if(!legacyVisit.follow_up_outcome&&legacyVisit.follow_up_status!=="completed") fail("This legacy visit has no commercial result to qualify");
@@ -583,7 +591,8 @@ export async function qualifyCantonLegacyProspect(f:FormData){
 export async function saveCantonVisitDebrief(f:FormData){
  assertCantonLive();
  const returnTo=safeCantonReturn(field(f,"returnTo",500));
- const {db,org,user,role}=await context();
+ const ctx=await context();
+ const {db,org,user,role}=ctx;
  const id=field(f,"id",40);
  const interest=field(f,"interest",30);
  const outcome=field(f,"outcome",40);
@@ -595,9 +604,10 @@ export async function saveCantonVisitDebrief(f:FormData){
  if(!/^[0-9a-f-]{36}$/i.test(id)) fail("Invalid visit");
  if(!allowedInterest.includes(interest)||!allowedOutcome.includes(outcome)||note.length<5) fail("Complete the visit debrief");
  const {data:visit}=await db.from("canton_appointments")
-  .select("id,visitor_id,status,department,host_user_id,announced_by,debriefed_at,visit_origin,crm_referred_by")
+  .select("id,site_id,visitor_id,status,department,host_user_id,announced_by,debriefed_at,visit_origin,crm_referred_by")
   .eq("id",id).eq("organization_id",org).maybeSingle();
  if(!visit) fail("Visit not found");
+ await requireVisitorSiteAccess(ctx,visit!.site_id);
  const debriefVisit=visit!;
  if(debriefVisit.status!=="completed") fail("Complete the visit before debriefing");
  if(!["DIG","TCF"].includes(debriefVisit.department)) fail("Commercial debrief is only required for DIG or TCF visits");
@@ -686,7 +696,8 @@ export async function saveCantonVisitDebrief(f:FormData){
 export async function assignCantonFollowUp(f:FormData){
  assertCantonLive();
  const returnTo=safeCantonReturn(field(f,"returnTo",500));
- const {db,org,user,role}=await context();
+ const ctx=await context();
+ const {db,org,user,role}=ctx;
  if(!["owner","admin","manager"].includes(role)) fail("Only a manager can assign follow-up");
  const id=field(f,"id",40),ownerId=field(f,"ownerId",40),note=field(f,"note",1000),dueDate=field(f,"dueDate",10);
  if(!/^[0-9a-f-]{36}$/i.test(id)||!/^[0-9a-f-]{36}$/i.test(ownerId))fail("Invalid follow-up record");
@@ -694,9 +705,10 @@ export async function assignCantonFollowUp(f:FormData){
  const {data:member}=await db.from("organization_members").select("user_id")
   .eq("organization_id",org).eq("user_id",ownerId).eq("is_active",true).maybeSingle();
  if(!member)fail("Follow-up owner must be active in this organization");
- const {data:visit}=await db.from("canton_appointments").select("status,department")
+ const {data:visit}=await db.from("canton_appointments").select("site_id,status,department")
   .eq("id",id).eq("organization_id",org).maybeSingle();
  if(!visit||visit.status!=="completed")throw new Error("Complete the visit before assigning follow-up");
+ await requireVisitorSiteAccess(ctx,visit.site_id);
  if(visit.department==="DIRECTION" && role==="manager")fail("Confidential direction visits require admin");
  const {data:changed,error}=await db.from("canton_appointments").update({
   follow_up_required:true,follow_up_status:"open",follow_up_owner_id:ownerId,
@@ -710,7 +722,8 @@ export async function assignCantonFollowUp(f:FormData){
 export async function completeCantonFollowUp(f:FormData){
  assertCantonLive();
  const returnTo=safeCantonReturn(field(f,"returnTo",500));
- const {db,org,user,role}=await context();
+ const ctx=await context();
+ const {db,org,user,role}=ctx;
  const id=field(f,"id",40);
  const outcome=field(f,"outcome",40);
  const resultNote=field(f,"resultNote",1000);
@@ -718,9 +731,10 @@ export async function completeCantonFollowUp(f:FormData){
  if(!/^[0-9a-f-]{36}$/i.test(id))fail("Invalid follow-up");
  if(!allowed.includes(outcome))fail("Select a follow-up outcome before closing");
  if(resultNote.length<5)fail("Describe the concrete result (at least 5 characters)");
- const {data:row}=await db.from("canton_appointments").select("id,department,follow_up_owner_id,follow_up_status")
+ const {data:row}=await db.from("canton_appointments").select("id,site_id,department,follow_up_owner_id,follow_up_status")
   .eq("id",id).eq("organization_id",org).maybeSingle();
  if(!row||row.follow_up_status!=="open")throw new Error("Follow-up is not open");
+ await requireVisitorSiteAccess(ctx,row.site_id);
  if(row.department==="DIRECTION"&&!seniorRoles.has(role))fail("Confidential visit");
  if(!seniorRoles.has(role)&&role!=="manager"&&row.follow_up_owner_id!==user.id)fail("Only the follow-up owner or a manager may close");
  const {data:changed,error}=await db.from("canton_appointments").update({
@@ -737,7 +751,8 @@ export async function completeCantonFollowUp(f:FormData){
 export async function createCantonNextAction(f:FormData){
  assertCantonLive();
  const returnTo=safeCantonReturn(field(f,"returnTo",500));
- const {db,org,user,role}=await context();
+ const ctx=await context();
+ const {db,org,user,role}=ctx;
  const appointmentId=field(f,"appointmentId",40);
  const actionText=field(f,"actionText",800);
  const dueDate=field(f,"dueDate",10);
@@ -745,11 +760,12 @@ export async function createCantonNextAction(f:FormData){
     !/^\d{4}-\d{2}-\d{2}$/.test(dueDate)||!Number.isFinite(Date.parse(dueDate+"T12:00:00Z")))
   fail("Valid next action and due date required");
  const {data:visit}=await db.from("canton_appointments")
-  .select("id,status,department,follow_up_owner_id,follow_up_status,follow_up_outcome")
+  .select("id,site_id,status,department,follow_up_owner_id,follow_up_status,follow_up_outcome")
   .eq("id",appointmentId).eq("organization_id",org).maybeSingle();
  if(!visit||visit.status!=="completed"||visit.follow_up_status!=="completed"||!visit.follow_up_outcome||!visit.follow_up_owner_id)
   throw new Error("Complete the initial commercial follow-up first");
  if(!["DIG","TCF"].includes(visit.department))fail("Next actions available for DIG / TCF");
+ await requireVisitorSiteAccess(ctx,visit.site_id);
  if(!seniorRoles.has(role)&&role!=="manager"&&visit.follow_up_owner_id!==user.id)
   fail("Only the assigned commercial or manager may plan the next action");
  const {count,error:countError}=await db.from("canton_next_actions")
@@ -798,6 +814,11 @@ if(action.status!=="open"){
 if(visit.status!=="completed"||!["DIG","TCF"].includes(visit.department))
   fail("Only completed DIG/TCF visit actions may be reassigned");
  await requireVisitorSiteAccess(ctx,visit.site_id);
+ if(!seniorRoles.has(role)){
+  const {data:targetSiteStaff}=await db.from("visitor_site_staff").select("user_id")
+   .eq("site_id",visit.site_id).eq("user_id",ownerId).eq("is_active",true).maybeSingle();
+  if(!targetSiteStaff) fail("Assign an active team member from this office");
+ }
  if(action.assigned_to===ownerId) redirect(withMessage(returnTo,"success","This employee already owns the action"));
  let update=db.from("canton_next_actions").update({assigned_to:ownerId})
   .eq("id",actionId).eq("organization_id",org).eq("status","open");
@@ -811,7 +832,8 @@ if(visit.status!=="completed"||!["DIG","TCF"].includes(visit.department))
 export async function completeCantonNextAction(f:FormData){
  assertCantonLive();
  const returnTo=safeCantonReturn(field(f,"returnTo",500));
- const {db,org,user,role}=await context();
+ const ctx=await context();
+ const {db,org,user,role}=ctx;
  const id=field(f,"actionId",40);
  const completionNote=field(f,"completionNote",1000);
  if(!/^[0-9a-f-]{36}$/i.test(id)||completionNote.length<5)
@@ -822,9 +844,10 @@ export async function completeCantonNextAction(f:FormData){
  if(!action||action.status!=="open")throw new Error("Next action is not open");
  if(!seniorRoles.has(role)&&role!=="manager"&&action.assigned_to!==user.id)
   fail("Only the assigned employee or manager may close this action");
- const {data:visit}=await db.from("canton_appointments").select("department")
+ const {data:visit}=await db.from("canton_appointments").select("site_id,department")
   .eq("organization_id",org).eq("id",action.appointment_id).maybeSingle();
  if(!visit||!["DIG","TCF"].includes(visit.department))throw new Error("Not a commercial action");
+ await requireVisitorSiteAccess(ctx,visit.site_id);
  const {data:changed,error}=await db.from("canton_next_actions")
   .update({status:"completed",completion_note:completionNote,completed_at:new Date().toISOString(),completed_by:user.id})
   .eq("id",id).eq("organization_id",org).eq("status","open").select("id");
@@ -834,21 +857,23 @@ export async function completeCantonNextAction(f:FormData){
 
 export async function createCantonSlaRecovery(f:FormData){
  assertCantonLive();
- const {db,org,user,role}=await context();
+ const ctx=await context();
+ const {db,org,user,role}=ctx;
  if(!["owner","admin","manager"].includes(role)) fail("Manager permission required");
  const appointmentId=field(f,"appointmentId",40);
  const assignedTo=field(f,"assignedTo",40);
  const actionText=field(f,"actionText",800);
  const dueDate=field(f,"dueDate",10);
- if(!/^[0-9a-f-]{36}$/i.test(appointmentId)||!/^[0-9a-f-]{36}$/i.test(assignedTo)||actionText.length<5||!/^d{4}-d{2}-d{2}$/.test(dueDate))
+ if(!/^[0-9a-f-]{36}$/i.test(appointmentId)||!/^[0-9a-f-]{36}$/i.test(assignedTo)||actionText.length<5||!/^\d{4}-\d{2}-\d{2}$/.test(dueDate))
   fail("Valid recovery action, owner and due date required");
  const {data:member}=await db.from("organization_members").select("user_id")
   .eq("organization_id",org).eq("user_id",assignedTo).eq("is_active",true).maybeSingle();
  if(!member) fail("Recovery owner must be an active organization member");
  const {data:visit}=await db.from("canton_appointments")
-  .select("id,status,department,commercial_interest,commercial_qualified_at")
+  .select("id,site_id,status,department,commercial_interest,commercial_qualified_at")
   .eq("id",appointmentId).eq("organization_id",org).maybeSingle();
  if(!visit) fail("Visit not found");
+ await requireVisitorSiteAccess(ctx,visit!.site_id);
  const recoveryVisit=visit!;
  if(recoveryVisit.status!=="completed"||!["DIG","TCF"].includes(recoveryVisit.department)||!["hot","warm","cold"].includes(recoveryVisit.commercial_interest||""))
   fail("Only qualified completed DIG/TCF visits can receive a recovery plan");
@@ -868,15 +893,20 @@ export async function createCantonSlaRecovery(f:FormData){
 
 export async function completeCantonSlaRecovery(f:FormData){
  assertCantonLive();
- const {db,org,user,role}=await context();
+ const ctx=await context();
+ const {db,org,user,role}=ctx;
  const id=field(f,"recoveryId",40);
  const completionNote=field(f,"completionNote",1000);
  if(!/^[0-9a-f-]{36}$/i.test(id)||completionNote.length<5) fail("Completion note required");
  const {data:recovery}=await db.from("canton_sla_recoveries")
-  .select("id,assigned_to,status").eq("id",id).eq("organization_id",org).maybeSingle();
+  .select("id,appointment_id,assigned_to,status").eq("id",id).eq("organization_id",org).maybeSingle();
  if(!recovery) fail("Recovery plan not found");
  const recoveryRow=recovery!;
  if(recoveryRow.status!=="open") fail("Recovery plan is not open");
+ const {data:visit}=await db.from("canton_appointments").select("site_id,department")
+  .eq("id",recoveryRow.appointment_id).eq("organization_id",org).maybeSingle();
+ if(!visit || visit.department==="DIRECTION") fail("Recovery visit is not accessible");
+ await requireVisitorSiteAccess(ctx,visit!.site_id);
  if(!seniorRoles.has(role)&&role!=="manager"&&recoveryRow.assigned_to!==user.id) fail("Only the assigned employee or manager may close this recovery plan");
  const {data:changed,error}=await db.from("canton_sla_recoveries").update({
   status:"completed",completed_at:new Date().toISOString(),completed_by:user.id,completion_note:completionNote
@@ -891,7 +921,7 @@ export async function simulateCantonFeedbackInvitations(f:FormData){
  if (!cantonAuthTestEnabled()) { throw new Error("Canton simulation restricted to authorized QA."); }
   assertCantonLive();
  const {db,org,role}=await context();
- if(!["owner","admin","manager"].includes(role))fail("Manager permission required");
+ if(!seniorRoles.has(role))fail("Administrator permission required for QA-wide simulation");
  const limit=Math.max(1,Math.min(20,Number(field(f,"limit",3))||20));
  const {data,error}=await db.rpc("canton_simulate_feedback_invitations",{p_organization_id:org,p_limit:limit});
  if(error)fail("Invitation simulation could not run");

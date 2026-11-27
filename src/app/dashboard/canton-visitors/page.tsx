@@ -29,7 +29,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
  if(!membership) return <main className="p-8">Access denied.</main>;
  const isSenior=["owner","admin"].includes(membership.role);
  const {data:reception}=await db.from("canton_reception_staff").select("user_id").eq("organization_id",membership.organization_id).eq("user_id",user.id).maybeSingle();
- const isReception=!!reception;
+ let isReception=!!reception;
  const {data:members}=(isSenior||membership.role==="manager")?await db.from("organization_members").select("user_id,role").eq("organization_id",membership.organization_id).eq("is_active",true).limit(500):{data:[]};
  const {data:hostMembers}=await db.from("organization_members").select("user_id,role").eq("organization_id",membership.organization_id).eq("is_active",true).limit(500);
  const {data:crmProspects}=await db.from("crm_clients").select("id,reference,full_name,email,phone")
@@ -44,6 +44,8 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
  const {data:mySiteAssignments}=!isSenior?await db.from("visitor_site_staff")
   .select("site_id,access_role")
   .eq("user_id",user.id).eq("is_active",true):{data:[]};
+ // Site-level reception grants must work even without the old Canton HQ role.
+ if((mySiteAssignments||[]).some(x=>x.access_role==="reception")) isReception=true;
  const myAssignedSiteIds=new Set((mySiteAssignments||[]).map(x=>x.site_id));
  const visitorSites=isSenior
   ? (allVisitorSites||[])
@@ -52,19 +54,26 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
    : (allVisitorSites||[]).filter(s=>s.is_hq && (isReception||isManager));
  const siteById=new Map((visitorSites||[]).map(s=>[s.id,s]));
  const hqSite=(allVisitorSites||[]).find(s=>s.is_hq)||null;
- const selectedSiteId=site==="all"&&isSenior?"all":siteById.has(site)?site:(isSenior?"all":visitorSites?.[0]?.id||hqSite?.id||"all");
+ const selectedSiteId=site==="all"&&isSenior?"all":siteById.has(site)?site:(isSenior?"all":visitorSites?.[0]?.id||"");
+ // A member without a permitted office must never inherit HQ visibility.
+ if(!isSenior && !selectedSiteId) return <main className="p-8" role="alert">{fr?"Aucun bureau autorisé pour votre compte. Contactez un administrateur.":"No authorized office for your account. Contact an administrator."}</main>;
  const memberIds=[...new Set([...(members||[]).map(m=>m.user_id),...(hostMembers||[]).map(m=>m.user_id)])];
  const {data:memberProfiles}=memberIds.length?await db.from("profiles").select("id,full_name,email,city,country").in("id",memberIds):{data:[]};
  const profileMap=new Map((memberProfiles||[]).map(p=>[p.id,p]));
  const assignedIds=new Set((staffAssignments||[]).map(p=>p.user_id));
- const {data:siteStaff}=isSenior?await db.from("visitor_site_staff")
-  .select("site_id,user_id,access_role,is_active")
-  .in("site_id",(visitorSites||[]).map(s=>s.id))
-  .eq("is_active",true):{data:[]};
+ const {data:siteStaff}=isSenior
+  ? await db.from("visitor_site_staff")
+     .select("site_id,user_id,access_role,is_active")
+     .in("site_id",(visitorSites||[]).map(s=>s.id)).eq("is_active",true)
+  : await db.from("visitor_site_staff")
+     .select("site_id,user_id,access_role,is_active")
+     .eq("site_id",selectedSiteId).eq("is_active",true);
  const siteStaffMap=new Map((siteStaff||[]).map(x=>[x.site_id+":"+x.user_id,x]));
  const effectiveSiteId=selectedSiteId==="all"?(hqSite?.id||""):selectedSiteId;
  const selectedSiteHostIds=new Set((siteStaff||[]).filter(x=>x.site_id===effectiveSiteId&&x.is_active).map(x=>x.user_id));
  const siteHostMembers=(hostMembers||[]).filter(m=>selectedSiteHostIds.has(m.user_id));
+ // Manager assignment menus must not enumerate unrelated office staff.
+ const assignableMembers=isSenior?(members||[]):(members||[]).filter(m=>selectedSiteHostIds.has(m.user_id));
  const activeSite=effectiveSiteId?siteById.get(effectiveSiteId)||hqSite:null;
 
  const adminSitesToRender=selectedSiteId==="all"
@@ -120,8 +129,22 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
    : visitQuery.or(`announced_by.eq.${user.id},follow_up_owner_id.eq.${user.id},host_user_id.eq.${user.id}`).neq("department","DIRECTION");
  }
  const {data:visits,error:queryError}=await visitQuery.order("created_at",{ascending:false}).limit(150);
- const {data:sites}=(isSenior||isManager||isReception)?await db.from("canton_qr_sites").select("id,label,enabled,street_address,visitor_site_id").eq("organization_id",membership.organization_id).order("created_at",{ascending:false}):{data:[]};
- const {data:requests}=isSenior||isManager||isReception?await db.from("canton_intake_requests").select("id,full_name,department,purpose,email,phone,created_at").eq("organization_id",membership.organization_id).eq("status","pending").order("created_at",{ascending:true}).limit(100):{data:[]};
+ let qrSitesQuery=db.from("canton_qr_sites")
+  .select("id,label,enabled,street_address,visitor_site_id")
+  .eq("organization_id",membership.organization_id);
+ if(!isSenior) qrSitesQuery=qrSitesQuery.eq("visitor_site_id",selectedSiteId);
+ const {data:sites}=(isSenior||isManager||isReception)
+  ? await qrSitesQuery.order("created_at",{ascending:false}):{data:[]};
+ // Intake requests store the QR-site ID, not the operational visitor_site ID.
+ const visibleQrSiteIds=(sites||[]).filter(qr=>
+   selectedSiteId==="all" || qr.visitor_site_id===selectedSiteId
+ ).map(qr=>qr.id);
+ const {data:requests}=(isSenior||isManager||isReception)&&visibleQrSiteIds.length>0
+  ? await db.from("canton_intake_requests")
+     .select("id,full_name,department,purpose,email,phone,created_at")
+     .eq("organization_id",membership.organization_id).in("site_id",visibleQrSiteIds)
+     .eq("status","pending").order("created_at",{ascending:true}).limit(100)
+  : {data:[]};
  const visitorIds=[...new Set((visits||[]).map(v=>v.visitor_id))];
  const {data:people}=visitorIds.length?await db.from("canton_visitors").select("id,full_name,phone,email").eq("organization_id",membership.organization_id).in("id",visitorIds):{data:[]};
  const map=new Map((people||[]).map(p=>[p.id,p]));
@@ -339,7 +362,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
     {row.slaDeadline&&<div className="mt-1 text-xs text-slate-500">{fr?"SLA dépassé depuis":"SLA breached since"} {row.slaDeadline.toLocaleString(fr?"fr-FR":"en-US",{timeZone:"America/Chicago"})}</div>}
     {openRecoveryByVisit.has(row.visit.id)?<div className="mt-3 rounded-lg bg-sky-50 p-3 text-sm text-sky-900"><strong>{fr?"Plan de rattrapage actif":"Active recovery plan"}:</strong> {openRecoveryByVisit.get(row.visit.id)?.action_text} · {fr?"échéance":"due"} {openRecoveryByVisit.get(row.visit.id)?.due_date}</div>:<form action={createCantonSlaRecovery} className="mt-3 grid gap-2 rounded-lg border border-rose-200 bg-rose-50 p-3 md:grid-cols-3">
      <input type="hidden" name="appointmentId" value={row.visit.id}/>
-     <label className="text-sm">{fr?"Responsable du rattrapage *":"Recovery owner *"}<select name="assignedTo" required className={input} defaultValue={row.ownerId||""}><option value="">{fr?"Choisir":"Select"}</option>{(members||[]).map(m=><option value={m.user_id} key={m.user_id}>{profileMap.get(m.user_id)?.full_name||profileMap.get(m.user_id)?.email||m.user_id}</option>)}</select></label>
+     <label className="text-sm">{fr?"Responsable du rattrapage *":"Recovery owner *"}<select name="assignedTo" required className={input} defaultValue={row.ownerId||""}><option value="">{fr?"Choisir":"Select"}</option>{assignableMembers.map(m=><option value={m.user_id} key={m.user_id}>{profileMap.get(m.user_id)?.full_name||profileMap.get(m.user_id)?.email||m.user_id}</option>)}</select></label>
      <label className="text-sm">{fr?"Action corrective *":"Recovery action *"}<input name="actionText" required minLength={5} maxLength={800} className={input} placeholder={fr?"Ex. Appeler aujourd’hui et reprogrammer le suivi":"E.g. Call today and reset follow-up"}/></label>
      <label className="text-sm">{fr?"Nouvelle échéance *":"Recovery due date *"}<input type="date" name="dueDate" required className={input}/></label>
      <button className="rounded-lg bg-rose-800 px-4 py-2 text-sm font-semibold text-white md:col-span-3">{fr?"Attribuer le plan de rattrapage":"Assign recovery plan"}</button>
@@ -852,7 +875,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
        <label className="min-w-[220px] flex-1 text-sm font-semibold text-slate-700">{fr?"Confier l’action à un autre collaborateur":"Assign action to another teammate"}
         <select name="ownerId" required defaultValue={action.assigned_to||""} className={input}>
          <option value="">{fr?"Choisir un collaborateur actif":"Choose an active teammate"}</option>
-         {(members||[]).map(m=><option key={m.user_id} value={m.user_id}>{profileMap.get(m.user_id)?.full_name||profileMap.get(m.user_id)?.email||m.user_id}</option>)}
+         {assignableMembers.map(m=><option key={m.user_id} value={m.user_id}>{profileMap.get(m.user_id)?.full_name||profileMap.get(m.user_id)?.email||m.user_id}</option>)}
         </select>
        </label>
        <button type="submit" className="cursor-pointer rounded-lg bg-indigo-700 px-4 py-2 font-semibold text-white shadow-sm hover:bg-indigo-800">{fr?"Réattribuer":"Reassign"}</button>
@@ -904,7 +927,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
       <p className="mb-2 font-semibold">{map.get(v.visitor_id)?.full_name||(fr?"Visiteur":"Visitor")} · {v.department} · {v.follow_up_status==="open"?(fr?"Ouvert":"Open"):v.follow_up_status==="completed"?(fr?"Terminé":"Completed"):(fr?"Non attribué":"Not assigned")}</p>
       <form action={assignCantonFollowUp} className="flex flex-wrap items-end gap-2"><input type="hidden" name="returnTo" value={currentReturnPath}/>
        <input type="hidden" name="id" value={v.id}/>
-       <label className="flex-1 text-sm">{fr?"Collaborateur responsable":"Responsible employee"}<select name="ownerId" required className={input} defaultValue={v.follow_up_owner_id||""}><option value="">{fr?"Choisir un collaborateur":"Choose team member"}</option>{(members||[]).map(m=><option value={m.user_id} key={m.user_id}>{profileMap.get(m.user_id)?.full_name||profileMap.get(m.user_id)?.email||m.user_id}</option>)}</select></label>
+       <label className="flex-1 text-sm">{fr?"Collaborateur responsable":"Responsible employee"}<select name="ownerId" required className={input} defaultValue={v.follow_up_owner_id||""}><option value="">{fr?"Choisir un collaborateur":"Choose team member"}</option>{assignableMembers.map(m=><option value={m.user_id} key={m.user_id}>{profileMap.get(m.user_id)?.full_name||profileMap.get(m.user_id)?.email||m.user_id}</option>)}</select></label>
        <label className="text-sm">{fr?"Échéance":"Due date"}<input name="dueDate" type="date" className={input} required defaultValue={v.follow_up_due_date||""}/></label>
        <label className="min-w-[150px] flex-1 text-sm">{fr?"Prochaine action":"Next action"}<input name="note" className={input} maxLength={1000} defaultValue={v.follow_up_note||""} placeholder={fr?"Appeler le visiteur pour la suite":"Call visitor about next steps"}/></label>
        <button className="cursor-pointer rounded-lg bg-indigo-700 px-4 py-2 font-semibold text-white shadow-sm hover:bg-indigo-800">{v.follow_up_status==="open"?(fr?"Réattribuer le suivi":"Reassign follow-up"):(fr?"Attribuer":"Assign")}</button>
