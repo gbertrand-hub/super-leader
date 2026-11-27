@@ -5,6 +5,7 @@ import {CantonLanguageSwitch} from "@/components/canton/canton-language-switch";
 import {CantonSiteStaffManager} from "@/components/canton/canton-site-staff-manager";
 import {CantonCrmProspectPicker} from "@/components/canton/canton-crm-prospect-picker";
 import Link from "next/link";
+import {recoverCantonNextAction} from "@/app/actions/canton-next-action-recovery";
 import {headers} from "next/headers";
 import {createCantonQrSite,reviewCantonQrIntake,updateCantonQrSiteAddress} from "@/app/actions/canton-qr";
 import {redirect} from "next/navigation";
@@ -199,10 +200,18 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
   const qualifiedAt=v.commercial_qualified_at||v.debriefed_at||v.check_out_at||v.created_at;
   const slaHours=v.commercial_interest==="hot"?24:v.commercial_interest==="warm"?72:v.commercial_interest==="cold"?168:null;
   const slaDeadline=slaHours?new Date(Date.parse(qualifiedAt)+slaHours*60*60*1000):null;
-  const actionDueAt=action?new Date(action.due_date+"T23:59:59-06:00"):null;
+  // Next actions have a date, not an hour. Never label an action on the
+  // SLA deadline day as definitively late: its time has not been recorded.
+  const siteTimezone=(v.site_id&&siteById.get(v.site_id)?.timezone)||"America/Chicago";
+  const deadlineParts=slaDeadline?new Intl.DateTimeFormat("en-US",{
+   timeZone:siteTimezone,year:"numeric",month:"2-digit",day:"2-digit"
+  }).formatToParts(slaDeadline):[];
+  const deadlinePart=(kind:string)=>deadlineParts.find(p=>p.type===kind)?.value||"";
+  const deadlineLocalDay=slaDeadline?`${deadlinePart("year")}-${deadlinePart("month")}-${deadlinePart("day")}`:null;
   const remainingMs=slaDeadline?slaDeadline.getTime()-Date.now():null;
   const slaLate=!!slaDeadline&&Date.now()>slaDeadline.getTime();
-  const slaPlannedTooLate=!!slaDeadline&&!!actionDueAt&&actionDueAt.getTime()>slaDeadline.getTime()&&!slaLate;
+  const slaPlannedTooLate=!!deadlineLocalDay&&!!action&&action.due_date>deadlineLocalDay&&!slaLate;
+  const slaTimeNeedsReview=!!deadlineLocalDay&&!!action&&action.due_date===deadlineLocalDay&&!slaLate;
   const slaApproaching=!!slaDeadline&&!!slaHours&&remainingMs!==null&&remainingMs>0&&remainingMs<=slaHours*60*60*1000*0.25;
   return {
    visit:v,
@@ -216,6 +225,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
    slaDeadline,
    slaLate,
    slaPlannedTooLate,
+   slaTimeNeedsReview,
    slaApproaching
   };
  }).sort((a,b)=>{
@@ -230,8 +240,8 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
  const warmProspects=prospectRows.filter(x=>x.visit.commercial_interest==="warm");
  const coldProspects=prospectRows.filter(x=>x.visit.commercial_interest==="cold");
  const unqualifiedProspects=prospectRows.filter(x=>!x.visit.commercial_interest);
- const atRiskProspects=prospectRows.filter(x=>x.overdue||x.missingAction||!x.visit.commercial_interest||x.slaLate||x.slaPlannedTooLate);
- const mySlaAlerts=prospectRows.filter(x=>x.ownerId===user.id&&x.visit.commercial_interest&&(x.slaApproaching||x.slaLate||x.slaPlannedTooLate));
+ const atRiskProspects=prospectRows.filter(x=>x.overdue||x.missingAction||!x.visit.commercial_interest||x.slaLate||x.slaPlannedTooLate||x.slaTimeNeedsReview);
+ const mySlaAlerts=prospectRows.filter(x=>x.ownerId===user.id&&x.visit.commercial_interest&&(x.slaApproaching||x.slaLate||x.slaPlannedTooLate||x.slaTimeNeedsReview));
  const managerEscalations=(isSenior||isManager)?prospectRows.filter(x=>x.visit.commercial_interest&&x.slaLate):[];
 
  const todayRows=(visits||[]).filter(v=>{
@@ -317,14 +327,14 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
    <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-wider text-amber-800">{fr?"Alerte commerciale personnelle":"My commercial alert"}</p><h2 className="mt-1 text-xl font-bold text-amber-950">{fr?"Prospects à traiter avant dépassement SLA":"Prospects requiring action before SLA breach"}</h2></div><span className="rounded-full bg-white px-3 py-1 text-sm font-bold text-amber-900">{mySlaAlerts.length}</span></div>
    <details className="group mt-4"><summary className="flex cursor-pointer list-none items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white/90 px-4 py-3 text-sm font-semibold text-slate-800 hover:bg-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-700">{fr?"Afficher les alertes personnelles":"Show personal SLA alerts"} <span aria-hidden="true">▾</span></summary><div className="mt-3 space-y-3">{mySlaAlerts.map(row=><article key={row.visit.id} className="rounded-xl border border-amber-200 bg-white p-4">
     <div className="flex flex-wrap items-center justify-between gap-3"><div><div className="font-semibold">{row.person?.full_name||(fr?"Visiteur":"Visitor")} · {row.visit.department}</div><div className="mt-1 text-sm text-slate-600">{row.action?.action_text||(fr?"Aucune prochaine action planifiée":"No next action scheduled")}</div></div>
-    <span className={"rounded px-3 py-1 text-xs font-bold "+(row.slaLate?"bg-rose-100 text-rose-900":row.slaPlannedTooLate?"bg-orange-100 text-orange-900":"bg-amber-100 text-amber-900")}>{row.slaLate?(fr?"SLA dépassé":"SLA breached"):row.slaPlannedTooLate?(fr?"Action trop tardive":"Action too late"):(fr?"SLA approche":"SLA approaching")}</span></div>
+    <span className={"rounded px-3 py-1 text-xs font-bold "+(row.slaLate?"bg-rose-100 text-rose-900":row.slaPlannedTooLate?"bg-orange-100 text-orange-900":"bg-amber-100 text-amber-900")}>{row.slaLate?(fr?"Délai écoulé · relancer":"Deadline passed · recontact"):row.slaPlannedTooLate?(fr?"Relance à reprogrammer":"Outreach to reschedule"):row.slaTimeNeedsReview?(fr?"Heure à confirmer":"Time to confirm"):(fr?"SLA approche":"SLA approaching")}</span></div>
     {row.slaDeadline&&<div className="mt-2 text-xs text-slate-500">{fr?"Limite":"Deadline"}: {row.slaDeadline.toLocaleString(fr?"fr-FR":"en-US",{timeZone:"America/Chicago"})}</div>}
    </article>)}</div></details>
   </section>}
   {managerEscalations.length>0&&<section id="canton-commercial-alerts" data-canton-view="dashboard commercial" className="scroll-mt-28 rounded-2xl border-2 border-rose-400 bg-rose-50 p-5">
-   <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-wider text-rose-800">{fr?"Escalade manager":"Manager escalation"}</p><h2 className="mt-1 text-xl font-bold text-rose-950">{fr?"SLA commerciaux dépassés":"Commercial SLAs breached"}</h2><p className="mt-1 text-sm text-rose-900">{fr?"Ces dossiers ont dépassé leur délai de suivi et nécessitent une intervention managériale.":"These records exceeded their follow-up SLA and require managerial intervention."}</p></div><span className="rounded-full bg-white px-3 py-1 text-sm font-bold text-rose-900">{managerEscalations.length}</span></div>
+   <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-wider text-rose-800">{fr?"Escalade manager":"Manager escalation"}</p><h2 className="mt-1 text-xl font-bold text-rose-950">{fr?"Dossiers à relancer après le SLA":"Outreach needed after SLA"}</h2><p className="mt-1 text-sm text-rose-900">{fr?"Le délai initial est écoulé, mais le prospect peut encore être recontacté. Planifiez une relance ou un nouveau rendez-vous.":"The original deadline has passed, but the prospect can still be recontacted. Plan outreach or a new appointment."}</p></div><span className="rounded-full bg-white px-3 py-1 text-sm font-bold text-rose-900">{managerEscalations.length}</span></div>
    <details className="group mt-4"><summary className="flex cursor-pointer list-none items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white/90 px-4 py-3 text-sm font-semibold text-slate-800 hover:bg-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-700">{fr?"Afficher les dossiers escaladés":"Show escalated records"} <span aria-hidden="true">▾</span></summary><div className="mt-3 space-y-3">{managerEscalations.map(row=><article key={row.visit.id} className="rounded-xl border border-rose-200 bg-white p-4">
-    <div className="flex flex-wrap items-center justify-between gap-3"><div><div className="font-semibold">{row.person?.full_name||(fr?"Visiteur":"Visitor")} · {row.visit.department} · {row.visit.commercial_interest?.toUpperCase()}</div><div className="mt-1 text-sm text-slate-600">{fr?"Responsable":"Owner"}: {row.ownerId?(profileMap.get(row.ownerId)?.full_name||profileMap.get(row.ownerId)?.email||row.visit.host_name||"—"):(row.visit.host_name||"—")}</div></div><span className="rounded bg-rose-100 px-3 py-1 text-xs font-bold text-rose-900">{fr?"Escaladé":"Escalated"}</span></div>
+    <div className="flex flex-wrap items-center justify-between gap-3"><div><div className="font-semibold">{row.person?.full_name||(fr?"Visiteur":"Visitor")} · {row.visit.department} · {row.visit.commercial_interest?.toUpperCase()}</div><div className="mt-1 text-sm text-slate-600">{fr?"Responsable":"Owner"}: {row.ownerId?(profileMap.get(row.ownerId)?.full_name||profileMap.get(row.ownerId)?.email||row.visit.host_name||"—"):(row.visit.host_name||"—")}</div></div><span className="rounded bg-rose-100 px-3 py-1 text-xs font-bold text-rose-900">{fr?"À relancer":"Recontact"}</span></div>
     <div className="mt-2 text-sm">{row.action?.action_text||(fr?"Aucune prochaine action":"No next action")}</div>
     {row.slaDeadline&&<div className="mt-1 text-xs text-slate-500">{fr?"SLA dépassé depuis":"SLA breached since"} {row.slaDeadline.toLocaleString(fr?"fr-FR":"en-US",{timeZone:"America/Chicago"})}</div>}
     {openRecoveryByVisit.has(row.visit.id)?<div className="mt-3 rounded-lg bg-sky-50 p-3 text-sm text-sky-900"><strong>{fr?"Plan de rattrapage actif":"Active recovery plan"}:</strong> {openRecoveryByVisit.get(row.visit.id)?.action_text} · {fr?"échéance":"due"} {openRecoveryByVisit.get(row.visit.id)?.due_date}</div>:<form action={createCantonSlaRecovery} className="mt-3 grid gap-2 rounded-lg border border-rose-200 bg-rose-50 p-3 md:grid-cols-3">
@@ -780,7 +790,7 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
     <div className="rounded-xl bg-white p-4"><div className="text-xs font-semibold text-slate-500">{fr?"⚪ À qualifier":"⚪ To qualify"}</div><div className="mt-1 text-2xl font-bold">{unqualifiedProspects.length}</div></div>
     <div className={"rounded-xl p-4 "+(atRiskProspects.length?"bg-rose-100":"bg-white")}><div className="text-xs font-semibold text-slate-500">{fr?"Sans action / en retard":"No action / overdue"}</div><div className="mt-1 text-2xl font-bold">{atRiskProspects.length}</div></div>
    </div>
-   {atRiskProspects.length>0&&<p role="alert" className="mt-3 rounded-lg border border-rose-300 bg-rose-50 p-3 text-sm font-medium text-rose-900">{fr?"⚠️ Un prospect qualifié ne doit jamais rester sans prochaine action. Les dossiers signalés ci-dessous doivent être traités en priorité.":"⚠️ A qualified prospect should never remain without a next action. Flagged records below should be handled first."}</p>}
+   {atRiskProspects.length>0&&<p role="alert" className="mt-3 rounded-lg border border-rose-300 bg-rose-50 p-3 text-sm font-medium text-rose-900">{fr?"Un délai dépassé ne signifie pas une opportunité perdue. Recontactez le visiteur, reprogrammez la prochaine action ou confiez-la à un collègue.":"A missed deadline does not mean a lost opportunity. Recontact the visitor, reschedule the next action, or assign it to a teammate."}</p>}
     <details className="group mt-4 rounded-xl border border-violet-200 bg-white">
      <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-4 py-3 font-semibold text-violet-950 hover:bg-violet-50">{fr?"Afficher le tableau détaillé des prospects":"Show detailed prospect table"} ({prospectRows.length}) <span aria-hidden="true">▾</span></summary>
      <div className="overflow-auto border-t border-violet-200">
@@ -808,7 +818,9 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
        <td className="p-3">{row.action?.action_text||<strong className="text-rose-800">{fr?"Aucune prochaine action":"No next action"}</strong>}</td>
        <td className="p-3">{row.action?.due_date||"—"}</td>
        <td className="p-3">{row.slaHours?<div className="space-y-1"><div className="text-xs font-semibold">{row.slaHours===24?"24 h":row.slaHours===72?"3 jours":"7 jours"}</div><div className="text-[11px] text-slate-500">{fr?"Limite":"Deadline"}: {row.slaDeadline?.toLocaleString(fr?"fr-FR":"en-US",{timeZone:"America/Chicago",month:"short",day:"2-digit",hour:"2-digit",minute:"2-digit"})}</div></div>:"—"}</td>
-       <td className="p-3">{row.slaLate?<span className="rounded bg-rose-100 px-2 py-1 text-xs font-bold text-rose-900">{fr?"SLA dépassé":"SLA breached"}</span>:row.slaPlannedTooLate?<span className="rounded bg-orange-100 px-2 py-1 text-xs font-bold text-orange-900">{fr?"Action trop tardive":"Action too late"}</span>:row.overdue?<span className="rounded bg-rose-100 px-2 py-1 text-xs font-bold text-rose-900">{fr?"En retard":"Overdue"}</span>:row.dueToday?<span className="rounded bg-amber-100 px-2 py-1 text-xs font-bold text-amber-900">{fr?"Aujourd’hui":"Today"}</span>:row.missingAction?<span className="rounded bg-rose-100 px-2 py-1 text-xs font-bold text-rose-900">{fr?"À attribuer":"Needs action"}</span>:<span className="rounded bg-emerald-100 px-2 py-1 text-xs font-bold text-emerald-900">{fr?"Dans le SLA":"Within SLA"}</span>}</td>
+       <td className="p-3"><div className="flex flex-col items-start gap-2">{row.slaLate?<span className="rounded bg-rose-100 px-2 py-1 text-xs font-bold text-rose-900">{fr?"Relance après SLA":"Recontact after SLA"}</span>:row.slaPlannedTooLate?<span className="rounded bg-amber-100 px-2 py-1 text-xs font-bold text-amber-900">{fr?"Replanifier le contact":"Reschedule outreach"}</span>:row.slaTimeNeedsReview?<span className="rounded bg-amber-100 px-2 py-1 text-xs font-bold text-amber-900">{fr?"Heure à confirmer":"Time to confirm"}</span>:row.overdue?<span className="rounded bg-amber-100 px-2 py-1 text-xs font-bold text-amber-900">{fr?"Relancer aujourd’hui":"Recontact today"}</span>:row.dueToday?<span className="rounded bg-amber-100 px-2 py-1 text-xs font-bold text-amber-900">{fr?"Aujourd’hui":"Today"}</span>:row.missingAction?<span className="rounded bg-indigo-100 px-2 py-1 text-xs font-bold text-indigo-900">{fr?"Créer une action":"Plan next action"}</span>:<span className="rounded bg-emerald-100 px-2 py-1 text-xs font-bold text-emerald-900">{fr?"Dans le SLA":"Within SLA"}</span>}
+        {(row.slaLate||row.slaPlannedTooLate||row.slaTimeNeedsReview||row.overdue||row.missingAction)&&<a href={row.action?"#canton-next-action-"+row.action.id:"#canton-followup-handoff"} className="inline-flex cursor-pointer rounded border border-indigo-200 bg-white px-2 py-1 text-xs font-semibold text-indigo-800 hover:bg-indigo-50">{fr?"Recontacter ou reprogrammer →":"Recontact or reschedule →"}</a>}
+       </div></td>
       </tr>;
      })}</tbody>
     </table>
@@ -824,13 +836,13 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
     <div className={"rounded-lg p-3 "+(overdueNextActions.length?"bg-rose-100":"bg-white")}><div className="text-xs text-slate-600">{fr?"En retard":"Overdue"}</div><div className="text-xl font-bold">{overdueNextActions.length}</div></div>
     <div className="rounded-lg bg-white p-3"><div className="text-xs text-slate-600">{fr?"À venir":"Upcoming"}</div><div className="text-xl font-bold">{upcomingNextActions.length}</div></div>
    </div>
-   {overdueNextActions.length>0&&<p role="alert" className="mt-3 rounded-lg border border-rose-300 bg-rose-50 p-3 text-sm font-medium text-rose-900">{fr?"⚠️ Certaines actions commerciales sont en retard. Elles doivent être traitées en priorité.":"⚠️ Some commercial actions are overdue and should be handled first."}</p>}
-    <details className="group mt-4 rounded-xl border border-indigo-200 bg-white">
+   {overdueNextActions.length>0&&<p role="alert" className="mt-3 rounded-lg border border-rose-300 bg-rose-50 p-3 text-sm font-medium text-rose-900">{fr?"Certaines actions ont dépassé leur échéance. Recontactez le visiteur ou reprogrammez une étape réaliste.":"Some actions are past due. Recontact the visitor or set a realistic new date."}</p>}
+    <details open={atRiskProspects.some(row=>!!row.action&&(row.slaLate||row.slaPlannedTooLate||row.slaTimeNeedsReview||row.overdue))} className="group mt-4 rounded-xl border border-indigo-200 bg-white">
      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-semibold text-indigo-950 hover:bg-indigo-50">{fr?"Voir les actions et leurs responsables":"View actions and assignees"} ({openNextActions.length}) <span aria-hidden="true">▾</span></summary>
      <div className="space-y-3 border-t border-indigo-200 p-3">
     {[...openNextActions].sort((a,b)=>a.due_date.localeCompare(b.due_date)).map(action=>{
      const visit=(visits||[]).find(v=>v.id===action.appointment_id);
-     return <article key={action.id} className="rounded-lg border bg-white p-4">
+     return <article key={action.id} id={"canton-next-action-"+action.id} className="scroll-mt-28 rounded-lg border bg-white p-4">
       <div className="font-semibold">{map.get(visit?.visitor_id||"")?.full_name||(fr?"Visiteur":"Visitor")} · {visit?.department}</div>
       <p className="mt-1 text-sm">{action.action_text}</p>
       <p className="mt-1 text-xs font-medium text-slate-600">{fr?"Responsable actuel":"Current owner"}: {profileMap.get(action.assigned_to)?.full_name||profileMap.get(action.assigned_to)?.email||action.assigned_to||(fr?"Non attribué":"Unassigned")}</p>
@@ -850,6 +862,21 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
        {action.due_date<today&&<span className="ml-2 rounded bg-rose-100 px-2 py-1 font-semibold text-rose-900">{fr?"En retard":"Overdue"}</span>}
        {action.due_date>today&&<span className="ml-2 rounded bg-slate-100 px-2 py-1 font-semibold text-slate-700">{fr?"À venir":"Upcoming"}</span>}
       </p>
+      {(isSenior||isManager||action.assigned_to===user.id)&&<details className="mt-3 rounded-lg border border-amber-200 bg-amber-50">
+       <summary className="cursor-pointer px-3 py-2 text-sm font-bold text-amber-950 hover:bg-amber-100">{fr?"Recontacter ou reprogrammer":"Recontact or reschedule"} ▾</summary>
+       <form action={recoverCantonNextAction} className="grid gap-3 border-t border-amber-200 p-3 md:grid-cols-2">
+        <input type="hidden" name="returnTo" value={currentReturnPath}/>
+        <input type="hidden" name="actionId" value={action.id}/>
+        <label className="text-sm font-semibold text-slate-800 md:col-span-2">{fr?"Nouvelle étape de contact *":"Updated outreach step *"}
+         <input name="actionText" required minLength={5} maxLength={800} defaultValue={action.action_text} className={input} placeholder={fr?"Ex. Appeler le visiteur pour proposer un nouveau créneau":"E.g. Call the visitor to offer a new appointment"}/>
+        </label>
+        <label className="text-sm font-semibold text-slate-800">{fr?"Nouvelle date de relance *":"New follow-up date *"}
+         <input type="date" name="dueDate" min={today} required defaultValue={action.due_date<today?today:action.due_date} className={input}/>
+        </label>
+        <div className="flex items-end"><button type="submit" className="w-full cursor-pointer rounded-lg bg-amber-900 px-3 py-2 text-sm font-bold text-white hover:bg-amber-800">{fr?"Enregistrer la relance":"Save new outreach plan"}</button></div>
+        <p className="text-xs text-amber-900 md:col-span-2">{fr?"Même après un SLA dépassé, la relance reste possible. La date initiale du SLA n'est pas réinitialisée. Pour une action le jour exact de l'échéance, confirmez l'heure avec l'équipe.":"Outreach is still possible after an SLA breach. The original SLA deadline is not reset. For tasks on the deadline date, confirm the time with your team."}</p>
+       </form>
+      </details>}
       {(isSenior||isManager||action.assigned_to===user.id)&&<form action={completeCantonNextAction} className="mt-3 flex flex-wrap items-end gap-2"><input type="hidden" name="returnTo" value={currentReturnPath}/><input type="hidden" name="actionId" value={action.id}/>
        <label className="min-w-[240px] flex-1 text-sm">{fr?"Compte rendu de la nouvelle action *":"Next action completion note *"}<input required minLength={5} maxLength={1000} name="completionNote" className={input}/></label>
        <button className="rounded-lg bg-emerald-700 px-3 py-2 text-sm font-semibold text-white">{fr?"Enregistrer et terminer":"Save and complete"}</button>
