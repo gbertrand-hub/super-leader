@@ -5,6 +5,7 @@ import {redirect} from "next/navigation";
 import {createClient} from "@/lib/supabase/server";
 import {createAdminClient} from "@/lib/supabase/admin";
 import {syncCantonFeedbackToCrm} from "@/lib/canton/feedback-crm-sync";
+import {buildCantonFeedbackConsentUpdate} from "@/lib/canton/feedback-consent";
 import {sendCantonQaFeedbackEmail} from "@/lib/canton/qa-email-delivery";
 
 const depts = new Set(["DIG","TCF","DIRECTION","OTHER"]);
@@ -220,16 +221,36 @@ export async function createCantonAppointment(f:FormData){
  }
  const visitorId=matched?.id ?? "";
  if(!visitorId) fail("Visitor identity could not be resolved");
- // Staff must actively attest that the visitor agreed to one service-feedback email.
- // No checkbox means no new consent; email address alone is never consent.
- if(field(f,"feedbackEmailConsent",8)==="yes"){
-  if(!email)fail("An email address is required for the feedback invitation");
+ // Staff must explicitly attest to each feedback communication channel.
+ // Consent checkboxes are independent and unchecked by default.
+ const emailConsent=field(f,"feedbackEmailConsent",8)==="yes";
+ const whatsappConsent=field(f,"feedbackWhatsAppConsent",8)==="yes";
+
+ if(emailConsent || whatsappConsent){
   const feedbackLocale=field(f,"feedbackLocale",2)==="fr"?"fr":"en";
-  const {error:consentError}=await db.from("canton_visitors").update({
-   email,feedback_email_opt_in:true,feedback_preferred_locale:feedbackLocale,feedback_opt_in_source:"staff_attested_at_booking",
-   feedback_opt_in_at:new Date().toISOString()
-  }).eq("id",visitorId).eq("organization_id",org);
-  if(consentError)fail("Could not record feedback email consent");
+  let consentUpdate:Record<string,unknown>|null=null;
+
+  try{
+   consentUpdate=buildCantonFeedbackConsentUpdate({
+    emailConsent,
+    whatsappConsent,
+    email,
+    phone,
+    language:feedbackLocale,
+    timestamp:new Date().toISOString()
+   });
+  }catch(error){
+   fail(error instanceof Error?error.message:"Invalid feedback consent");
+  }
+
+  if(consentUpdate){
+   const {error:consentError}=await db.from("canton_visitors")
+    .update(consentUpdate)
+    .eq("id",visitorId)
+    .eq("organization_id",org);
+
+   if(consentError)fail("Could not record visitor feedback consent");
+  }
  }
 
  const scheduledLocal=scheduled ? scheduled.replace("T"," ")+":00" : null;
