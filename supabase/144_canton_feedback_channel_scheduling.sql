@@ -19,6 +19,7 @@ create table if not exists public.canton_feedback_delivery_settings (
  organization_id uuid primary key
    references public.organizations(id) on delete cascade,
  whatsapp_enabled boolean not null default false,
+ whatsapp_template_ready boolean not null default false,
  updated_at timestamptz not null default now()
 );
 
@@ -47,6 +48,7 @@ as $$
 declare
  v record;
  v_whatsapp_enabled boolean := false;
+ v_template_ready boolean := false;
  v_channel text := null;
 begin
 
@@ -77,8 +79,10 @@ begin
  end if;
 
  -- Disabled unless explicitly configured by authorized administration.
- select coalesce(s.whatsapp_enabled,false)
- into v_whatsapp_enabled
+ select
+  coalesce(s.whatsapp_enabled,false),
+  coalesce(s.whatsapp_template_ready,false)
+ into v_whatsapp_enabled,v_template_ready
  from public.canton_feedback_delivery_settings s
  where s.organization_id = new.organization_id;
 
@@ -101,7 +105,7 @@ begin
  end if;
 
  -- WhatsApp priority only when the organization has enabled it.
- if v_whatsapp_enabled
+ if v_whatsapp_enabled and v_template_ready
     and coalesce(v.feedback_whatsapp_opt_in,false)
     and v.feedback_whatsapp_opt_in_at is not null
     and v.phone ~ '^\+[1-9][0-9]{7,14}$'

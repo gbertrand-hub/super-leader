@@ -62,6 +62,7 @@ begin
    and a.check_out_at is not null
 
    and s.whatsapp_enabled = true
+   and s.whatsapp_template_ready = true
 
    and v.feedback_whatsapp_opt_in = true
    and v.feedback_whatsapp_opt_in_at is not null
