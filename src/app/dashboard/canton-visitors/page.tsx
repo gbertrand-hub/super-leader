@@ -249,6 +249,8 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
     ].some(x=>String(x||"").toLowerCase().includes(receptionSearch));
    })
   : todayRows;
+ const commercialPendingDebriefs=(visits||[]).filter(v=>v.status==="completed"&&["DIG","TCF"].includes(v.department)&&!v.debriefed_at&&(isSenior||isManager||v.host_user_id===user.id||v.announced_by===user.id));
+ const commercialAssignedFollowUps=(visits||[]).filter(v=>v.follow_up_owner_id===user.id&&v.follow_up_status==="open");
  const input="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900";
  return <main data-active-view={activeView} className="space-y-6 p-4 md:p-8">
   <style>{`
@@ -285,6 +287,25 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
   {error&&<p role="alert" className="rounded bg-red-100 p-3 text-red-800">{error}</p>}
   {success&&<p role="status" className="rounded bg-green-100 p-3 text-green-800">{success}</p>}
   {queryError&&<p role="alert" className="rounded bg-yellow-100 p-3">{fr?"Base de données non initialisée. Appliquez les migrations Canton.":"Database not initialized. Apply the Canton migration before using this module."}</p>}
+  <section data-canton-view="commercial" aria-labelledby="commercial-pilot-title" className="scroll-mt-28 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm md:p-5">
+   <div className="flex flex-wrap items-start justify-between gap-3">
+    <div><p className="text-xs font-bold uppercase tracking-widest text-indigo-700">{fr?"Centre de pilotage":"Command center"}</p><h2 id="commercial-pilot-title" className="mt-1 text-xl font-bold text-slate-900">{fr?"Suivi commercial · priorités du jour":"Commercial follow-up · today’s priorities"}</h2><p className="mt-1 text-sm text-slate-600">{fr?"Retrouvez les urgences, les dossiers et les actions sans parcourir toute la page.":"See urgent work, records and next actions without scrolling through every section."}</p></div>
+     <span className="rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-bold text-indigo-800">{fr?"Site sélectionné":"Selected site"}: {selectedSiteId==="all"?(fr?"Tous":"All"):siteById.get(selectedSiteId)?.name||"Canton HQ"}</span>
+    </div>
+    <div className="mt-4 grid grid-cols-2 gap-3 xl:grid-cols-4">
+     <a href="#canton-commercial-debrief" className="group rounded-xl border border-amber-200 bg-amber-50 p-3 transition hover:border-amber-400 hover:shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700"><span className="block text-xs font-semibold text-amber-900">{fr?"Débriefs à faire":"Pending debriefs"}</span><span className="mt-1 block text-2xl font-bold text-amber-950">{commercialPendingDebriefs.length}</span><span className="mt-1 block text-xs text-amber-800 group-hover:underline">{fr?"Ouvrir les dossiers →":"Open records →"}</span></a>
+     <a href={managerEscalations.length?"#canton-commercial-alerts":"#canton-commercial-pipeline"} className="group rounded-xl border border-rose-200 bg-rose-50 p-3 transition hover:border-rose-400 hover:shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-700"><span className="block text-xs font-semibold text-rose-900">{fr?"SLA dépassés":"Breached SLAs"}</span><span className="mt-1 block text-2xl font-bold text-rose-950">{managerEscalations.length}</span><span className="mt-1 block text-xs text-rose-800 group-hover:underline">{fr?"Voir les alertes →":"View alerts →"}</span></a>
+     <a href="#canton-commercial-actions" className="group rounded-xl border border-indigo-200 bg-indigo-50 p-3 transition hover:border-indigo-400 hover:shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-700"><span className="block text-xs font-semibold text-indigo-900">{fr?"Actions ouvertes":"Open actions"}</span><span className="mt-1 block text-2xl font-bold text-indigo-950">{openNextActions.length}</span><span className="mt-1 block text-xs text-indigo-800 group-hover:underline">{fr?"Gérer les actions →":"Manage actions →"}</span></a>
+     <a href="#canton-commercial-pipeline" className="group rounded-xl border border-violet-200 bg-violet-50 p-3 transition hover:border-violet-400 hover:shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-700"><span className="block text-xs font-semibold text-violet-900">{fr?"Prospects à risque":"Prospects at risk"}</span><span className="mt-1 block text-2xl font-bold text-violet-950">{atRiskProspects.length}</span><span className="mt-1 block text-xs text-violet-800 group-hover:underline">{fr?"Voir le pipeline →":"View pipeline →"}</span></a>
+    </div>
+    <nav aria-label={fr?"Accès rapide au suivi commercial":"Commercial follow-up shortcuts"} className="mt-4 flex flex-wrap gap-2">
+     <a href="#canton-commercial-debrief" className="rounded-lg bg-amber-900 px-3 py-2 text-xs font-semibold text-white hover:bg-amber-800">{fr?"Débriefs":"Debriefs"}</a>
+     <a href="#canton-commercial-mine" className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-800 hover:bg-slate-50">{fr?"Mes suivis":"My follow-ups"} ({commercialAssignedFollowUps.length})</a>
+     <a href="#canton-commercial-actions" className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-800 hover:bg-slate-50">{fr?"Prochaines actions":"Next actions"}</a>
+     {(isSenior||isManager)&&<a href="#canton-followup-handoff" className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-800 hover:bg-slate-50">{fr?"Attribuer un suivi":"Assign follow-up"}</a>}
+     <a href="#canton-commercial-pipeline" className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-800 hover:bg-slate-50">{fr?"Pipeline":"Pipeline"}</a>
+    </nav>
+   </section>
   {unreadArrivalAlerts.length>0&&<section data-canton-view="dashboard reception" className="rounded-2xl border-2 border-emerald-300 bg-emerald-50 p-5">
    <div className="flex flex-wrap items-center justify-between gap-2"><div><p className="text-xs font-bold uppercase tracking-wider text-emerald-800">{fr?"Notification d’arrivée":"Arrival notification"}</p><h2 className="mt-1 text-xl font-bold text-emerald-950">{fr?"Votre visiteur est arrivé":"Your visitor has arrived"}</h2></div><span className="rounded-full bg-white px-3 py-1 text-sm font-bold text-emerald-900">{unreadArrivalAlerts.length}</span></div>
    <div className="mt-4 space-y-3">{unreadArrivalAlerts.map(alert=><article key={alert.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-white p-4">
@@ -294,15 +315,15 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
   </section>}
   {mySlaAlerts.length>0&&<section data-canton-view="dashboard commercial" className="rounded-2xl border-2 border-amber-300 bg-amber-50 p-5">
    <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-wider text-amber-800">{fr?"Alerte commerciale personnelle":"My commercial alert"}</p><h2 className="mt-1 text-xl font-bold text-amber-950">{fr?"Prospects à traiter avant dépassement SLA":"Prospects requiring action before SLA breach"}</h2></div><span className="rounded-full bg-white px-3 py-1 text-sm font-bold text-amber-900">{mySlaAlerts.length}</span></div>
-   <div className="mt-4 space-y-3">{mySlaAlerts.map(row=><article key={row.visit.id} className="rounded-xl border border-amber-200 bg-white p-4">
+   <details className="group mt-4"><summary className="flex cursor-pointer list-none items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white/90 px-4 py-3 text-sm font-semibold text-slate-800 hover:bg-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-700">{fr?"Afficher les alertes personnelles":"Show personal SLA alerts"} <span aria-hidden="true">▾</span></summary><div className="mt-3 space-y-3">{mySlaAlerts.map(row=><article key={row.visit.id} className="rounded-xl border border-amber-200 bg-white p-4">
     <div className="flex flex-wrap items-center justify-between gap-3"><div><div className="font-semibold">{row.person?.full_name||(fr?"Visiteur":"Visitor")} · {row.visit.department}</div><div className="mt-1 text-sm text-slate-600">{row.action?.action_text||(fr?"Aucune prochaine action planifiée":"No next action scheduled")}</div></div>
     <span className={"rounded px-3 py-1 text-xs font-bold "+(row.slaLate?"bg-rose-100 text-rose-900":row.slaPlannedTooLate?"bg-orange-100 text-orange-900":"bg-amber-100 text-amber-900")}>{row.slaLate?(fr?"SLA dépassé":"SLA breached"):row.slaPlannedTooLate?(fr?"Action trop tardive":"Action too late"):(fr?"SLA approche":"SLA approaching")}</span></div>
     {row.slaDeadline&&<div className="mt-2 text-xs text-slate-500">{fr?"Limite":"Deadline"}: {row.slaDeadline.toLocaleString(fr?"fr-FR":"en-US",{timeZone:"America/Chicago"})}</div>}
-   </article>)}</div>
+   </article>)}</div></details>
   </section>}
-  {managerEscalations.length>0&&<section data-canton-view="dashboard commercial" className="rounded-2xl border-2 border-rose-400 bg-rose-50 p-5">
+  {managerEscalations.length>0&&<section id="canton-commercial-alerts" data-canton-view="dashboard commercial" className="scroll-mt-28 rounded-2xl border-2 border-rose-400 bg-rose-50 p-5">
    <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-wider text-rose-800">{fr?"Escalade manager":"Manager escalation"}</p><h2 className="mt-1 text-xl font-bold text-rose-950">{fr?"SLA commerciaux dépassés":"Commercial SLAs breached"}</h2><p className="mt-1 text-sm text-rose-900">{fr?"Ces dossiers ont dépassé leur délai de suivi et nécessitent une intervention managériale.":"These records exceeded their follow-up SLA and require managerial intervention."}</p></div><span className="rounded-full bg-white px-3 py-1 text-sm font-bold text-rose-900">{managerEscalations.length}</span></div>
-   <div className="mt-4 space-y-3">{managerEscalations.map(row=><article key={row.visit.id} className="rounded-xl border border-rose-200 bg-white p-4">
+   <details className="group mt-4"><summary className="flex cursor-pointer list-none items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white/90 px-4 py-3 text-sm font-semibold text-slate-800 hover:bg-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-700">{fr?"Afficher les dossiers escaladés":"Show escalated records"} <span aria-hidden="true">▾</span></summary><div className="mt-3 space-y-3">{managerEscalations.map(row=><article key={row.visit.id} className="rounded-xl border border-rose-200 bg-white p-4">
     <div className="flex flex-wrap items-center justify-between gap-3"><div><div className="font-semibold">{row.person?.full_name||(fr?"Visiteur":"Visitor")} · {row.visit.department} · {row.visit.commercial_interest?.toUpperCase()}</div><div className="mt-1 text-sm text-slate-600">{fr?"Responsable":"Owner"}: {row.ownerId?(profileMap.get(row.ownerId)?.full_name||profileMap.get(row.ownerId)?.email||row.visit.host_name||"—"):(row.visit.host_name||"—")}</div></div><span className="rounded bg-rose-100 px-3 py-1 text-xs font-bold text-rose-900">{fr?"Escaladé":"Escalated"}</span></div>
     <div className="mt-2 text-sm">{row.action?.action_text||(fr?"Aucune prochaine action":"No next action")}</div>
     {row.slaDeadline&&<div className="mt-1 text-xs text-slate-500">{fr?"SLA dépassé depuis":"SLA breached since"} {row.slaDeadline.toLocaleString(fr?"fr-FR":"en-US",{timeZone:"America/Chicago"})}</div>}
@@ -313,16 +334,16 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
      <label className="text-sm">{fr?"Nouvelle échéance *":"Recovery due date *"}<input type="date" name="dueDate" required className={input}/></label>
      <button className="rounded-lg bg-rose-800 px-4 py-2 text-sm font-semibold text-white md:col-span-3">{fr?"Attribuer le plan de rattrapage":"Assign recovery plan"}</button>
     </form>}
-   </article>)}</div>
+   </article>)}</div></details>
   </section>}
   {myOpenRecoveries.length>0&&<section data-canton-view="dashboard commercial" className="rounded-2xl border-2 border-sky-300 bg-sky-50 p-5">
    <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-wider text-sky-800">{fr?"Plan de rattrapage SLA":"SLA recovery plan"}</p><h2 className="mt-1 text-xl font-bold text-sky-950">{fr?"Actions correctives qui vous sont attribuées":"Recovery actions assigned to you"}</h2></div><span className="rounded-full bg-white px-3 py-1 text-sm font-bold text-sky-900">{myOpenRecoveries.length}</span></div>
-   <div className="mt-4 space-y-3">{myOpenRecoveries.map(rec=>{const visit=(visits||[]).find(v=>v.id===rec.appointment_id);return <article key={rec.id} className="rounded-xl border border-sky-200 bg-white p-4">
+   <details className="group mt-4"><summary className="flex cursor-pointer list-none items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white/90 px-4 py-3 text-sm font-semibold text-slate-800 hover:bg-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-700">{fr?"Afficher les plans de rattrapage":"Show recovery plans"} <span aria-hidden="true">▾</span></summary><div className="mt-3 space-y-3">{myOpenRecoveries.map(rec=>{const visit=(visits||[]).find(v=>v.id===rec.appointment_id);return <article key={rec.id} className="rounded-xl border border-sky-200 bg-white p-4">
     <div className="font-semibold">{map.get(visit?.visitor_id||"")?.full_name||(fr?"Visiteur":"Visitor")} · {visit?.department}</div>
     <p className="mt-1 text-sm">{rec.action_text}</p>
     <p className="mt-1 text-xs text-slate-600">{fr?"Échéance de rattrapage":"Recovery due"}: <strong>{rec.due_date}</strong></p>
     <form action={completeCantonSlaRecovery} className="mt-3 flex flex-wrap items-end gap-2"><input type="hidden" name="recoveryId" value={rec.id}/><label className="min-w-[240px] flex-1 text-sm">{fr?"Compte rendu de résolution *":"Resolution note *"}<input name="completionNote" required minLength={5} maxLength={1000} className={input}/></label><button className="rounded-lg bg-sky-800 px-4 py-2 text-sm font-semibold text-white">{fr?"Clôturer le plan":"Close recovery plan"}</button></form>
-   </article>})}</div>
+   </article>})}</div></details>
   </section>}
 
 
@@ -666,13 +687,18 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
     <button className="rounded-lg bg-indigo-700 px-4 py-2 font-medium text-white md:col-span-3">{fr?"Enregistrer la visite":"Register visitor / appointment"}</button>
    </form></section>
 
-  <section className="rounded-xl border-2 border-amber-300 bg-amber-50 p-5">
+  <details id="canton-commercial-debrief" data-canton-view="commercial" open={commercialPendingDebriefs.length>0} className="group scroll-mt-28 rounded-xl border-2 border-amber-300 bg-amber-50">
+   <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-3 p-5 hover:bg-amber-100/60">
+    <div><p className="text-xs font-bold uppercase tracking-wider text-amber-800">{fr?"Priorité commerciale":"Commercial priority"}</p><h2 className="mt-1 text-xl font-bold text-amber-950">{fr?"Débrief des visites commerciales":"Commercial visit debrief"}</h2></div>
+    <span className="rounded-full bg-white px-3 py-1 text-sm font-bold text-amber-900">{commercialPendingDebriefs.length} {fr?"à traiter · ouvrir/fermer ▾":"pending · open/close ▾"}</span>
+   </summary>
+   <div className="border-t border-amber-200 px-5 pb-5 pt-4">
+    <p className="mb-4 text-sm text-amber-900">{fr?"Qualifiez immédiatement l’intérêt du visiteur et définissez l’action suivante.":"Qualify the visitor’s interest and define the next action."}</p>
    <div className="flex flex-wrap items-start justify-between gap-3">
-    <div><p className="text-xs font-bold uppercase tracking-wider text-amber-800">{fr?"Encadrement des prospects":"Prospect handoff"}</p><h2 className="mt-1 text-xl font-bold text-amber-950">{fr?"Debrief des visites commerciales":"Commercial visit debrief"}</h2><p className="mt-1 text-sm text-amber-900">{fr?"Après chaque visite DIG ou TCF, qualifiez immédiatement l’intérêt du visiteur et programmez la prochaine action.":"After each DIG or TCF visit, immediately qualify the visitor’s interest and schedule the next action."}</p></div>
-    <span className="rounded-full bg-white px-3 py-1 text-sm font-bold text-amber-900">{(visits||[]).filter(v=>v.status==="completed"&&["DIG","TCF"].includes(v.department)&&!v.debriefed_at).length} {fr?"à traiter":"pending"}</span>
+    <p className="text-sm font-semibold text-amber-900">{fr?"Dossiers accessibles à votre rôle et votre site":"Records available to your role and site"}</p>
    </div>
    <div className="mt-4 space-y-4">
-    {(visits||[]).filter(v=>v.status==="completed"&&["DIG","TCF"].includes(v.department)&&!v.debriefed_at&&(isSenior||isManager||v.host_user_id===user.id||v.announced_by===user.id)).map(v=><article key={v.id} className="rounded-xl border bg-white p-4">
+    {commercialPendingDebriefs.map(v=><article key={v.id} className="rounded-xl border bg-white p-4">
      <div className="mb-3"><div className="font-semibold">{map.get(v.visitor_id)?.full_name||(fr?"Visiteur":"Visitor")} · {v.department}</div><div className="text-sm text-slate-600">{v.purpose} · {v.host_name||"—"}</div></div>
      <form action={saveCantonVisitDebrief} className="grid gap-3 md:grid-cols-2"><input type="hidden" name="returnTo" value={currentReturnPath}/>
       <input type="hidden" name="id" value={v.id}/>
@@ -684,13 +710,16 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
       <button className="rounded-lg bg-amber-900 px-4 py-3 font-semibold text-white md:col-span-2">{fr?"Enregistrer le debrief et la prochaine action":"Save debrief and next action"}</button>
      </form>
     </article>)}
-    {!(visits||[]).some(v=>v.status==="completed"&&["DIG","TCF"].includes(v.department)&&!v.debriefed_at&&(isSenior||isManager||v.host_user_id===user.id||v.announced_by===user.id))&&<p className="rounded-lg bg-white p-4 text-sm text-slate-600">{fr?"Aucun debrief commercial en attente pour vous.":"No commercial visit debrief is pending for you."}</p>}
+    {commercialPendingDebriefs.length===0&&<p className="rounded-lg bg-white p-4 text-sm text-slate-600">{fr?"Aucun debrief commercial en attente pour vous.":"No commercial visit debrief is pending for you."}</p>}
    </div>
-  </section>
-  <section data-canton-view="commercial" className="rounded-xl border border-indigo-200 bg-indigo-50 p-5">
-   <h2 className="text-lg font-semibold">{fr?"Mes suivis attribués":"My assigned follow-ups"}</h2>
+  </div>
+  </details>
+  <details id="canton-commercial-mine" data-canton-view="commercial" className="group scroll-mt-28 rounded-xl border border-indigo-200 bg-indigo-50">
+   <summary className="flex cursor-pointer list-none items-center justify-between gap-3 p-5 hover:bg-indigo-100/60"><h2 className="text-lg font-semibold text-indigo-950">{fr?"Mes suivis attribués":"My assigned follow-ups"}</h2><span className="rounded-full bg-white px-3 py-1 text-sm font-bold text-indigo-800">{commercialAssignedFollowUps.length} · {fr?"Ouvrir ▾":"Open ▾"}</span></summary>
+   <div className="border-t border-indigo-200 p-5">
+
    <p className="mb-3 text-sm text-slate-600">{fr?"Les actions qui vous ont été confiées apparaissent ici, même si le rendez-vous a été annoncé par un autre collègue.":"Tasks assigned to you appear here, even if another colleague created the visit."}</p>
-   <div className="space-y-3">{(visits||[]).filter(v=>v.follow_up_owner_id===user.id && v.follow_up_status==="open").map(v=><div key={v.id} className="flex flex-wrap items-start justify-between gap-3 rounded-lg border bg-white p-3">
+   <div className="space-y-3">{commercialAssignedFollowUps.map(v=><div key={v.id} className="flex flex-wrap items-start justify-between gap-3 rounded-lg border bg-white p-3">
     <div><div className="font-semibold">{map.get(v.visitor_id)?.full_name||(fr?"Visiteur":"Visitor")} · {v.department}</div><p className="text-sm">{v.follow_up_note||(fr?"Suivi à effectuer":"Follow-up needed")}</p><p className="text-xs text-slate-500">{fr?"Échéance : ":"Due: "}{v.follow_up_due_date||(fr?"Non précisée":"Unspecified")}</p></div>
     <form action={completeCantonFollowUp} className="w-full space-y-2 rounded-lg border border-emerald-200 bg-emerald-50 p-3 md:max-w-lg">
       <input type="hidden" name="id" value={v.id}/>
@@ -712,10 +741,13 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
       <p className="text-xs text-emerald-900">{fr?"Le suivi sera clôturé uniquement après enregistrement du résultat.":"The follow-up closes only after a result is recorded."}</p>
       <button className="w-full rounded-lg bg-emerald-700 px-3 py-2 text-sm font-semibold text-white">{fr?"Enregistrer le résultat et clôturer":"Save outcome and close"}</button>
      </form>
-   </div>)}{!(visits||[]).some(v=>v.follow_up_owner_id===user.id&&v.follow_up_status==="open")&&<p className="text-sm text-slate-600">{fr?"Aucun suivi ouvert qui vous est attribué.":"No open follow-ups assigned to you."}</p>}</div>
-  </section>
-  <section data-canton-view="commercial" className="rounded-xl border bg-white p-5">
-   <h2 className="text-lg font-semibold">{fr?"Résultats commerciaux enregistrés":"Recorded commercial outcomes"}</h2>
+   </div>)}{commercialAssignedFollowUps.length===0&&<p className="text-sm text-slate-600">{fr?"Aucun suivi ouvert qui vous est attribué.":"No open follow-ups assigned to you."}</p>}</div>
+    </div>
+  </details>
+  <details data-canton-view="commercial" className="group rounded-xl border bg-white">
+   <summary className="flex cursor-pointer list-none items-center justify-between gap-3 p-5 hover:bg-slate-50"><h2 className="text-lg font-semibold">{fr?"Résultats commerciaux enregistrés":"Recorded commercial outcomes"}</h2><span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">{fr?"Historique ▾":"History ▾"}</span></summary>
+   <div className="border-t p-5">
+
    <p className="mt-1 text-sm text-slate-600">{fr?"Historique des suivis terminés, conservé avec le dossier de visite.":"History of completed follow-ups, linked to the visit."}</p>
    <div className="mt-3 space-y-2">{(visits||[]).filter(v=>v.follow_up_status==="completed"&&v.follow_up_outcome&&(isSenior||v.department!=="DIRECTION")).slice(0,25).map(v=><div key={v.id} className="rounded-lg border bg-slate-50 p-3 text-sm">
     <div className="font-semibold">{map.get(v.visitor_id)?.full_name||(fr?"Visiteur":"Visitor")} · {v.department}</div>
@@ -730,9 +762,9 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
 
     <p className="mt-1 text-xs text-slate-500">{v.follow_up_completed_at?new Date(v.follow_up_completed_at).toLocaleString(fr?"fr-FR":"en-US",{timeZone:"America/Chicago"}):""}</p>
    </div>)}{!(visits||[]).some(v=>v.follow_up_status==="completed"&&v.follow_up_outcome)&&<p className="text-sm text-slate-500">{fr?"Aucun résultat enregistré pour le moment.":"No completed outcomes recorded yet."}</p>}</div>
-  </section>
-
-  <section data-canton-view="commercial" className="rounded-2xl border-2 border-violet-300 bg-violet-50 p-5">
+    </div>
+  </details>
+  <section id="canton-commercial-pipeline" data-canton-view="commercial" className="scroll-mt-28 rounded-2xl border-2 border-violet-300 bg-violet-50 p-5">
    <div className="flex flex-wrap items-start justify-between gap-3">
     <div>
      <p className="text-xs font-bold uppercase tracking-wider text-violet-800">{fr?"Prospects issus des visites":"Visit-generated prospects"}</p>
@@ -749,7 +781,9 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
     <div className={"rounded-xl p-4 "+(atRiskProspects.length?"bg-rose-100":"bg-white")}><div className="text-xs font-semibold text-slate-500">{fr?"Sans action / en retard":"No action / overdue"}</div><div className="mt-1 text-2xl font-bold">{atRiskProspects.length}</div></div>
    </div>
    {atRiskProspects.length>0&&<p role="alert" className="mt-3 rounded-lg border border-rose-300 bg-rose-50 p-3 text-sm font-medium text-rose-900">{fr?"⚠️ Un prospect qualifié ne doit jamais rester sans prochaine action. Les dossiers signalés ci-dessous doivent être traités en priorité.":"⚠️ A qualified prospect should never remain without a next action. Flagged records below should be handled first."}</p>}
-   <div className="mt-4 overflow-auto rounded-xl border bg-white">
+    <details className="group mt-4 rounded-xl border border-violet-200 bg-white">
+     <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-4 py-3 font-semibold text-violet-950 hover:bg-violet-50">{fr?"Afficher le tableau détaillé des prospects":"Show detailed prospect table"} ({prospectRows.length}) <span aria-hidden="true">▾</span></summary>
+     <div className="overflow-auto border-t border-violet-200">
     <table className="w-full min-w-[900px] text-left text-sm">
      <thead><tr className="border-b bg-slate-50 text-slate-600">{[fr?"Prospect":"Prospect",fr?"Intérêt":"Interest",fr?"Résultat":"Outcome",fr?"Responsable":"Owner",fr?"Prochaine action":"Next action",fr?"Échéance":"Due",fr?"SLA":"SLA",fr?"État":"State"].map(h=><th key={h} className="p-3">{h}</th>)}</tr></thead>
      <tbody>{prospectRows.map(row=>{
@@ -780,9 +814,9 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
     </table>
     {prospectRows.length===0&&<p className="p-5 text-sm text-slate-600">{fr?"Aucun prospect qualifié pour le moment. Les visiteurs apparaîtront ici après leur debrief DIG/TCF.":"No qualified prospects yet. Visitors will appear here after their DIG/TCF debrief."}</p>}
    </div>
+   </details>
   </section>
-
-  <section data-canton-view="commercial" className="rounded-xl border border-indigo-200 bg-indigo-50 p-5">
+  <section id="canton-commercial-actions" data-canton-view="commercial" className="scroll-mt-28 rounded-xl border border-indigo-200 bg-indigo-50 p-5">
    <h2 className="text-lg font-semibold">{fr?"Prochaines actions commerciales":"Next commercial actions"}</h2>
    <p className="mt-2 text-sm text-slate-700">{fr?"Une proposition envoyée ne signifie pas que la vente est conclue. Planifiez l’étape suivante et gardez le dossier actif jusqu’à la prochaine décision.":"A proposal sent is not a closed sale. Schedule the next step and keep the opportunity visible until the next decision."}</p>
    <div className="mt-4 grid grid-cols-3 gap-2">
@@ -791,7 +825,9 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
     <div className="rounded-lg bg-white p-3"><div className="text-xs text-slate-600">{fr?"À venir":"Upcoming"}</div><div className="text-xl font-bold">{upcomingNextActions.length}</div></div>
    </div>
    {overdueNextActions.length>0&&<p role="alert" className="mt-3 rounded-lg border border-rose-300 bg-rose-50 p-3 text-sm font-medium text-rose-900">{fr?"⚠️ Certaines actions commerciales sont en retard. Elles doivent être traitées en priorité.":"⚠️ Some commercial actions are overdue and should be handled first."}</p>}
-   <div className="mt-4 space-y-3">
+    <details className="group mt-4 rounded-xl border border-indigo-200 bg-white">
+     <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-semibold text-indigo-950 hover:bg-indigo-50">{fr?"Voir les actions et leurs responsables":"View actions and assignees"} ({openNextActions.length}) <span aria-hidden="true">▾</span></summary>
+     <div className="space-y-3 border-t border-indigo-200 p-3">
     {[...openNextActions].sort((a,b)=>a.due_date.localeCompare(b.due_date)).map(action=>{
      const visit=(visits||[]).find(v=>v.id===action.appointment_id);
      return <article key={action.id} className="rounded-lg border bg-white p-4">
@@ -822,16 +858,19 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
     })}
     {openNextActions.length===0&&<p className="text-sm text-slate-700">{fr?"Aucune prochaine action ouverte.":"No open next actions."}</p>}
    </div>
+   </details>
   </section>
-  {(isSenior||membership.role==="manager")&&unassignedFollowUps.length>0&&<section role="status" className="rounded-xl border-2 border-amber-400 bg-amber-50 p-5">
+  {(isSenior||membership.role==="manager")&&unassignedFollowUps.length>0&&<section data-canton-view="commercial" role="status" className="rounded-xl border-2 border-amber-400 bg-amber-50 p-5">
    <h2 className="text-lg font-semibold text-amber-950">{fr?"⚠️ Suivis commerciaux sans responsable":"⚠️ Commercial follow-ups without owner"}</h2>
    <p className="mt-2 text-sm text-amber-900">{fr?"Ces visites DIG/TCF ont un suivi ouvert ou un avis qui demande une attention particulière, mais aucun responsable n’a été désigné. Attribuez un collaborateur et une échéance ci-dessous.":"These DIG/TCF visits have an open follow-up or feedback requiring attention, but no owner. Assign an employee and a due date below."}</p>
    <div className="mt-3 space-y-2">{unassignedFollowUps.slice(0,10).map(v=><div key={v.id} className="rounded-lg bg-white p-3 text-sm"><strong>{map.get(v.visitor_id)?.full_name||(fr?"Visiteur":"Visitor")}</strong> · {v.department} · <span className="font-medium">{v.follow_up_note||(fr?"Action commerciale à attribuer":"Commercial action to assign")}</span>
      {unreviewedOpportunities.some(x=>x.id===v.id)&&<span className="ml-2 rounded bg-amber-200 px-2 py-1 text-xs">{fr?"Avis nécessitant une attention":"Feedback needs attention"}</span>}</div>)}</div>
    <a href="#canton-followup-handoff" className="mt-3 inline-block rounded-lg bg-amber-900 px-4 py-2 text-sm font-medium text-white">{fr?"Attribuer les suivis":"Assign follow-ups"}</a>
   </section>}
-  {(isSenior||membership.role==="manager")&&<section id="canton-followup-handoff" className="scroll-mt-6 rounded-xl border bg-white p-5">
-   <h2 className="text-lg font-semibold">{fr?"Suivi après visite":"Follow-up handoff"}</h2>
+  {(isSenior||membership.role==="manager")&&<details id="canton-followup-handoff" data-canton-view="commercial" className="group scroll-mt-28 rounded-xl border bg-white">
+   <summary className="flex cursor-pointer list-none items-center justify-between gap-3 p-5 hover:bg-slate-50"><h2 className="text-lg font-semibold">{fr?"Suivi après visite · Attribution":"Post-visit follow-up · Assignment"}</h2><span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">{fr?"Gérer les affectations ▾":"Manage assignments ▾"}</span></summary>
+   <div className="border-t p-5">
+
    <p className="mb-3 text-sm text-slate-500">{fr?"Attribuez un responsable et une échéance après la visite. Le suivi reste ouvert jusqu’à sa clôture.":"Assign a responsible employee and due date after each completed visit. Open tasks remain visible until closed."}</p>
    <div className="space-y-3">{(visits||[]).filter(v=>v.status==="completed" && (v.department!=="DIRECTION"||isSenior)).map(v=>
     <div key={v.id} className="rounded-lg border p-3">
@@ -854,7 +893,8 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
       </details>}
     </div>
    )}</div>
-  </section>}
+    </div>
+  </details>}
   <section data-canton-view="appointments" className="overflow-auto rounded-xl border bg-white p-4"><h2 className="mb-3 text-lg font-semibold">{fr?"Visites et rendez-vous récents (150 derniers)":"Recent visits and appointments (last 150)"}</h2><table className="w-full min-w-[850px] text-left text-sm"><thead><tr className="border-b text-slate-500">{[fr?"Visiteur":"Visitor",fr?"Département":"Department",fr?"Quand (Canton)":"When (Canton)",fr?"Statut":"Status",fr?"Responsable":"Host",fr?"Actions":"Actions",fr?"Avis":"Feedback"].map(h=><th className="p-2" key={h}>{h}</th>)}</tr></thead>
    <tbody>{(visits||[]).map(v=><tr className="border-b align-top" key={v.id}>
     <td className="p-2"><div className="font-medium">{map.get(v.visitor_id)?.full_name||(fr?"Visiteur":"Visitor")}</div><div className="text-xs text-slate-500">{map.get(v.visitor_id)?.phone}</div></td>
