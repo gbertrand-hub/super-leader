@@ -4,7 +4,7 @@
  */
 const QA_PROJECT_REF = "xehstmnqljjhacjiukvc";
 const PROD_PROJECT_REF = "jjbuxrlvxnlnrjcorpwt";
-const QA_GIT_BRANCH = "feature/canton-visitor-v4-10-132";
+const QA_GIT_BRANCHES = new Set(["feature/canton-visitor-v4-10-132", "qa/canton-v4-10-141-integration"]);
 
 function projectRef(): string {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
@@ -15,7 +15,7 @@ function projectRef(): string {
 export function cantonAuthTestEnabled(): boolean {
   return process.env.VERCEL_ENV === "preview"
     && projectRef() === QA_PROJECT_REF
-    && process.env.VERCEL_GIT_COMMIT_REF === QA_GIT_BRANCH;
+    && QA_GIT_BRANCHES.has(process.env.VERCEL_GIT_COMMIT_REF || "");
 }
 
 /** Production activation requires explicit database readiness AND release approval. */

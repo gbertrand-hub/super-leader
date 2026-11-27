@@ -159,6 +159,27 @@ export async function createCantonCrmReferral(f:FormData){
  redirect(route+"?success="+encodeURIComponent("CRM prospect referred to Canton"));
 }
 
+/** Administrator-only, independently revocable service-feedback permissions. */
+export async function revokeCantonVisitorFeedbackConsent(f:FormData){
+ assertCantonLive();
+ const {db,org,role}=await context();
+ if(!seniorRoles.has(role))fail("Only organization administrators can revoke feedback permissions");
+ const visitorId=field(f,"visitorId",40);
+ const channel=field(f,"channel",10);
+ if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(visitorId)||
+   !["email","whatsapp"].includes(channel))fail("Invalid visitor consent request");
+ const update=channel==="email"
+  ? {feedback_email_opt_in:false,feedback_email_opt_in_at:null,feedback_opt_in_at:null}
+  : {feedback_whatsapp_opt_in:false,feedback_whatsapp_opt_in_at:null,
+     feedback_whatsapp_consent_phone:null,feedback_whatsapp_opt_in_source:null};
+ const {data,error}=await db.from("canton_visitors").update(update)
+  .eq("id",visitorId).eq("organization_id",org).select("id");
+ if(error||!data?.length)fail("Visitor not found or consent change could not be recorded");
+ // Migration 142's trigger cancels pending and claimed invitations for this visitor.
+ revalidatePath(route);
+ redirect(route+"?view=admin&success="+encodeURIComponent("Feedback consent revoked"));
+}
+
 export async function createCantonAppointment(f:FormData){
  assertCantonLive();
  const ctx=await context();

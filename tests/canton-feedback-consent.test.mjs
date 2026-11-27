@@ -40,6 +40,7 @@ test("WhatsApp consent receives an independent timestamp", () => {
 
   assert.equal(update.feedback_whatsapp_opt_in, true);
   assert.equal(update.feedback_whatsapp_opt_in_at, timestamp);
+  assert.equal(update.feedback_whatsapp_consent_phone, "+17375004840");
   assert.equal(
     update.feedback_whatsapp_opt_in_source,
     "staff_attested_at_booking"

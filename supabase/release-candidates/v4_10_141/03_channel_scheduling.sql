@@ -94,7 +94,9 @@ begin
   feedback_email_opt_in,
   feedback_whatsapp_opt_in,
   feedback_opt_in_at,
-  feedback_whatsapp_opt_in_at
+  feedback_email_opt_in_at,
+  feedback_whatsapp_opt_in_at,
+  feedback_whatsapp_consent_phone
  into v
  from public.canton_visitors
  where id = new.visitor_id
@@ -108,13 +110,14 @@ begin
  if v_whatsapp_enabled and v_template_ready
     and coalesce(v.feedback_whatsapp_opt_in,false)
     and v.feedback_whatsapp_opt_in_at is not null
+    and v.feedback_whatsapp_consent_phone = v.phone
     and v.phone ~ '^\+[1-9][0-9]{7,14}$'
  then
   v_channel := 'whatsapp';
 
  -- Otherwise preserve the existing authorized email channel.
  elsif coalesce(v.feedback_email_opt_in,false)
-    and v.feedback_opt_in_at is not null
+    and v.feedback_email_opt_in_at is not null
     and v.email is not null
     and position('@' in v.email) > 1
  then

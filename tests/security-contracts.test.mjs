@@ -102,6 +102,10 @@ test("Canton QA cannot be activated by unrelated branches or UI-only preview", a
   await withEnv({...qa, VERCEL_GIT_COMMIT_REF: "feature/other"},
     () => assert.equal(cantonLiveEnabled(), false));
   await withEnv(qa, () => assert.equal(cantonLiveEnabled(), true));
+  await withEnv({...qa, VERCEL_GIT_COMMIT_REF: "qa/canton-v4-10-141-integration"},
+    () => assert.equal(cantonLiveEnabled(), true));
+  await withEnv({...qa, VERCEL_GIT_COMMIT_REF: "qa/canton-v4-10-141-integration-evil"},
+    () => assert.equal(cantonLiveEnabled(), false));
   await withEnv({CANTON_LOCAL_UI_PREVIEW: "true"}, () => {
     assert.equal(cantonUiPreviewEnabled(), true);
     assert.equal(cantonLiveEnabled(), false);

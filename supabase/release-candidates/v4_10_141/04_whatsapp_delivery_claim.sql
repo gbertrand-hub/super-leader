@@ -66,6 +66,7 @@ begin
 
    and v.feedback_whatsapp_opt_in = true
    and v.feedback_whatsapp_opt_in_at is not null
+   and v.feedback_whatsapp_consent_phone = v.phone
    and v.phone ~ '^\+[1-9][0-9]{7,14}$'
 
    and not exists (
@@ -144,6 +145,9 @@ begin
 
  if p_claim_token is null then
   raise exception 'Claim token required';
+ end if;
+ if p_status = 'sent' and nullif(trim(p_provider_message_id),'') is null then
+  raise exception 'Provider message id required for accepted WhatsApp send';
  end if;
 
  update public.canton_feedback_invitation_outbox

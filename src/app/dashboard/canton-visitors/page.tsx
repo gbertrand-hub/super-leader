@@ -10,7 +10,7 @@ import {createCantonQrSite,reviewCantonQrIntake,updateCantonQrSiteAddress} from 
 import {redirect} from "next/navigation";
 import {createClient} from "@/lib/supabase/server";
 import {createAdminClient} from "@/lib/supabase/admin";
-import {createCantonAppointment,createCantonCrmReferral,updateCantonVisit,manageCantonReceptionStaff,assignCantonFollowUp,completeCantonFollowUp,createCantonNextAction,completeCantonNextAction,reassignCantonNextAction,simulateCantonFeedbackInvitations,sendCantonQaEmailTest,markCantonArrivalAlertRead,saveCantonVisitDebrief,qualifyCantonLegacyProspect,createCantonSlaRecovery,completeCantonSlaRecovery,createVisitorSite,updateVisitorSite} from "@/app/actions/canton-visitors";
+import {createCantonAppointment,revokeCantonVisitorFeedbackConsent,createCantonCrmReferral,updateCantonVisit,manageCantonReceptionStaff,assignCantonFollowUp,completeCantonFollowUp,createCantonNextAction,completeCantonNextAction,reassignCantonNextAction,simulateCantonFeedbackInvitations,sendCantonQaEmailTest,markCantonArrivalAlertRead,saveCantonVisitDebrief,qualifyCantonLegacyProspect,createCantonSlaRecovery,completeCantonSlaRecovery,createVisitorSite,updateVisitorSite} from "@/app/actions/canton-visitors";
 export const dynamic="force-dynamic";
 export default async function CantonVisitorPage({searchParams}:{searchParams:Promise<{error?:string;success?:string;q?:string;view?:string;site?:string;filter?:string}>}){
  const {error,success,q="",view="",site="",filter=""}=await searchParams;
@@ -530,8 +530,8 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
    })}</div>:<p className="mt-4 rounded-xl bg-slate-50 p-4 text-sm text-slate-600">{fr?"Aucun avis identifié reçu sur les visites visibles de ce site.":"No identified feedback submitted for the visible visits at this site."}</p>}
   </section>}
   {(isSenior||isManager)&&<section className="rounded-xl border border-indigo-200 bg-indigo-50 p-5" data-canton-view="feedback admin" data-r13-1="R13_1_TEST_INVITATIONS_CONTEXT">
-   <h2 className="text-lg font-semibold">{fr?"Invitations de satisfaction (TEST)":"Feedback invitation queue (QA)"}</h2>
-   <p className="mt-2 text-sm text-slate-700">{fr?"Une invitation email est programmée 15 minutes après le départ uniquement avec l’accord du visiteur. Un avis reçu annule l’invitation en attente. ":"An email invitation is queued 15 minutes after checkout only with explicit consent. A submitted review cancels pending invitations. "}<strong>{fr?"La simulation n’envoie rien. Seul le test email autorisé par un administrateur peut expédier un vrai message à l’adresse QA. WhatsApp reste désactivé.":"Simulation sends nothing. Only an admin-approved email test may send a real message to the allowlisted QA address. WhatsApp remains disabled."}</strong></p>
+   <h2 className="text-lg font-semibold">{fr?"Invitations de satisfaction et suivi":"Feedback invitation queue and tracking"}</h2>
+   <p className="mt-2 text-sm text-slate-700">{fr?"Une invitation sur le canal autorisé est préparée 15 minutes après le départ. Un avis reçu annule les invitations en attente. ":"An invitation is queued 15 minutes after checkout on an explicitly authorized channel. Submitted feedback cancels pending invitations. "}<strong>{fr?"La simulation n’envoie rien. Les envois réels sont désactivés par défaut et nécessitent les validations de la production et les modèles Meta approuvés.":"Simulation sends nothing. Live sends remain disabled by default and require production authorization and approved Meta templates."}</strong></p>
    {cantonAuthTestEnabled()&&<form action={simulateCantonFeedbackInvitations} className="mt-3 flex flex-wrap items-center gap-2"><input type="hidden" name="limit" value="20"/><button className="rounded-lg bg-indigo-700 px-4 py-2 text-sm font-semibold text-white">{fr?"Simuler les invitations à envoyer":"Simulate due invitations"}</button><span className="text-xs text-slate-700">{fr?"Simulation sécurisée : aucun message n’est envoyé.":"Safe simulation: no messages are sent."}</span></form>}
    {isSenior&&<p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">{fr?"Envoi email réel vers un destinataire QA explicitement autorisé uniquement. Désactivé tant que les paramètres QA ne sont pas configurés. Aucun envoi WhatsApp.":"Real email sending allowed only to one explicitly allowlisted QA recipient. Disabled until QA settings are configured. No WhatsApp sending."}</p>}
    <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-5">
@@ -552,6 +552,15 @@ export default async function CantonVisitorPage({searchParams}:{searchParams:Pro
    {!actionableInvitationQueue.length&&<p className="mt-4 text-sm text-slate-700">{fr?"Aucune invitation programmée.":"No invitations scheduled."}</p>}
   </section>}
 
+  {isSenior&&<section data-canton-view="admin" className="rounded-xl border border-amber-300 bg-amber-50 p-5">
+   <h2 className="text-lg font-semibold">{fr?"Retrait des consentements de satisfaction":"Revoke feedback communication consent"}</h2>
+   <p className="mt-2 text-sm text-amber-900">{fr?"Administration uniquement. Le retrait d'un canal n'affecte pas l'autre. Les invitations non envoyées sont annulées par la base de données après installation de la migration 142.":"Administrators only. Revoking one channel does not affect the other. Unsent invitations are cancelled by the database after migration 142 is installed."}</p>
+   <form action={revokeCantonVisitorFeedbackConsent} className="mt-4 grid gap-3 md:grid-cols-3">
+    <label className="text-sm">{fr?"Visiteur":"Visitor"}<select name="visitorId" required className={input} defaultValue=""><option value="" disabled>{fr?"Choisir un visiteur visible":"Select a visible visitor"}</option>{(people||[]).map(p=><option value={p.id} key={p.id}>{p.full_name} ({p.email||p.phone||p.id})</option>)}</select></label>
+    <label className="text-sm">{fr?"Canal":"Channel"}<select name="channel" className={input}><option value="whatsapp">WhatsApp</option><option value="email">Email</option></select></label>
+    <button disabled={!people?.length} className="self-end rounded-lg bg-rose-800 px-4 py-3 text-sm font-semibold text-white disabled:opacity-50">{fr?"Retirer l'autorisation":"Revoke permission"}</button>
+   </form>
+  </section>}
   <details data-canton-view="admin" className="rounded-xl border bg-white">
    <summary className="cursor-pointer list-none p-5">
     <div className="flex flex-wrap items-center justify-between gap-3">

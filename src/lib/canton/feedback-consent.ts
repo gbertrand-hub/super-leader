@@ -61,6 +61,8 @@ export function buildCantonFeedbackConsentUpdate(
     update.phone = phone;
     update.feedback_whatsapp_opt_in = true;
     update.feedback_whatsapp_opt_in_at = timestamp;
+    // Bind the authorization to the specific phone used at consent time.
+    update.feedback_whatsapp_consent_phone = phone;
     update.feedback_whatsapp_opt_in_source =
       "staff_attested_at_booking";
   }

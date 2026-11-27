@@ -54,9 +54,9 @@ export function buildCantonWhatsAppFeedbackDraft(
       ? [
           `Bonjour ${visitorName},`,
           "",
-          `Merci d'avoir visite ${siteName}.`,
+          `Merci d'avoir visité ${siteName}.`,
           "",
-          "Votre avis nous aidera a ameliorer notre accueil.",
+          "Votre avis nous aidera à améliorer notre accueil.",
           "Merci de partager votre experience :",
           "",
           url.toString(),
